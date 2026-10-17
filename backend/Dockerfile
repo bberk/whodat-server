@@ -1,5 +1,5 @@
 # Backend image for local Docker Compose. Dependencies are installed from the lockfile.
-FROM python:3.12-slim
+FROM python:3.15-slim
 
 COPY --from=ghcr.io/astral-sh/uv:0.8.8 /uv /uvx /bin/
 

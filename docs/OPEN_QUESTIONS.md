@@ -8,6 +8,22 @@ Follow the format used below. Newest entries at the top.
 
 ---
 
+## OQ-0003 — Runtime versions moved to Python 3.15 and Node 24
+
+- **Found:** `SPEC.md` §7 proposed **Python 3.12**, and CI pinned **Node 22**. The owner asked to
+  move to the newest stable runtimes.
+- **Change:** backend `requires-python = ">=3.15"`, ruff `target-version = "py315"`, mypy
+  `python_version = "3.15"`, `backend/Dockerfile` base `python:3.15-slim`; CI
+  `actions/setup-node` `node-version: 24`; `frontend/package.json` `engines.node >= 24`; README
+  and `SPEC.md` §7 updated to match.
+- **Verified:** `uv sync`, `pytest` (11 passed, 100% coverage), `ruff check`/`format`, and
+  `mypy --strict` all pass on CPython 3.15.0; `python:3.15-slim` and `node:24-slim` images exist.
+- **Note:** `SPEC.md` is a source-of-truth document. This edit was made at the owner's direction
+  and, like all governance changes, still needs a human merge.
+- **In the meantime:** implemented as above; Postgres stays at `postgres:16`.
+
+---
+
 ## OQ-0001 — Reviewer identity: independent GitHub account vs an orchestrator reviewer agent
 
 - **Found:** `AC-WF-10`/`AC-WF-11` require the review to be submitted as a **GitHub** review by an

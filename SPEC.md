@@ -134,7 +134,7 @@ Live in-game score updates, playoff VP, trade/transaction tracking, push notific
 
 The owner has no hard requirements and limited frontend experience, so this favors mainstream, well-documented tools that agents write reliably.
 
-- **Backend**: Python 3.12, FastAPI, SQLAlchemy 2.x + Alembic migrations, Pydantic. Python lets the ESPN adapter use the `espn-api` library (cwendt94/espn-api), which the legacy implementation used, directly.
+- **Backend**: Python 3.15, FastAPI, SQLAlchemy 2.x + Alembic migrations, Pydantic. Python lets the ESPN adapter use the `espn-api` library (cwendt94/espn-api), which the legacy implementation used, directly.
 - **Database**: SQLite for local dev and tests; Postgres for production. Same code for both.
 - **Frontend**: React + TypeScript + Vite, Tailwind CSS, a component library such as shadcn/ui, Recharts for the chart, TanStack Query for data fetching.
 - **API contract**: FastAPI's generated OpenAPI spec; frontend types are generated from it.
