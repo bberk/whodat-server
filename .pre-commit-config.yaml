@@ -1,0 +1,94 @@
+# Pre-commit hooks for the whole repo. See ARCHITECTURE.md section 13.2.
+#
+# Install every stage once per clone/worktree:
+#   pre-commit install --hook-type pre-commit --hook-type pre-push --hook-type post-commit
+#
+# Backend and frontend hooks only run when files under backend/ or frontend/ change, so the
+# config is usable even before those trees exist (pre-M0). Hooks that auto-fix (ruff, prettier,
+# eslint) leave the fixes unstaged and fail the commit; stage them and commit again.
+fail_fast: false
+default_stages: [pre-commit]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+      - id: detect-private-key
+      - id: no-commit-to-branch
+        args: ["--branch", "main"]
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+        files: ^backend/
+      - id: ruff-format
+        files: ^backend/
+
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy (backend, strict)
+        entry: uv run --directory backend mypy src
+        language: system
+        pass_filenames: false
+        files: ^backend/.*\.py$
+        stages: [pre-commit]
+
+      - id: frontend-prettier
+        name: prettier (frontend)
+        entry: bash -c 'cd frontend && pnpm exec prettier --write "$@"' --
+        language: system
+        files: ^frontend/.*\.(ts|tsx|js|jsx|mjs|cjs|json|css|html|md)$
+        stages: [pre-commit]
+
+      - id: frontend-eslint
+        name: eslint (frontend)
+        entry: bash -c 'cd frontend && pnpm exec eslint --fix --max-warnings=0 "$@"' --
+        language: system
+        files: ^frontend/.*\.(ts|tsx)$
+        stages: [pre-commit]
+
+      - id: frontend-tsc
+        name: tsc (frontend)
+        entry: bash -c 'cd frontend && pnpm run typecheck'
+        language: system
+        pass_filenames: false
+        files: ^frontend/.*\.(ts|tsx|json)$
+        stages: [pre-commit]
+
+      - id: backend-tests
+        name: backend tests (pytest)
+        entry: bash -c 'cd backend && uv run pytest -x'
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
+      - id: frontend-tests
+        name: frontend tests (vitest)
+        entry: bash -c 'cd frontend && pnpm test'
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
+      - id: autoship
+        name: push branch and open a draft PR (AGENT_AUTOSHIP=1 only)
+        entry: scripts/ship.sh --post-commit
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [post-commit]

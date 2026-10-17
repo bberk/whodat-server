@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Node / frontend
+node_modules/
+frontend/coverage/
+dist/
+*.tsbuildinfo
+
+# Environment and secrets (never commit real values)
+.env
+.env.*
+!.env.example
+
+# Local databases
+*.db
+*.sqlite3
+
+# Orchestrator state (kept under ~/.ao normally; ignore if a project ever writes here)
+.ao/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
