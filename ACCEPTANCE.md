@@ -160,18 +160,18 @@ Three tied teams each get exactly 1/3 high-score VP (tests must use exact fracti
 | AC-WF-07 | With `AGENT_AUTOSHIP=1`, a commit on an `agent/*` branch pushes the branch to origin and opens a draft PR if none exists; a second commit pushes without opening another PR. Without `AGENT_AUTOSHIP`, a commit pushes nothing. |
 | AC-WF-08 | `scripts/ship.sh` refuses to run on `main`. |
 | AC-WF-09 | `scripts/ship.sh --ready` marks the PR ready for review and adds the `ready-for-review` label. |
-| AC-WF-10 | `scripts/review.sh <pr>` runs the reviewer in a new session in a clean worktree at the PR head, using the reviewer definition from `main` and a GitHub identity different from the PR author; it refuses to run if the identities match. |
-| AC-WF-11 | The review is submitted as a GitHub review (approve or request-changes) on the PR's current head commit, and its body lists the blocking issues, the non-blocking suggestions, and what was verified. |
+| AC-WF-10 | `scripts/review.sh <pr>` runs the reviewer in a new session on a clean worktree checked out at the PR head, with the reviewer definition taken from `main` rather than from the PR; the reviewer never sees the author's context. |
+| AC-WF-11 | The review is submitted as a GitHub review comment on the PR's current head commit, stating a verdict (approved or changes requested) and listing the blocking issues, the non-blocking suggestions, and what was verified. |
 | AC-WF-12 | The reviewer cannot modify files, push, or merge (enforced by its permission configuration). |
-| AC-WF-13 | `scripts/merge.sh <pr>` squash-merges and deletes the branch only when the PR is open and not a draft, all CI checks passed, and a reviewer other than the author approved the current head commit with no outstanding change request. Each unmet condition is tested and blocks the merge (synthetic-data tests of the gate logic). |
-| AC-WF-14 | An approval of an earlier commit does not allow a merge after new commits are pushed. |
-| AC-WF-15 | A PR that changes governance files (`AGENTS.md`, `SPEC.md`, `ACCEPTANCE.md`, `ARCHITECTURE.md`, `.opencode/`, `.github/`, `scripts/`, `.pre-commit-config.yaml`) is not merged by `scripts/merge.sh` without `--allow-governance`, and the reviewer does not approve it. |
+| AC-WF-13 | `scripts/merge.sh <pr>` squash-merges and deletes the branch only when the PR is open, not a draft, and all CI checks passed; it refuses a PR that changes governance files unless run with `--allow-governance`. Each unmet condition is tested and blocks the merge (synthetic-data tests of the gate logic). |
+| AC-WF-14 | An independent review of an earlier commit does not count for a newer head: the review records the head commit it reviewed, and a push after a review requires a new review. |
+| AC-WF-15 | A PR that changes governance files (`AGENTS.md`, `SPEC.md`, `ACCEPTANCE.md`, `ARCHITECTURE.md`, `.opencode/`, `.github/`, `scripts/`, `.pre-commit-config.yaml`) is not merged by `scripts/merge.sh` without `--allow-governance`, and only a human merges it. |
 | AC-WF-16 | Every PR gets a single combined coverage comment covering the backend and the frontend, updated in place on each push, also written to the CI job summary. |
 | AC-WF-17 | The coverage comment reports lines and branches for the backend, and lines, statements, functions, and branches for the frontend, and lists the least-covered files. |
 | AC-WF-18 | CI fails when backend coverage is below 85%, VP engine coverage is below 100%, or frontend coverage is below its configured thresholds. |
 | AC-WF-19 | (manual) The repo is configured per `docs/GITHUB_SETUP.md`: squash-only merges, branches deleted on merge, `ready-for-review` label exists, Actions token read-only. |
-| AC-WF-20 | (manual, requires a public repo or paid plan) The `main` ruleset rejects direct pushes, force-pushes, and merges without a non-author approval and passing required checks; required check names match the real CI job names. |
-| AC-WF-21 | (manual) One trivial change goes through the whole loop successfully: commit, draft PR, ready, independent review, squash merge. A second trivial change with a deliberate defect is sent back with changes requested. |
+| AC-WF-20 | (manual, requires a public repo or paid plan) The `main` ruleset rejects direct pushes, force-pushes, and merges without passing required checks, and requires a pull request; required check names match the real CI job names. (No approval is required: a human approves and merges.) |
+| AC-WF-21 | (manual) One trivial change goes through the whole loop successfully: commit, draft PR, ready, independent agent review, human squash merge. A second trivial change with a deliberate defect gets a changes-requested review. |
 
 ## 10. End-to-end smoke test
 

@@ -8,9 +8,8 @@
 #   1. squash-merge only, auto-delete merged branches
 #   2. creates the `ready-for-review` label
 #   3. restricts the default GITHUB_TOKEN of Actions to read-only
-#   4. creates a ruleset on the default branch: PR required, 1 approval from someone other than
-#      the author, stale approvals dismissed on new pushes, required CI checks, linear history,
-#      no force-push, no deletion
+#   4. creates a ruleset on the default branch: PR required (no approval — a human approves
+#      and merges every PR), required CI checks, linear history, no force-push, no deletion
 #
 # Step 4 needs a public repo, or a paid plan (GitHub Pro/Team) for a private repo. If GitHub
 # refuses, the script says so and carries on: scripts/merge.sh still enforces the same
@@ -54,8 +53,8 @@ cat >"$tmp/ruleset.json" <<'JSON'
     {
       "type": "pull_request",
       "parameters": {
-        "required_approving_review_count": 1,
-        "dismiss_stale_reviews_on_push": true,
+        "required_approving_review_count": 0,
+        "dismiss_stale_reviews_on_push": false,
         "require_code_owner_review": false,
         "require_last_push_approval": false,
         "required_review_thread_resolution": false
@@ -103,6 +102,6 @@ fi
 
 cat <<'NEXT'
 
-Done. Remaining manual steps are in docs/GITHUB_SETUP.md (reviewer account, tokens, first CI run).
+Done. Remaining manual steps are in docs/GITHUB_SETUP.md (first CI run).
 After the first CI run, confirm the required-check names in Settings -> Rules match the job names.
 NEXT
