@@ -6,7 +6,7 @@
 # See README.md for running the backend/frontend directly on the host.
 services:
   postgres:
-    image: postgres:16
+    image: postgres:18
     environment:
       POSTGRES_USER: app
       POSTGRES_PASSWORD: app

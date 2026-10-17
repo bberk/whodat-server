@@ -1,0 +1,4 @@
+# pnpm settings live here (pnpm 12 no longer reads them from package.json).
+# esbuild ships a postinstall build step; allow it so installs are not blocked.
+allowBuilds:
+  esbuild: true
