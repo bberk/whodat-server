@@ -179,6 +179,8 @@ This is the only path to `main`. Never commit or push to `main` directly.
 
 After the merge the author's local branch and worktree are deleted: `scripts/merge.sh` does it for the PR it merged, and for a merge made in the GitHub web UI run `scripts/cleanup.sh` (no arguments: every local `agent/*` branch with a merged PR; `--dry-run` first to see what it would remove). If you are on the branch you just merged, switch away first (`git checkout main && git pull`); the script never deletes the current branch. It keeps `main`, a branch with no merged PR, a branch that moved past the merged head, and a worktree with uncommitted changes.
 
+**Never push to a merged branch.** GitHub deleted the remote branch on merge, so a push re-creates it with no open pull request and no CI, and `scripts/cleanup.sh` then refuses to delete it because its head no longer matches the merge. If you have work that arrived after the merge, put it on a fresh branch off `main` and open a new PR.
+
 **Coverage:** CI posts a combined backend + frontend coverage report on every PR. Do not let coverage drop: the backend total must stay at or above 85%, the VP engine at 100% (lines and branches), and the frontend must meet the thresholds in its vitest config.
 
 ## Definition of done
