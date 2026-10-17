@@ -13,6 +13,10 @@
 # --squash collapses the whole branch into one commit. There is no merge commit: the `main
 # protection` ruleset requires linear history.
 #
+# After a successful merge the author's local branch and worktree are cleaned up through
+# scripts/cleanup.sh, because GitHub only deletes the remote branch. Merges made in the web UI do
+# not run this script at all; run `scripts/cleanup.sh` (no arguments) afterwards.
+#
 # Usage: scripts/merge.sh <pr-number> [--rebase | --squash] [--allow-governance]
 # Requires: gh (authenticated with write access), jq.
 set -euo pipefail
@@ -49,7 +53,7 @@ fail() {
   exit 1
 }
 
-json="$(gh pr view "$pr" --json state,isDraft,headRefOid,statusCheckRollup,files)"
+json="$(gh pr view "$pr" --json state,isDraft,headRefOid,headRefName,statusCheckRollup,files)"
 
 [[ "$(jq -r .state <<<"$json")" == "OPEN" ]] || fail "PR is not open"
 [[ "$(jq -r .isDraft <<<"$json")" == "false" ]] || fail "PR is still a draft"
@@ -76,3 +80,11 @@ fi
 
 gh pr merge "$pr" "--$method" --delete-branch --match-head-commit "$head_sha"
 echo "merge.sh: merged #$pr ($method) at $head_sha" >&2
+
+# `gh --delete-branch` removes the local branch only when it is checked out in this repository.
+# When the author worked in another worktree (the usual case) it is still there, so finish the job.
+# Cleanup is best effort: a failure must never make a completed merge look unsuccessful.
+head_ref="$(jq -r '.headRefName // empty' <<<"$json")"
+if [[ -n "$head_ref" ]]; then
+  "$(dirname "$0")/cleanup.sh" "$head_ref" >&2 || true
+fi
