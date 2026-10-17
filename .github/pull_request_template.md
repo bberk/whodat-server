@@ -1,4 +1,4 @@
-<!-- Agent author: open and fill this in with the GitHub MCP tools; see .opencode/pull-requests.md. -->
+<!-- Agent author: open and fill this in yourself (see .opencode/pull-requests.md). -->
 ## Summary
 
 <!-- What does this PR change, and why? 2-5 sentences. -->

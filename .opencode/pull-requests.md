@@ -27,6 +27,21 @@ useful: CI runs and the work is visible. Keep committing to the same branch and 
 PR. Update the description with `tools.github.update_pull_request` (`owner`, `repo`, `pullNumber`,
 and the new `body`) whenever the scope changes — never leave stale text.
 
+### When the GitHub MCP tools are unavailable
+
+The MCP server is the preferred path, but it needs valid credentials. If a `tools.github.*` call
+fails — the server has been seen to answer `401 token authentication failed` — fall back to `gh`,
+which is authenticated in the agent environment:
+
+```bash
+gh pr create --draft --base main --head "agent/<task-id>-<slug>" \
+  --title "<imperative summary>" --body-file <file>
+gh pr edit <pr-number> --body-file <file>   # later updates
+```
+
+Tell the orchestrator that the MCP call failed instead of switching silently, so the credentials
+get fixed; AC-WF-22 accepts either path.
+
 ## Fill in the body
 
 Start from `.github/pull_request_template.md` and fill every section. Keep the checklist boxes and

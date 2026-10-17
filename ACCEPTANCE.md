@@ -172,7 +172,7 @@ Three tied teams each get exactly 1/3 high-score VP (tests must use exact fracti
 | AC-WF-19 | (manual) The repo is configured per `docs/GITHUB_SETUP.md`: squash-only merges, branches deleted on merge, `ready-for-review` label exists, Actions token read-only. |
 | AC-WF-20 | (manual, requires a public repo or paid plan) The `main` ruleset rejects direct pushes, force-pushes, and merges without passing required checks, and requires a pull request; required check names match the real CI job names. (No approval is required: a human approves and merges.) |
 | AC-WF-21 | (manual) One trivial change goes through the whole loop successfully: commit, draft PR, ready, independent agent review, human squash merge. A second trivial change with a deliberate defect gets a changes-requested review. |
-| AC-WF-22 | The author agent opens the draft PR through the GitHub MCP tools with a filled-in description (title follows the commit rules; every template section filled; no instructions to the reviewer) and keeps the body current; `scripts/ship.sh` never creates a PR. The procedure is `.opencode/pull-requests.md`. |
+| AC-WF-22 | The author agent opens the draft PR through the GitHub MCP tools (or `gh` when the MCP server is unavailable) with a filled-in description (title follows the commit rules; every template section filled; no instructions to the reviewer) and keeps the body current; `scripts/ship.sh` never creates a PR. The procedure is `.opencode/pull-requests.md`. |
 
 ## 10. End-to-end smoke test
 
