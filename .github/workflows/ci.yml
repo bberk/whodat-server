@@ -10,8 +10,9 @@
 #               lint, typecheck, build, test:coverage (vitest run --coverage with the
 #               `text` and `json-summary` reporters and coverage thresholds in the vitest config)
 #
-# Third-party actions are pinned to major versions here for readability. Before going to production,
-# pin each `uses:` to a full commit SHA (Dependabot can keep them updated).
+# Third-party actions are pinned by tag for readability (setup-uv publishes no moving major tag, so
+# it is pinned to a full version). Before going to production, pin each `uses:` to a full commit
+# SHA (Dependabot can keep them updated).
 
 name: ci
 
@@ -33,12 +34,12 @@ jobs:
     env:
       SKIP: no-commit-to-branch # meaningless in CI (runs on main after merge)
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: pnpm/action-setup@v6
         with:
           package_json_file: frontend/package.json
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 26
           cache: pnpm
@@ -81,8 +82,8 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.0
       - run: uv sync --frozen
       - name: Tests with coverage (backend total must be >= 85%)
         run: >-
@@ -94,7 +95,7 @@ jobs:
         run: uv run coverage report --include="*/app/domain/*" --fail-under=100
       - name: Upload backend coverage
         if: matrix.db == 'sqlite'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-backend
           path: backend/coverage.xml
@@ -105,11 +106,11 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
         with:
           package_json_file: frontend/package.json
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 26
           cache: pnpm
@@ -121,7 +122,7 @@ jobs:
         run: pnpm test:coverage
       - run: pnpm build
       - name: Upload frontend coverage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-frontend
           path: frontend/coverage/coverage-summary.json
@@ -135,8 +136,8 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           pattern: coverage-*
           path: coverage
@@ -147,7 +148,7 @@ jobs:
             --frontend coverage/coverage-frontend/coverage-summary.json > report.md
           cat report.md >> "$GITHUB_STEP_SUMMARY"
       - name: Post or update PR comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
