@@ -316,6 +316,7 @@ ESPN cookies are read only inside `providers/espn/` and must be redacted from al
  cleanup ──▶ scripts/cleanup.sh ──▶ local branch + worktree deleted
              (GitHub deletes the remote branch; merge.sh runs cleanup for you,
               a merge made in the web UI needs cleanup.sh run by hand)
+             never push to a merged branch: the push re-creates it, with no PR and no CI
 ```
 
 ### 13.2 Pre-commit hooks (`.pre-commit-config.yaml`)
