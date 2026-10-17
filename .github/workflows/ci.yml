@@ -10,9 +10,8 @@
 #               lint, typecheck, build, test:coverage (vitest run --coverage with the
 #               `text` and `json-summary` reporters and coverage thresholds in the vitest config)
 #
-# Third-party actions are pinned by tag for readability (setup-uv publishes no moving major tag, so
-# it is pinned to a full version). Before going to production, pin each `uses:` to a full commit
-# SHA (Dependabot can keep them updated).
+# Third-party actions are pinned to their latest major version tag. setup-uv publishes no moving
+# major tag, so it is pinned to a full version (v10.3.0).
 
 name: ci
 
