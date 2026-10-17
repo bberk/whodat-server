@@ -157,7 +157,7 @@ Three tied teams each get exactly 1/3 high-score VP (tests must use exact fracti
 | AC-WF-04 | A commit made directly on `main` is rejected by the `no-commit-to-branch` hook. |
 | AC-WF-05 | The pre-push hook runs the backend and frontend tests; a push with a failing test is rejected. |
 | AC-WF-06 | CI runs `pre-commit run --all-files`, so a change that bypassed the local hooks still fails the PR. |
-| AC-WF-07 | With `AGENT_AUTOSHIP=1`, a commit on an `agent/*` branch pushes the branch to origin and opens a draft PR if none exists; a second commit pushes without opening another PR. Without `AGENT_AUTOSHIP`, a commit pushes nothing. |
+| AC-WF-07 | With `AGENT_AUTOSHIP=1`, a commit on an `agent/*` branch pushes the branch to origin; a second commit pushes again, and neither opens a PR. Without `AGENT_AUTOSHIP`, a commit pushes nothing. |
 | AC-WF-08 | `scripts/ship.sh` refuses to run on `main`. |
 | AC-WF-09 | `scripts/ship.sh --ready` marks the PR ready for review and adds the `ready-for-review` label. |
 | AC-WF-10 | `scripts/review.sh <pr>` runs the reviewer in a new session on a clean worktree checked out at the PR head, with the reviewer definition taken from `main` rather than from the PR; the reviewer never sees the author's context. |
@@ -172,6 +172,7 @@ Three tied teams each get exactly 1/3 high-score VP (tests must use exact fracti
 | AC-WF-19 | (manual) The repo is configured per `docs/GITHUB_SETUP.md`: squash-only merges, branches deleted on merge, `ready-for-review` label exists, Actions token read-only. |
 | AC-WF-20 | (manual, requires a public repo or paid plan) The `main` ruleset rejects direct pushes, force-pushes, and merges without passing required checks, and requires a pull request; required check names match the real CI job names. (No approval is required: a human approves and merges.) |
 | AC-WF-21 | (manual) One trivial change goes through the whole loop successfully: commit, draft PR, ready, independent agent review, human squash merge. A second trivial change with a deliberate defect gets a changes-requested review. |
+| AC-WF-22 | The author agent opens the draft PR through the GitHub MCP tools with a filled-in description (title follows the commit rules; every template section filled; no instructions to the reviewer) and keeps the body current; `scripts/ship.sh` never creates a PR. The procedure is `.opencode/pull-requests.md`. |
 
 ## 10. End-to-end smoke test
 

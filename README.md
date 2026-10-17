@@ -138,8 +138,9 @@ Until then there is no supported production deployment.
 ```text
 backend/     FastAPI app (src/app), migrations (alembic), tests
 frontend/    React + TypeScript SPA (src), vitest/eslint config
+.opencode/   Author and reviewer agent instructions
 docs/        GITHUB_SETUP.md, OPEN_QUESTIONS.md, fixtures
-scripts/     ship.sh, review.sh, merge.sh, setup-github.sh, coverage_report.py
+scripts/     ship.sh, review.sh, merge.sh, setup-github.sh, dev-postgres.sh, coverage_report.py
 .github/     CI workflow and pull-request template
 ```
 

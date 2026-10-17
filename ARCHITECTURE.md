@@ -34,6 +34,7 @@ Key principle: **dependencies point inward**. The VP engine knows nothing about 
 │   ├── workflows/ci.yml         # CI + coverage comment
 │   └── pull_request_template.md
 ├── .opencode/agents/reviewer.md # independent reviewer agent definition
+├── .opencode/pull-requests.md   # how the author agent opens and fills in a PR
 ├── scripts/                     # ship.sh, review.sh, merge.sh, setup-github.sh,
 │                                #   dev-postgres.sh, coverage_report.py
 ├── docs/
@@ -262,7 +263,7 @@ ESPN cookies are read only inside `providers/espn/` and must be redacted from al
 - **API**: FastAPI `TestClient` tests including authorization matrices and golden JSON comparison.
 - **Frontend**: Vitest + Testing Library for components; Playwright for the end-to-end smoke test, responsive screenshots, and axe accessibility checks.
 - **Coverage**: pytest-cov (lines and branches) for the backend and vitest's v8 coverage for the frontend, both reported on every PR (section 13.5). Thresholds are enforced by CI, not just reported.
-- **Workflow scripts**: the gate logic in `scripts/merge.sh` is tested against synthetic `gh pr view --json` payloads (draft vs open, failing and pending checks, governance paths, `--allow-governance`).
+- **Workflow scripts**: `scripts/ship.sh` and the gate logic in `scripts/merge.sh` are exercised against synthetic inputs (`gh pr view --json` payloads: draft vs open, failing and pending checks, governance paths, `--allow-governance`). Those tests are **not written yet**; `docs/OPEN_QUESTIONS.md` OQ-0004 tracks the gap.
 
 ## 12. Design decisions and rationale
 
@@ -287,7 +288,10 @@ ESPN cookies are read only inside `providers/espn/` and must be redacted from al
  agent commits ──▶ pre-commit hooks (lint, format, types, secrets) ──fail──▶ fix, commit again
         │ pass
         ▼
- post-commit hook (AGENT_AUTOSHIP=1) ──▶ pre-push hook runs tests ──▶ push branch ──▶ draft PR (once)
+ post-commit hook (AGENT_AUTOSHIP=1) ──▶ pre-push hook runs tests ──▶ push branch
+        │
+        ▼
+ author ──▶ open one draft PR via the GitHub MCP tools, and fill in the description
         │ ... more commits push to the same branch ...
         ▼
  task done ──▶ rebase on main ──▶ scripts/ship.sh --ready ──▶ PR ready + label `ready-for-review`
@@ -311,7 +315,7 @@ ESPN cookies are read only inside `providers/espn/` and must be redacted from al
 |---|---|
 | commit | trailing whitespace, EOF newline, YAML/TOML/JSON validity, merge-conflict markers, large files, private keys, no commit to `main`; gitleaks secret scan; ruff (lint with fixes) and ruff-format on `backend/`; mypy (strict); prettier, eslint, and tsc on `frontend/` |
 | push | backend tests (`pytest -x`), frontend tests (`vitest run`) |
-| post-commit | `scripts/ship.sh --post-commit`: push and open a draft PR, only when `AGENT_AUTOSHIP=1` |
+| post-commit | `scripts/ship.sh --post-commit`: push the branch, only when `AGENT_AUTOSHIP=1` |
 
 Local hooks skip themselves while `backend/` or `frontend/` does not exist (before M0). Hooks that auto-fix leave the files modified and fail the commit; staging the fixes and committing again passes.
 
@@ -332,7 +336,7 @@ An end-to-end Playwright job is added in M6. The workflow's default token is rea
 
 | Script | Run by | Purpose |
 |---|---|---|
-| `scripts/ship.sh [--ready \| --post-commit]` | author agent / git hook | Push the branch and open a draft PR; `--ready` marks it ready and labels it |
+| `scripts/ship.sh [--ready \| --post-commit]` | author agent / git hook | Push the branch; `--ready` marks the PR ready and labels it |
 | `scripts/review.sh <pr>` | orchestrator | Run the reviewer in a fresh session; posts a review comment; exit 0 no blocking issues, 2 changes requested, 1 error |
 | `scripts/merge.sh <pr> [--allow-governance]` | human | Verify the CI and governance gates and squash-merge |
 | `scripts/setup-github.sh` | repo owner, once | Repo settings, label, Actions token permissions, ruleset |
