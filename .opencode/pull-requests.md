@@ -60,9 +60,9 @@ tick only the ones that are true.
 
 ## Title
 
-The title becomes the squash-merge commit subject, so it follows the commit rules: imperative mood,
-about 50 characters, no trailing period, no ticket noise. `Add tie-splitting for lowest score`, not
-`VP fixes (WIP)`.
+The title follows the commit rules — imperative mood, about 50 characters, no trailing period, no
+ticket noise. It is what appears in `git log`, and it becomes the commit subject when a PR is
+squash-merged. `Add tie-splitting for lowest score`, not `VP fixes (WIP)`.
 
 ## Finish
 
