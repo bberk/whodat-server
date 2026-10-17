@@ -5,7 +5,7 @@
 # Usage: scripts/setup-github.sh [owner/repo]     (defaults to the repo in the current directory)
 #
 # What it does:
-#   1. squash-merge only, auto-delete merged branches
+#   1. squash and rebase merges (linear history, so no merge commits), auto-delete merged branches
 #   2. creates the `ready-for-review` label
 #   3. restricts the default GITHUB_TOKEN of Actions to read-only
 #   4. creates a ruleset on the default branch: PR required (no approval — a human approves
@@ -23,8 +23,8 @@ echo "Configuring $repo"
 echo "1/4 merge settings"
 gh repo edit "$repo" \
   --enable-squash-merge \
+  --enable-rebase-merge \
   --enable-merge-commit=false \
-  --enable-rebase-merge=false \
   --delete-branch-on-merge
 
 echo "2/4 labels"

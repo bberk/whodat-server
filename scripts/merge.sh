@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Squash-merge a pull request if, and only if, it is ready:
+# Merge a pull request if, and only if, it is ready:
 #   - open and not a draft
 #   - every CI check passed (none pending, none failed, at least one exists)
 #   - it does not modify governance files (the rules, gates, and scripts themselves);
@@ -9,13 +9,36 @@
 # merge. This enforces the CI and governance gates client-side so they hold even where GitHub
 # cannot enforce them (e.g. private repos on a plan without branch protection).
 #
-# Usage: scripts/merge.sh <pr-number> [--allow-governance]
+# Merge method: rebase by default, which keeps the branch's own commits and main's history linear.
+# --squash collapses the whole branch into one commit. There is no merge commit: the `main
+# protection` ruleset requires linear history.
+#
+# Usage: scripts/merge.sh <pr-number> [--rebase | --squash] [--allow-governance]
 # Requires: gh (authenticated with write access), jq.
 set -euo pipefail
 
-pr="${1:?usage: scripts/merge.sh <pr-number> [--allow-governance]}"
+pr="${1:?usage: scripts/merge.sh <pr-number> [--rebase | --squash] [--allow-governance]}"
+shift
+
+method="rebase"
 allow_governance=0
-[[ "${2:-}" == "--allow-governance" ]] && allow_governance=1
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --rebase) method="rebase" ;;
+    --squash) method="squash" ;;
+    --allow-governance) allow_governance=1 ;;
+    --merge)
+      echo "merge.sh: --merge is not available: the 'main protection' ruleset requires linear" >&2
+      echo "          history, so GitHub rejects merge commits. Use --rebase (default) or --squash." >&2
+      exit 64
+      ;;
+    *)
+      echo "merge.sh: unknown option '$1'" >&2
+      exit 64
+      ;;
+  esac
+  shift
+done
 
 for tool in gh jq; do
   command -v "$tool" >/dev/null 2>&1 || { echo "merge.sh: '$tool' is required" >&2; exit 1; }
@@ -51,5 +74,5 @@ if [[ "$allow_governance" -eq 0 ]]; then
 $governance"
 fi
 
-gh pr merge "$pr" --squash --delete-branch --match-head-commit "$head_sha"
-echo "merge.sh: merged #$pr (squash) at $head_sha" >&2
+gh pr merge "$pr" "--$method" --delete-branch --match-head-commit "$head_sha"
+echo "merge.sh: merged #$pr ($method) at $head_sha" >&2

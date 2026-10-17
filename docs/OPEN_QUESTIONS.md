@@ -8,6 +8,23 @@ Follow the format used below. Newest entries at the top.
 
 ---
 
+## OQ-0007 — Merge method: rebase by default, squash available, no merge commits
+
+- **Found:** the repo was configured squash-only (`scripts/setup-github.sh`) and `scripts/merge.sh`
+  always passed `--squash`, so a long branch's history was always flattened into one commit.
+- **Change (owner decision):** allow **squash and rebase** merges. The owner kept the ruleset's
+  `required_linear_history` rule, so **merge commits remain impossible**; `scripts/merge.sh` now
+  defaults to `--rebase`, accepts `--squash`, and rejects `--merge` with a pointer to the ruleset.
+- **Impact:** `scripts/setup-github.sh` (rebase enabled), the live repo setting, `scripts/merge.sh`,
+  `ACCEPTANCE.md` (AC-WF-13/19/21), `SPEC.md` §4.6 items 4 and 6 and §8, `AGENTS.md`,
+  `ARCHITECTURE.md` §13, `docs/GITHUB_SETUP.md`, `.opencode/pull-requests.md`, and
+  `backend/tests/test_workflow_scripts.py`.
+- **In the meantime:** implemented as above. A rebase merge keeps the branch's own commit messages, so
+  the PR title is no longer always a commit subject; the docs now say the title must still follow the
+  commit rules because it is what appears in `git log`.
+
+---
+
 ## OQ-0006 — The GitHub MCP server returns HTTP 401
 
 - **Found:** the globally configured GitHub MCP server (`https://api.githubcopilot.com/mcp`, in

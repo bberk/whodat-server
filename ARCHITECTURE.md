@@ -304,7 +304,7 @@ ESPN cookies are read only inside `providers/espn/` and must be redacted from al
         │            exit 2: changes requested ──▶ author fixes, ship.sh --ready, new review (max 3 rounds)
         │ exit 0: no blocking issues
         ▼
- human ──▶ approve + merge (desktop, gh, or scripts/merge.sh) ──▶ squash merge, branch deleted
+ human ──▶ approve + merge (desktop, gh, or scripts/merge.sh) ──▶ rebase merge (or squash), branch deleted
                     (gates: not draft, CI green, no governance files changed
                      unless a human runs merge.sh --allow-governance)
 ```
@@ -338,7 +338,7 @@ An end-to-end Playwright job is added in M6. The workflow's default token is rea
 |---|---|---|
 | `scripts/ship.sh [--ready \| --post-commit]` | author agent / git hook | Push the branch; `--ready` marks the PR ready and labels it |
 | `scripts/review.sh <pr>` | orchestrator | Run the reviewer in a fresh session; posts a review comment; exit 0 no blocking issues, 2 changes requested, 1 error |
-| `scripts/merge.sh <pr> [--allow-governance]` | human | Verify the CI and governance gates and squash-merge |
+| `scripts/merge.sh <pr> [--rebase \| --squash] [--allow-governance]` | human | Verify the CI and governance gates and merge (rebase by default) |
 | `scripts/setup-github.sh` | repo owner, once | Repo settings, label, Actions token permissions, ruleset |
 | `scripts/dev-postgres.sh [up\|url\|down]` | any agent | Start, locate, or stop a worktree-local Postgres for Postgres-specific work |
 | `scripts/coverage_report.py` | CI | Combine backend (Cobertura XML) and frontend (vitest `json-summary`) coverage into markdown |

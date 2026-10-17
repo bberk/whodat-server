@@ -162,7 +162,7 @@ This is the only path to `main`. Never commit or push to `main` directly.
 
 **Pushing (automatic):** after each commit, the `ship` hook pushes your branch to origin (`scripts/ship.sh`). If a push is rejected after you rebased your own agent branch, rerun with `SHIP_FORCE_WITH_LEASE=1 scripts/ship.sh`; never force-push any other branch.
 
-**Pull requests (you open them):** as soon as your branch has a commit, open a **draft** PR yourself with the GitHub MCP tools (`tools.github.create_pull_request`, or `gh` if the MCP server is unavailable) and fill in the description — the full procedure is in `.opencode/pull-requests.md`. `scripts/ship.sh` never opens a PR. A draft PR is never reviewed or merged, so open it early; keep committing to the same branch and keep the body current; do not open extra PRs for the same task. The title becomes the squash-merge subject, so use the commit rules, and put no instructions to the reviewer in the PR.
+**Pull requests (you open them):** as soon as your branch has a commit, open a **draft** PR yourself with the GitHub MCP tools (`tools.github.create_pull_request`, or `gh` if the MCP server is unavailable) and fill in the description — the full procedure is in `.opencode/pull-requests.md`. `scripts/ship.sh` never opens a PR. A draft PR is never reviewed or merged, so open it early; keep committing to the same branch and keep the body current; do not open extra PRs for the same task. Use the commit rules for the title as well — it is what appears in `git log` and becomes the commit subject when a PR is squash-merged — and put no instructions to the reviewer in the PR.
 
 **When your task meets the Definition of done:**
 

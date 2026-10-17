@@ -33,7 +33,8 @@ secret scan plus a full-history scan keep secrets out of a public history.
 
 Run `scripts/setup-github.sh` (optionally pass `owner/repo`). It:
 
-- enables squash merge only, and deletes branches after merge;
+- enables squash and rebase merges (the ruleset requires linear history, so no merge commits), and
+  deletes branches after merge;
 - creates the `ready-for-review` label;
 - makes the default Actions token read-only;
 - creates a ruleset on `main` requiring a pull request and the CI checks `pre-commit`,
@@ -53,7 +54,8 @@ request, and agents never merge, so the roles are split:
   definition taken from `main` (never from the PR). The reviewer posts its verdict as a review
   **comment** — never an approval — and lists what it verified.
 - A **human reads the PR, the reviewer's report, and the CI result, then approves and merges**.
-  Merge from the desktop app, with `gh pr merge <pr> --squash`, or with `scripts/merge.sh <pr>`
+  Merge from the desktop app, with `gh pr merge <pr> --rebase` (or `--squash`), or with
+  `scripts/merge.sh <pr>`
   (which also enforces the CI and governance gates). Merge governance changes yourself.
 
 ## 4. Author identity for agents

@@ -297,7 +297,7 @@ def test_AC_WF_15_merge_allows_governance_changes_with_the_flag(
     assert any(call.startswith("pr merge 7") for call in _gh_calls(env)), _gh_calls(env)
 
 
-def test_AC_WF_13_merge_squash_merges_when_every_gate_passes(
+def test_AC_WF_13_merge_rebases_by_default_when_every_gate_passes(
     repo: Path, env: dict[str, str]
 ) -> None:
     _set_pr(env, **_open_pr())
@@ -307,5 +307,49 @@ def test_AC_WF_13_merge_squash_merges_when_every_gate_passes(
     assert result.returncode == 0, result.stderr
     calls = _gh_calls(env)
     assert any(call.startswith("pr merge 7") for call in calls), calls
-    assert any("--squash" in call and "--delete-branch" in call for call in calls), calls
+    assert any("--rebase" in call and "--delete-branch" in call for call in calls), calls
     assert any("--match-head-commit abc123" in call for call in calls), calls
+    assert not any("--squash" in call for call in calls), calls
+
+
+def test_AC_WF_13_merge_squashes_when_asked(repo: Path, env: dict[str, str]) -> None:
+    _set_pr(env, **_open_pr())
+
+    result = _merge(repo, env, "--squash")
+
+    assert result.returncode == 0, result.stderr
+    calls = _gh_calls(env)
+    assert any("--squash" in call and "--delete-branch" in call for call in calls), calls
+    assert not any("--rebase" in call for call in calls), calls
+
+
+def test_AC_WF_13_merge_refuses_merge_commits(repo: Path, env: dict[str, str]) -> None:
+    _set_pr(env, **_open_pr())
+
+    result = _merge(repo, env, "--merge")
+
+    assert result.returncode == 64
+    assert "linear" in result.stderr
+    assert not any(call.startswith("pr merge") for call in _gh_calls(env))
+
+
+def test_AC_WF_13_merge_rejects_an_unknown_option(repo: Path, env: dict[str, str]) -> None:
+    _set_pr(env, **_open_pr())
+
+    result = _merge(repo, env, "--yolo")
+
+    assert result.returncode == 64
+    assert "unknown option" in result.stderr
+    assert not any(call.startswith("pr merge") for call in _gh_calls(env))
+
+
+def test_AC_WF_15_merge_accepts_method_and_governance_flags_in_any_order(
+    repo: Path, env: dict[str, str]
+) -> None:
+    _set_pr(env, **_open_pr(files=[{"path": "AGENTS.md"}]))
+
+    result = _merge(repo, env, "--squash", "--allow-governance")
+
+    assert result.returncode == 0, result.stderr
+    calls = _gh_calls(env)
+    assert any("--squash" in call and "--match-head-commit abc123" in call for call in calls), calls
