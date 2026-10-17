@@ -35,7 +35,7 @@ Key principle: **dependencies point inward**. The VP engine knows nothing about 
 │   └── pull_request_template.md
 ├── .opencode/agents/reviewer.md # independent reviewer agent definition
 ├── .opencode/pull-requests.md   # how the author agent opens and fills in a PR
-├── scripts/                     # ship.sh, review.sh, merge.sh, setup-github.sh,
+├── scripts/                     # ship.sh, cleanup.sh, review.sh, merge.sh, setup-github.sh,
 │                                #   dev-postgres.sh, coverage_report.py
 ├── docs/
 │   ├── GITHUB_SETUP.md          # one-time owner checklist
@@ -263,7 +263,11 @@ ESPN cookies are read only inside `providers/espn/` and must be redacted from al
 - **API**: FastAPI `TestClient` tests including authorization matrices and golden JSON comparison.
 - **Frontend**: Vitest + Testing Library for components; Playwright for the end-to-end smoke test, responsive screenshots, and axe accessibility checks.
 - **Coverage**: pytest-cov (lines and branches) for the backend and vitest's v8 coverage for the frontend, both reported on every PR (section 13.5). Thresholds are enforced by CI, not just reported.
-- **Workflow scripts**: `scripts/ship.sh` and the gate logic in `scripts/merge.sh` are driven by `backend/tests/test_workflow_scripts.py`, which runs the real scripts in a throwaway git repo with a stub `gh` first on `PATH` and replays synthetic `gh pr view --json` payloads (draft vs open, missing/pending/failing checks, governance paths, `--allow-governance`): AC-WF-07/08/09/13/15.
+- **Workflow scripts**: `scripts/ship.sh`, the gate logic in `scripts/merge.sh`, and
+  `scripts/cleanup.sh` are driven by `backend/tests/test_workflow_scripts.py`, which runs the real
+  scripts in a throwaway git repo with a stub `gh` first on `PATH` and replays synthetic `gh`
+  payloads (draft vs open, missing/pending/failing checks, governance paths, `--allow-governance`,
+  merge methods, merged vs unmerged branches): AC-WF-07/08/09/13/15/23.
 
 ## 12. Design decisions and rationale
 
@@ -304,9 +308,14 @@ ESPN cookies are read only inside `providers/espn/` and must be redacted from al
         │            exit 2: changes requested ──▶ author fixes, ship.sh --ready, new review (max 3 rounds)
         │ exit 0: no blocking issues
         ▼
- human ──▶ approve + merge (desktop, gh, or scripts/merge.sh) ──▶ rebase merge (or squash), branch deleted
+ human ──▶ approve + merge (desktop, gh, or scripts/merge.sh) ──▶ rebase merge (or squash)
                     (gates: not draft, CI green, no governance files changed
                      unless a human runs merge.sh --allow-governance)
+        │
+        ▼
+ cleanup ──▶ scripts/cleanup.sh ──▶ local branch + worktree deleted
+             (GitHub deletes the remote branch; merge.sh runs cleanup for you,
+              a merge made in the web UI needs cleanup.sh run by hand)
 ```
 
 ### 13.2 Pre-commit hooks (`.pre-commit-config.yaml`)
@@ -340,6 +349,7 @@ An end-to-end Playwright job is added in M6. The workflow's default token is rea
 | `scripts/ship.sh [--ready]` | author agent | Push the branch; `--ready` marks the PR ready and labels it |
 | `scripts/review.sh <pr>` | orchestrator | Run the reviewer in a fresh session; posts a review comment; exit 0 no blocking issues, 2 changes requested, 1 error |
 | `scripts/merge.sh <pr> [--rebase \| --squash] [--allow-governance]` | human | Verify the CI and governance gates and merge (rebase by default) |
+| `scripts/cleanup.sh [--dry-run] [branch ...]` | human after a web-UI merge, or `merge.sh` | Delete local `agent/*` branches whose PR is merged, and remove their worktrees |
 | `scripts/setup-github.sh` | repo owner, once | Repo settings, label, Actions token permissions, ruleset |
 | `scripts/dev-postgres.sh [up\|url\|down]` | any agent | Start, locate, or stop a worktree-local Postgres for Postgres-specific work |
 | `scripts/coverage_report.py` | CI | Combine backend (Cobertura XML) and frontend (vitest `json-summary`) coverage into markdown |

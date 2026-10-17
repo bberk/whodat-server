@@ -55,6 +55,7 @@ Repository (run from the repo root):
 pre-commit install --hook-type pre-commit --hook-type pre-push
 pre-commit run --all-files            # what CI runs
 scripts/ship.sh [--ready]             # push the branch; --ready marks the PR ready for review
+scripts/cleanup.sh [--dry-run]        # after a merge: delete merged agent/* branches + worktrees
 scripts/dev-postgres.sh up            # worktree-local Postgres, for Postgres-specific work
 ```
 
@@ -175,6 +176,8 @@ This is the only path to `main`. Never commit or push to `main` directly.
 **If the reviewer requests changes:** read the review, fix every blocking issue (or explain in a PR comment why you disagree, with evidence), commit, and run `scripts/ship.sh --ready` again. A new reviewer session starts from scratch. After three rounds without a clean review, stop and report back to the orchestrator.
 
 **Merge:** agents never merge. A **human** reads the independent review and the CI result, then approves and merges (the desktop app, `gh pr merge`, or `scripts/merge.sh`). Changes to governance files (`AGENTS.md`, the specs, `.github/`, `.opencode/`, `scripts/`, `.pre-commit-config.yaml`) are always merged by a human.
+
+After the merge the author's local branch and worktree are deleted: `scripts/merge.sh` does it for the PR it merged, and for a merge made in the GitHub web UI run `scripts/cleanup.sh` (no arguments: every local `agent/*` branch with a merged PR; `--dry-run` first to see what it would remove). It keeps `main`, the branch checked out in the current directory, a branch with no merged PR, a branch that moved past the merged head, and a worktree with uncommitted changes.
 
 **Coverage:** CI posts a combined backend + frontend coverage report on every PR. Do not let coverage drop: the backend total must stay at or above 85%, the VP engine at 100% (lines and branches), and the frontend must meet the thresholds in its vitest config.
 

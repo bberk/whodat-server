@@ -2,7 +2,7 @@
 
 Each test drives the real script inside a throwaway git repository with a stub ``gh`` first on
 ``PATH``, so the gate logic runs against synthetic ``gh pr view --json`` payloads and nothing ever
-touches GitHub. Covers AC-WF-07, AC-WF-08, AC-WF-09, AC-WF-13, and AC-WF-15.
+touches GitHub. Covers AC-WF-07, AC-WF-08, AC-WF-09, AC-WF-13, AC-WF-15, and AC-WF-23.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SHIP = REPO_ROOT / "scripts" / "ship.sh"
 MERGE = REPO_ROOT / "scripts" / "merge.sh"
+CLEANUP = REPO_ROOT / "scripts" / "cleanup.sh"
 WORK_BRANCH = "agent/test-task"
 
 # Stub `gh`: log every call, answer `pr view` from a canned payload, and fail loudly on `pr create`
@@ -35,6 +36,10 @@ fi
 if [[ "${1:-}" == "pr" && "${2:-}" == "create" ]]; then
   echo "stub gh: 'pr create' must never be called" >&2
   exit 1
+fi
+if [[ "${1:-}" == "pr" && "${2:-}" == "list" ]]; then
+  cat "$GH_PR_LIST_JSON"
+  exit "${GH_LIST_EXIT:-0}"
 fi
 exit 0
 """
@@ -80,6 +85,7 @@ def _open_pr(**overrides: object) -> dict[str, object]:
         "headRefOid": "abc123",
         "statusCheckRollup": [{"conclusion": "SUCCESS"}],
         "files": [{"path": "backend/src/app/api/main.py"}],
+        "headRefName": WORK_BRANCH,
     }
     payload.update(overrides)
     return payload
@@ -97,12 +103,15 @@ def env(tmp_path: Path) -> dict[str, str]:
     log.write_text("")
     payload = tmp_path / "pr.json"
     payload.write_text("{}")
+    merged = tmp_path / "merged.json"
+    merged.write_text("[]")
     environment = dict(os.environ)
     environment.update(
         {
             "PATH": f"{stub_dir}{os.pathsep}{environment['PATH']}",
             "GH_LOG": str(log),
             "GH_PR_JSON": str(payload),
+            "GH_PR_LIST_JSON": str(merged),
             "GH_PR_URL": "https://example.test/pr/7",
             "GIT_CONFIG_GLOBAL": os.devnull,
             "GIT_CONFIG_NOSYSTEM": "1",
@@ -363,3 +372,154 @@ def test_AC_WF_15_merge_accepts_method_and_governance_flags_in_any_order(
     assert result.returncode == 0, result.stderr
     calls = _gh_calls(env)
     assert any("--squash" in call and "--match-head-commit abc123" in call for call in calls), calls
+
+
+# --- scripts/cleanup.sh -----------------------------------------------------------------------
+
+
+def _set_merged_pr(env: dict[str, str], head_sha: str, number: int = 9) -> None:
+    """Make the stub report one merged PR whose head commit is ``head_sha``."""
+    Path(env["GH_PR_LIST_JSON"]).write_text(
+        json.dumps(
+            [{"number": number, "headRefOid": head_sha, "url": f"https://example.test/pr/{number}"}]
+        )
+    )
+
+
+def _head(repo: Path, env: dict[str, str]) -> str:
+    """The commit ``repo`` currently points at."""
+    return _git(repo, env, "rev-parse", "HEAD").strip()
+
+
+def _has_branch(repo: Path, env: dict[str, str], branch: str) -> bool:
+    """Whether ``branch`` exists locally."""
+    return branch in _git(repo, env, "branch", "--list", branch)
+
+
+def test_AC_WF_23_cleanup_deletes_a_merged_branch(repo: Path, env: dict[str, str]) -> None:
+    _git(repo, env, "branch", "agent/done")
+    _set_merged_pr(env, _head(repo, env))
+
+    result = _run(CLEANUP, repo, env, "agent/done")
+
+    assert result.returncode == 0, result.stderr
+    assert not _has_branch(repo, env, "agent/done")
+
+
+def test_AC_WF_23_cleanup_keeps_a_branch_without_a_merged_pr(
+    repo: Path, env: dict[str, str]
+) -> None:
+    _git(repo, env, "branch", "agent/wip")
+
+    result = _run(CLEANUP, repo, env, "agent/wip")
+
+    assert result.returncode == 0, result.stderr
+    assert _has_branch(repo, env, "agent/wip")
+    assert "no merged pull request" in result.stdout
+
+
+def test_AC_WF_23_cleanup_keeps_a_branch_that_moved_after_the_merge(
+    repo: Path, env: dict[str, str]
+) -> None:
+    _git(repo, env, "branch", "agent/moved")
+    _set_merged_pr(env, "0" * 40)
+
+    result = _run(CLEANUP, repo, env, "agent/moved")
+
+    assert result.returncode == 0, result.stderr
+    assert _has_branch(repo, env, "agent/moved")
+    assert "commits the merge did not include" in result.stderr
+
+
+def test_AC_WF_23_cleanup_keeps_the_current_branch(repo: Path, env: dict[str, str]) -> None:
+    _set_merged_pr(env, _head(repo, env))
+
+    result = _run(CLEANUP, repo, env, WORK_BRANCH)
+
+    assert result.returncode == 0, result.stderr
+    assert _has_branch(repo, env, WORK_BRANCH)
+    assert "checked out here" in result.stdout
+
+
+def test_AC_WF_23_cleanup_keeps_a_branch_when_github_cannot_be_queried(
+    repo: Path, env: dict[str, str]
+) -> None:
+    env["GH_LIST_EXIT"] = "1"
+    _git(repo, env, "branch", "agent/done")
+
+    result = _run(CLEANUP, repo, env, "agent/done")
+
+    assert result.returncode == 0, result.stderr
+    assert _has_branch(repo, env, "agent/done")
+    assert "could not query GitHub" in result.stderr
+
+
+def test_AC_WF_23_cleanup_removes_the_worktree_of_a_merged_branch(
+    repo: Path, env: dict[str, str]
+) -> None:
+    wt = repo.parent / "wt"
+    _git(repo, env, "branch", "agent/done")
+    _git(repo, env, "worktree", "add", str(wt), "agent/done")
+    _set_merged_pr(env, _head(wt, env))
+
+    result = _run(CLEANUP, repo, env, "agent/done")
+
+    assert result.returncode == 0, result.stderr
+    assert not wt.exists()
+    assert not _has_branch(repo, env, "agent/done")
+
+
+def test_AC_WF_23_cleanup_keeps_a_dirty_worktree(repo: Path, env: dict[str, str]) -> None:
+    wt = repo.parent / "wt"
+    _git(repo, env, "branch", "agent/done")
+    _git(repo, env, "worktree", "add", str(wt), "agent/done")
+    _set_merged_pr(env, _head(wt, env))
+    (wt / "scratch.txt").write_text("work in progress\n")
+
+    result = _run(CLEANUP, repo, env, "agent/done")
+
+    assert result.returncode == 0, result.stderr
+    assert wt.exists()
+    assert _has_branch(repo, env, "agent/done")
+    assert "has changes" in result.stderr
+
+
+def test_AC_WF_23_dry_run_changes_nothing(repo: Path, env: dict[str, str]) -> None:
+    _git(repo, env, "branch", "agent/done")
+    _set_merged_pr(env, _head(repo, env))
+
+    result = _run(CLEANUP, repo, env, "--dry-run", "agent/done")
+
+    assert result.returncode == 0, result.stderr
+    assert "would delete agent/done" in result.stdout
+    assert _has_branch(repo, env, "agent/done")
+
+
+def test_AC_WF_23_no_arguments_considers_only_agent_branches(
+    repo: Path, env: dict[str, str]
+) -> None:
+    _git(repo, env, "branch", "feature/other")
+    _git(repo, env, "branch", "agent/done")
+    _set_merged_pr(env, _head(repo, env))
+
+    result = _run(CLEANUP, repo, env)
+
+    assert result.returncode == 0, result.stderr
+    assert _has_branch(repo, env, "feature/other")
+    assert not _has_branch(repo, env, "agent/done")
+
+
+def test_AC_WF_23_merge_cleans_up_a_branch_in_another_worktree(
+    repo: Path, env: dict[str, str]
+) -> None:
+    wt = repo.parent / "wt"
+    _git(repo, env, "branch", "agent/done")
+    _git(repo, env, "worktree", "add", str(wt), "agent/done")
+    _set_pr(env, **_open_pr(headRefName="agent/done"))
+    _set_merged_pr(env, _head(wt, env))
+
+    result = _merge(repo, env)
+
+    assert result.returncode == 0, result.stderr
+    assert not wt.exists()
+    assert not _has_branch(repo, env, "agent/done")

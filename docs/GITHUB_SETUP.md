@@ -57,6 +57,10 @@ request, and agents never merge, so the roles are split:
   Merge from the desktop app, with `gh pr merge <pr> --rebase` (or `--squash`), or with
   `scripts/merge.sh <pr>`
   (which also enforces the CI and governance gates). Merge governance changes yourself.
+  After a merge made outside `scripts/merge.sh`, remove the author's branch and worktree with
+  `scripts/cleanup.sh` (no arguments = every local `agent/*` branch whose PR is merged; add
+  `--dry-run` first to see what it would remove). GitHub deletes the remote branch on merge, but
+  never the author's local one.
 
 ## 4. Author identity for agents
 
