@@ -34,7 +34,8 @@ Key principle: **dependencies point inward**. The VP engine knows nothing about 
 │   ├── workflows/ci.yml         # CI + coverage comment
 │   └── pull_request_template.md
 ├── .opencode/agents/reviewer.md # independent reviewer agent definition
-├── scripts/                     # ship.sh, review.sh, merge.sh, setup-github.sh, coverage_report.py
+├── scripts/                     # ship.sh, review.sh, merge.sh, setup-github.sh,
+│                                #   dev-postgres.sh, coverage_report.py
 ├── docs/
 │   ├── GITHUB_SETUP.md          # one-time owner checklist
 │   ├── OPEN_QUESTIONS.md        # agents append questions here
@@ -257,7 +258,7 @@ ESPN cookies are read only inside `providers/espn/` and must be redacted from al
 
 - **Engine**: exhaustive unit tests from ACCEPTANCE 1.1 plus property-based tests (Hypothesis) for AC-VP-12/13.
 - **Providers**: ESPN adapter tested against recorded fixtures in `docs/fixtures/espn/`; a small manual script can refresh fixtures from the real API, but tests never call ESPN.
-- **Database/services**: run against SQLite by default locally; CI runs the suite against Postgres.
+- **Database/services**: run against SQLite by default locally, where each worktree gets its own throwaway databases so concurrent agents stay isolated; CI and production use Postgres. `scripts/dev-postgres.sh` starts a worktree-local Postgres for debugging Postgres-specific behavior.
 - **API**: FastAPI `TestClient` tests including authorization matrices and golden JSON comparison.
 - **Frontend**: Vitest + Testing Library for components; Playwright for the end-to-end smoke test, responsive screenshots, and axe accessibility checks.
 - **Coverage**: pytest-cov (lines and branches) for the backend and vitest's v8 coverage for the frontend, both reported on every PR (section 13.5). Thresholds are enforced by CI, not just reported.
@@ -335,6 +336,7 @@ An end-to-end Playwright job is added in M6. The workflow's default token is rea
 | `scripts/review.sh <pr>` | orchestrator | Run the reviewer in a fresh session; posts a review comment; exit 0 no blocking issues, 2 changes requested, 1 error |
 | `scripts/merge.sh <pr> [--allow-governance]` | human | Verify the CI and governance gates and squash-merge |
 | `scripts/setup-github.sh` | repo owner, once | Repo settings, label, Actions token permissions, ruleset |
+| `scripts/dev-postgres.sh [up\|url\|down]` | any agent | Start, locate, or stop a worktree-local Postgres for Postgres-specific work |
 | `scripts/coverage_report.py` | CI | Combine backend (Cobertura XML) and frontend (vitest `json-summary`) coverage into markdown |
 
 ### 13.5 Coverage reporting
