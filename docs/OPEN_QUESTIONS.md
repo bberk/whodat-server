@@ -8,17 +8,17 @@ Follow the format used below. Newest entries at the top.
 
 ---
 
-## OQ-0003 — Runtime versions moved to Python 3.15, Node 24, and Postgres 18
+## OQ-0003 — Runtime versions moved to Python 3.15, Node 26, and Postgres 18
 
 - **Found:** `SPEC.md` §7 proposed **Python 3.12**, and CI pinned **Node 22** and **Postgres 16**.
   The owner asked to move to the newest stable runtimes.
 - **Change:** backend `requires-python = ">=3.15"`, ruff `target-version = "py315"`, mypy
   `python_version = "3.15"`, `backend/Dockerfile` base `python:3.15-slim`; CI
-  `actions/setup-node` `node-version: 24`; `frontend/package.json` `engines.node >= 24`;
+  `actions/setup-node` `node-version: 26`; `frontend/package.json` `engines.node >= 26`;
   `postgres:16` → `postgres:18` in `docker-compose.yml` and CI; README and `SPEC.md` §7 updated
   to match.
 - **Verified:** `uv sync`, `pytest` (11 passed, 100% coverage), `ruff check`/`format`, and
-  `mypy --strict` all pass on CPython 3.15.0; the `python:3.15-slim`, `node:24-slim`, and
+  `mypy --strict` all pass on CPython 3.15.0; the `python:3.15-slim`, `node:26-slim`, and
   `postgres:18` images exist.
 - **Note:** `SPEC.md` is a source-of-truth document. This edit was made at the owner's direction
   and, like all governance changes, still needs a human merge.
