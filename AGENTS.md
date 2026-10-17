@@ -177,7 +177,7 @@ This is the only path to `main`. Never commit or push to `main` directly.
 
 **Merge:** agents never merge. A **human** reads the independent review and the CI result, then approves and merges (the desktop app, `gh pr merge`, or `scripts/merge.sh`). Changes to governance files (`AGENTS.md`, the specs, `.github/`, `.opencode/`, `scripts/`, `.pre-commit-config.yaml`) are always merged by a human.
 
-After the merge the author's local branch and worktree are deleted: `scripts/merge.sh` does it for the PR it merged, and for a merge made in the GitHub web UI run `scripts/cleanup.sh` (no arguments: every local `agent/*` branch with a merged PR; `--dry-run` first to see what it would remove). It keeps `main`, the branch checked out in the current directory, a branch with no merged PR, a branch that moved past the merged head, and a worktree with uncommitted changes.
+After the merge the author's local branch and worktree are deleted: `scripts/merge.sh` does it for the PR it merged, and for a merge made in the GitHub web UI run `scripts/cleanup.sh` (no arguments: every local `agent/*` branch with a merged PR; `--dry-run` first to see what it would remove). If you are on the branch you just merged, switch away first (`git checkout main && git pull`); the script never deletes the current branch. It keeps `main`, a branch with no merged PR, a branch that moved past the merged head, and a worktree with uncommitted changes.
 
 **Coverage:** CI posts a combined backend + frontend coverage report on every PR. Do not let coverage drop: the backend total must stay at or above 85%, the VP engine at 100% (lines and branches), and the frontend must meet the thresholds in its vitest config.
 

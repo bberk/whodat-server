@@ -60,7 +60,8 @@ request, and agents never merge, so the roles are split:
   After a merge made outside `scripts/merge.sh`, remove the author's branch and worktree with
   `scripts/cleanup.sh` (no arguments = every local `agent/*` branch whose PR is merged; add
   `--dry-run` first to see what it would remove). GitHub deletes the remote branch on merge, but
-  never the author's local one.
+  never the author's local one. If you are *on* the branch you just merged, switch away first
+  (`git checkout main && git pull`) — the script never deletes the current branch.
 
 ## 4. Author identity for agents
 
