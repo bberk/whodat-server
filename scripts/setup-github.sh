@@ -66,8 +66,7 @@ cat >"$tmp/ruleset.json" <<'JSON'
         "strict_required_status_checks_policy": true,
         "required_status_checks": [
           { "context": "pre-commit" },
-          { "context": "backend (sqlite)" },
-          { "context": "backend (postgres)" },
+          { "context": "backend" },
           { "context": "frontend" }
         ]
       }

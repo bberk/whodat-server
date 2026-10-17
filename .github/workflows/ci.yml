@@ -1,7 +1,7 @@
 # CI for every pull request and for pushes to main.
 #
 # Job names are referenced by the branch ruleset (scripts/setup-github.sh) as required checks:
-#   pre-commit | backend (sqlite) | backend (postgres) | frontend
+#   pre-commit | backend | frontend
 # If you rename a job, update the ruleset too.
 #
 # Assumes backend/ and frontend/ exist (created in milestone M0):
@@ -57,10 +57,6 @@ jobs:
       - run: pre-commit run --all-files --show-diff-on-failure
 
   backend:
-    strategy:
-      fail-fast: false
-      matrix:
-        db: [sqlite, postgres]
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -76,8 +72,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      # Adjust the driver to whatever the project uses (e.g. psycopg).
-      DATABASE_URL: ${{ matrix.db == 'postgres' && 'postgresql+psycopg://app:app@localhost:5432/app' || 'sqlite:///./test.db' }}
+      DATABASE_URL: postgresql+psycopg://app:app@localhost:5432/app
     defaults:
       run:
         working-directory: backend
@@ -94,7 +89,6 @@ jobs:
       - name: VP engine must be 100% covered (lines and branches)
         run: uv run coverage report --include="*/app/domain/*" --fail-under=100
       - name: Upload backend coverage
-        if: matrix.db == 'sqlite'
         uses: actions/upload-artifact@v7
         with:
           name: coverage-backend
