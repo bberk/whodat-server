@@ -85,6 +85,7 @@ If a command above does not exist yet because the skeleton milestone has not lan
 
 - Python: type hints everywhere, `mypy --strict` clean, `ruff` clean, small functions, docstrings on public functions explaining behavior and edge cases (not restating the signature).
 - TypeScript: `strict` mode, no `any` (use `unknown` and narrow), function components and hooks, no default exports except for pages/routes if the router requires it.
+- Keep lines to a maximum of 100 characters in both Python and TypeScript/Markdown. Configure the formatters to match (`ruff` `line-length = 100`, Prettier `printWidth: 100`) and let them wrap the code; do not hand-wrap or disable the rule to fake it.
 - Prefer boring, well-known libraries already in the project over adding new dependencies. Adding a dependency requires a one-line justification in the commit message; do not add packages published less than two weeks ago.
 - No secrets in code, tests, fixtures, or logs. ESPN cookies (`ESPN_S2`, `ESPN_SWID`) must never be logged or returned by the API.
 
@@ -104,6 +105,16 @@ If a command above does not exist yet because the skeleton milestone has not lan
 - Meet basic accessibility: semantic HTML, labels for inputs, keyboard operability, sufficient contrast, and do not convey information by color alone.
 - Until the backend is available, develop against mocks generated from the OpenAPI contract and `docs/fixtures/`.
 
+### Repository README
+
+- The repo root must contain a `README.md` that follows common README best practices: start with the project name and a one-line description, then what it does, current status, and links to `SPEC.md`, `ACCEPTANCE.md`, and `ARCHITECTURE.md`. Put the most important information first and keep it scannable (short paragraphs, fenced commands, headings).
+- It must cover, at minimum:
+  - **Setup:** prerequisites (Python/`uv`, Node/`pnpm`, database) and how to install dependencies for the backend and frontend.
+  - **Run the server locally:** how to start the backend API and frontend dev server, with the default ports/URLs and any required environment variables (point to `.env.example`; never include real secrets).
+  - **Run the tests:** the backend and frontend test commands, plus how to run coverage.
+  - **Deploy to production:** the deployment steps, once deployment is implemented. Until then, state clearly that production deployment is not implemented yet rather than documenting steps that do not work.
+- Keep every command in the README copy-pasteable and correct: when setup, commands, ports, or environment variables change, update the README in the same change. Do not document commands or features that do not exist.
+
 ### Commits, pull requests, and review
 
 This is the only path to `main`. Never commit or push to `main` directly.
@@ -115,6 +126,7 @@ This is the only path to `main`. Never commit or push to `main` directly.
 **Commits:**
 
 - Small, focused commits with imperative messages (e.g. `Add tie-splitting for lowest score`); reference the relevant acceptance criteria IDs in the body.
+- Follow commit-message best practices (the 50/72 rule): a subject line of about 50 characters in the imperative mood with no trailing period, a blank line, then a body wrapped at about 72 characters explaining what changed and why. Keep the subject free of ticket noise where possible and put references in the body.
 - Every commit runs the pre-commit hooks (ruff lint and format, mypy, eslint, tsc, prettier, secret scan). If a hook fails, fix the cause and commit again. Hooks that auto-fix files (ruff, prettier) leave the fixes unstaged: stage them and re-commit.
 - **Never bypass hooks**: no `git commit --no-verify`, no `SKIP=...`, no editing `.pre-commit-config.yaml` or the CI workflow to make a check pass. If a hook is wrong, raise it in `docs/OPEN_QUESTIONS.md`.
 - Pushing runs the tests (pre-push hook). Do not push with failing tests.
