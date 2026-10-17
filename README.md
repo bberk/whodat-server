@@ -31,7 +31,7 @@ deployment is **not implemented yet**; see [Deploy to production](#deploy-to-pro
 
 ## Tech stack
 
-Python 3.12 + FastAPI + SQLAlchemy/Alembic + Pydantic; SQLite for local dev and tests,
+Python 3.15 + FastAPI + SQLAlchemy/Alembic + Pydantic; SQLite for local dev and tests,
 Postgres for production. React + TypeScript + Vite + Tailwind on the frontend. Tooling: `uv`,
 `pnpm`, `pytest`, `ruff`, `mypy`, `vitest`, `eslint`, `prettier`, `pre-commit`, GitHub Actions.
 
@@ -41,7 +41,7 @@ Postgres for production. React + TypeScript + Vite + Tailwind on the frontend. T
 |---|---|---|
 | [uv](https://docs.astral.sh/uv/) | Python deps and commands | `brew install uv` |
 | [pnpm](https://pnpm.io/) | Frontend deps and commands | `brew install pnpm` (or `corepack enable`) |
-| Node.js 22 | Frontend runtime | `brew install node@22` |
+| Node.js 24 | Frontend runtime | `brew install node@24` |
 | [pre-commit](https://pre-commit.com/) | Git hooks | `uv tool install pre-commit` |
 | `gh` | PR/merge automation | `brew install gh` then `gh auth login` |
 | [gitleaks](https://github.com/gitleaks/gitleaks) | Secret scanning hook | `brew install gitleaks` |
