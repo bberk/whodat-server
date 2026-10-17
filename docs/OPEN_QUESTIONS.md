@@ -8,6 +8,24 @@ Follow the format used below. Newest entries at the top.
 
 ---
 
+## OQ-0006 — The GitHub MCP server returns HTTP 401
+
+- **Found:** the globally configured GitHub MCP server (`https://api.githubcopilot.com/mcp`, in
+  `~/.config/opencode/opencode.json`) fails every call with `HTTP 401 ... token authentication
+  failed`, including `get_me`. The PR-authoring procedure (OQ-0005) prefers those tools, so PRs
+  cannot be opened that way until the credentials are fixed.
+- **Impact:** author agents fall back to `gh`, which is authenticated in the agent environment. The
+  work still gets done; only the preferred mechanism is unavailable.
+- **Options:** (1) re-authenticate the MCP server (owner action) and keep the MCP tools as the
+  preferred path; (2) drop the dependency and prescribe `gh` everywhere; (3) leave the MCP tools as
+  a best-effort preference that silently falls back.
+- **Recommendation:** option 1. Option 3 is what the guide documents, but it also requires the agent
+  to report the failure rather than hide it.
+- **In the meantime:** `.opencode/pull-requests.md` documents the `gh` fallback and asks the agent to
+  report an MCP failure; AC-WF-22 accepts either path.
+
+---
+
 ## OQ-0005 — The author agent opens the PR; `scripts/ship.sh` only pushes
 
 - **Found:** `scripts/ship.sh` created the draft PR from `.github/pull_request_template.md`
@@ -41,8 +59,12 @@ Follow the format used below. Newest entries at the top.
   2. Test the scripts end to end against a throwaway repository (slow, needs network).
   3. Accept manual verification only.
 - **Recommendation:** option 1, as part of finishing M0.
-- **In the meantime:** `ARCHITECTURE.md` section 11 now says these tests are not written yet, and
-  this entry records the gap. No behavior changed.
+- **Resolved (2026-10-17):** option 1, without changing the scripts.
+  `backend/tests/test_workflow_scripts.py` runs the real `ship.sh` and `merge.sh` in a throwaway git
+  repository with a stub `gh` first on `PATH`, so the gates are driven from synthetic
+  `gh pr view --json` payloads: push with and without `AGENT_AUTOSHIP`, refusal on `main`, `--ready`
+  (ready + label), draft and closed PRs, no/pending/failing checks, every governance path, and
+  `--allow-governance`. Covers AC-WF-07, AC-WF-08, AC-WF-09, AC-WF-13, and AC-WF-15.
 
 ---
 

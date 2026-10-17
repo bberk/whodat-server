@@ -263,7 +263,7 @@ ESPN cookies are read only inside `providers/espn/` and must be redacted from al
 - **API**: FastAPI `TestClient` tests including authorization matrices and golden JSON comparison.
 - **Frontend**: Vitest + Testing Library for components; Playwright for the end-to-end smoke test, responsive screenshots, and axe accessibility checks.
 - **Coverage**: pytest-cov (lines and branches) for the backend and vitest's v8 coverage for the frontend, both reported on every PR (section 13.5). Thresholds are enforced by CI, not just reported.
-- **Workflow scripts**: `scripts/ship.sh` and the gate logic in `scripts/merge.sh` are exercised against synthetic inputs (`gh pr view --json` payloads: draft vs open, failing and pending checks, governance paths, `--allow-governance`). Those tests are **not written yet**; `docs/OPEN_QUESTIONS.md` OQ-0004 tracks the gap.
+- **Workflow scripts**: `scripts/ship.sh` and the gate logic in `scripts/merge.sh` are driven by `backend/tests/test_workflow_scripts.py`, which runs the real scripts in a throwaway git repo with a stub `gh` first on `PATH` and replays synthetic `gh pr view --json` payloads (draft vs open, missing/pending/failing checks, governance paths, `--allow-governance`): AC-WF-07/08/09/13/15.
 
 ## 12. Design decisions and rationale
 
@@ -291,7 +291,7 @@ ESPN cookies are read only inside `providers/espn/` and must be redacted from al
  post-commit hook (AGENT_AUTOSHIP=1) ──▶ pre-push hook runs tests ──▶ push branch
         │
         ▼
- author ──▶ open one draft PR via the GitHub MCP tools, and fill in the description
+ author ──▶ open one draft PR (GitHub MCP tools, else `gh`) and fill in the description
         │ ... more commits push to the same branch ...
         ▼
  task done ──▶ rebase on main ──▶ scripts/ship.sh --ready ──▶ PR ready + label `ready-for-review`
