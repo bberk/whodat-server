@@ -87,7 +87,7 @@ Three tied teams each get exactly 1/3 high-score VP (tests must use exact fracti
 | AC-DB-02 | Running the same sync twice produces identical database contents (no duplicates, no changed rows). |
 | AC-DB-03 | If a provider reports a changed score for an already-synced week, the score is updated and VP for that whole week is recomputed for all teams. |
 | AC-DB-04 | Each Score row stores total VP and the component breakdown (h2h, top-half, high, low). |
-| AC-DB-05 | The same test suite passes against both SQLite and Postgres. |
+| AC-DB-05 | The same test suite passes against both engines: SQLite locally and in the pre-push hook, Postgres in CI. |
 | AC-DB-06 | A migration from an empty database to the latest schema succeeds, and downgrade/upgrade round-trips without error. |
 | AC-DB-07 | Sync tests run entirely from recorded fixtures; the test suite makes no live ESPN calls. |
 | AC-DB-08 | ESPN credentials (`espn_s2`, `SWID`) never appear in logs, error messages, API responses, or the repository. |

@@ -88,13 +88,20 @@ cd backend
 uv run alembic upgrade head
 ```
 
-To run the backend against Postgres instead of SQLite, start it with Docker and point
-`DATABASE_URL` at it:
+To run the backend against Postgres instead of SQLite, start a Postgres that belongs to **this
+worktree** and point `DATABASE_URL` at it:
 
 ```bash
-docker compose up -d postgres
-DATABASE_URL=postgresql+psycopg://app:app@localhost:5432/app uv run alembic upgrade head
+scripts/dev-postgres.sh up    # starts it and prints the exact `export DATABASE_URL=...` line
+# paste that export, then:
+cd backend
+uv run alembic upgrade head
 ```
+
+`scripts/dev-postgres.sh` gives each git worktree its own container, data volume, and host port, so
+several checkouts can run Postgres at once without clobbering each other. `scripts/dev-postgres.sh
+down` stops it and deletes this worktree's data. The plain `docker compose up -d postgres` stack
+(port 5432) is fine for a single checkout.
 
 ## Run the tests
 

@@ -55,6 +55,7 @@ Repository (run from the repo root):
 pre-commit install --hook-type pre-commit --hook-type pre-push --hook-type post-commit
 pre-commit run --all-files            # what CI runs
 scripts/ship.sh [--ready]             # push + draft PR; --ready marks it ready for review
+scripts/dev-postgres.sh up            # worktree-local Postgres, for Postgres-specific work
 ```
 
 Backend coverage: `uv run pytest --cov=app --cov-branch --cov-report=term-missing` (from `backend/`).
@@ -94,7 +95,7 @@ If a command above does not exist yet because the skeleton milestone has not lan
 - Write tests with the code, not after. A change without tests for new behavior is not done.
 - Name tests after acceptance criteria where applicable, e.g. `test_AC_VP_06_three_way_tie_for_high_score`.
 - Tests never call the live ESPN API. Use fixtures in `docs/fixtures/` and the `FakeProvider`.
-- Database-touching tests must pass on SQLite and Postgres.
+- Database-touching tests must keep passing on both engines. SQLite is the local and pre-push default and each worktree gets its own throwaway databases; CI and production use Postgres. To debug a Postgres-specific issue, start a **worktree-local** instance with `scripts/dev-postgres.sh up` and point `DATABASE_URL` at it. Never point two worktrees (or two agents) at one Postgres; if you start `docker compose up -d postgres` yourself, stop it when you are done.
 - The VP engine requires 100% line and branch coverage; the backend total must be at least 85%; frontend thresholds live in the vitest config. CI enforces all three and comments the report on the PR.
 
 ### Frontend
