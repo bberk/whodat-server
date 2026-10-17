@@ -7,8 +7,7 @@ MCP tools.
 
 ## Open it early, as a draft
 
-Once your branch has a commit (the `ship` hook pushes it when `AGENT_AUTOSHIP=1`; otherwise run
-`scripts/ship.sh` yourself), open a **draft** PR:
+Push your branch first with `scripts/ship.sh` (nothing pushes on commit), then open a **draft** PR:
 
 ```
 tools.github.create_pull_request({

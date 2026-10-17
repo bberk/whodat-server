@@ -151,13 +151,13 @@ Three tied teams each get exactly 1/3 high-score VP (tests must use exact fracti
 
 | ID | Criterion |
 |---|---|
-| AC-WF-01 | `.pre-commit-config.yaml` exists and `pre-commit install` installs the commit, push, and post-commit hooks. |
+| AC-WF-01 | `.pre-commit-config.yaml` exists and `pre-commit install --hook-type pre-commit --hook-type pre-push` installs the commit and push hooks. There is no post-commit hook. |
 | AC-WF-02 | The commit-time hooks include: ruff lint (with auto-fix), ruff format, mypy, eslint, tsc, prettier, secret scanning, and file-hygiene checks (whitespace, EOF, YAML/TOML/JSON validity, merge-conflict markers, large files, private keys). |
 | AC-WF-03 | A commit containing a ruff violation (or a failing mypy, eslint, or tsc check) is rejected by the hooks. (Verified once by hand during M0 with a throwaway branch.) |
 | AC-WF-04 | A commit made directly on `main` is rejected by the `no-commit-to-branch` hook. |
 | AC-WF-05 | The pre-push hook runs the backend and frontend tests; a push with a failing test is rejected. |
 | AC-WF-06 | CI runs `pre-commit run --all-files`, so a change that bypassed the local hooks still fails the PR. |
-| AC-WF-07 | With `AGENT_AUTOSHIP=1`, a commit on an `agent/*` branch pushes the branch to origin; a second commit pushes again, and neither opens a PR. Without `AGENT_AUTOSHIP`, a commit pushes nothing. |
+| AC-WF-07 | Pushing is an explicit step: committing runs no hook that pushes or opens a PR, and the author agent pushes its branch with `scripts/ship.sh` before opening or updating the pull request. |
 | AC-WF-08 | `scripts/ship.sh` refuses to run on `main`. |
 | AC-WF-09 | `scripts/ship.sh --ready` marks the PR ready for review and adds the `ready-for-review` label. |
 | AC-WF-10 | `scripts/review.sh <pr>` runs the reviewer in a new session on a clean worktree checked out at the PR head, with the reviewer definition taken from `main` rather than from the PR; the reviewer never sees the author's context. |

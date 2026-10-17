@@ -52,7 +52,7 @@ pnpm e2e             # playwright
 Repository (run from the repo root):
 
 ```
-pre-commit install --hook-type pre-commit --hook-type pre-push --hook-type post-commit
+pre-commit install --hook-type pre-commit --hook-type pre-push
 pre-commit run --all-files            # what CI runs
 scripts/ship.sh [--ready]             # push the branch; --ready marks the PR ready for review
 scripts/dev-postgres.sh up            # worktree-local Postgres, for Postgres-specific work
@@ -148,7 +148,7 @@ Many agents work in parallel on the same repo. Treat these as **serialized** —
 
 This is the only path to `main`. Never commit or push to `main` directly.
 
-**Before you start (once per worktree):** install every hook stage with `pre-commit install --hook-type pre-commit --hook-type pre-push --hook-type post-commit` (a bare `pre-commit install` only wires the commit stage), and make sure `AGENT_AUTOSHIP=1` is set in your environment.
+**Before you start (once per worktree):** install the commit and push hooks with `pre-commit install --hook-type pre-commit --hook-type pre-push` (a bare `pre-commit install` only wires the commit stage).
 
 **Branches:** one branch per task in your own git worktree: `agent/<task-id>-<short-slug>`.
 
@@ -160,7 +160,7 @@ This is the only path to `main`. Never commit or push to `main` directly.
 - **Never bypass hooks**: no `git commit --no-verify`, no `SKIP=...`, no editing `.pre-commit-config.yaml` or the CI workflow to make a check pass. If a hook is wrong, raise it in `docs/OPEN_QUESTIONS.md`.
 - Pushing runs the tests (pre-push hook). Do not push with failing tests.
 
-**Pushing (automatic):** after each commit, the `ship` hook pushes your branch to origin (`scripts/ship.sh`). If a push is rejected after you rebased your own agent branch, rerun with `SHIP_FORCE_WITH_LEASE=1 scripts/ship.sh`; never force-push any other branch.
+**Pushing:** nothing pushes for you — there is no post-commit hook. Push your branch with `scripts/ship.sh` before you open the PR, and again after any commit you want on origin; the push runs the pre-push tests. If a push is rejected after you rebased your own agent branch, rerun with `SHIP_FORCE_WITH_LEASE=1 scripts/ship.sh`; never force-push any other branch.
 
 **Pull requests (you open them):** as soon as your branch has a commit, open a **draft** PR yourself with the GitHub MCP tools (`tools.github.create_pull_request`, or `gh` if the MCP server is unavailable) and fill in the description — the full procedure is in `.opencode/pull-requests.md`. `scripts/ship.sh` never opens a PR. A draft PR is never reviewed or merged, so open it early; keep committing to the same branch and keep the body current; do not open extra PRs for the same task. Use the commit rules for the title as well — it is what appears in `git log` and becomes the commit subject when a PR is squash-merged — and put no instructions to the reviewer in the PR.
 

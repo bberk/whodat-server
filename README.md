@@ -58,8 +58,8 @@ cd backend && uv sync && cd ..
 # Frontend
 cd frontend && pnpm install && cd ..
 
-# Git hooks (commit, push, and post-commit stages)
-pre-commit install --hook-type pre-commit --hook-type pre-push --hook-type post-commit
+# Git hooks (commit and push stages)
+pre-commit install --hook-type pre-commit --hook-type pre-push
 
 # Environment
 cp .env.example .env   # then edit values as needed

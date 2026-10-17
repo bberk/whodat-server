@@ -1,18 +1,15 @@
 #!/usr/bin/env bash
 # Push the current branch to origin.
 #
-#   scripts/ship.sh                push the branch
-#   scripts/ship.sh --ready        push, then mark the PR ready for review and label it
-#                                  `ready-for-review` (the orchestrator's cue to start a review)
-#   scripts/ship.sh --post-commit  git-hook mode (called by pre-commit's post-commit stage):
-#                                  behaves like the default, but ONLY when AGENT_AUTOSHIP=1,
-#                                  so human commits are never pushed unexpectedly
+#   scripts/ship.sh            push the branch
+#   scripts/ship.sh --ready    push, then mark the PR ready for review and label it
+#                              `ready-for-review` (the orchestrator's cue to start a review)
 #
-# This script never opens the pull request: the author agent opens a draft PR through the GitHub
-# MCP tools and fills in the description itself. See .opencode/pull-requests.md.
+# Nothing runs on your behalf: there is no post-commit hook, so pushing is an explicit step you take
+# before opening or updating a pull request. This script also never opens the PR — open a draft PR
+# through the GitHub MCP tools, or `gh`; see .opencode/pull-requests.md.
 #
 # Env:
-#   AGENT_AUTOSHIP=1            enable hook mode (set this in the agents' environment)
 #   SHIP_FORCE_WITH_LEASE=1     use --force-with-lease (only after rebasing YOUR OWN agent branch)
 #
 # Requires: git; gh only for --ready (authenticated as the AUTHOR identity, not the reviewer).
@@ -22,11 +19,8 @@ mode="push"
 case "${1:-}" in
   "") ;;
   --ready) mode="ready" ;;
-  --post-commit)
-    [[ "${AGENT_AUTOSHIP:-0}" == "1" ]] || exit 0
-    ;;
   *)
-    echo "usage: scripts/ship.sh [--ready | --post-commit]" >&2
+    echo "usage: scripts/ship.sh [--ready]" >&2
     exit 64
     ;;
 esac

@@ -22,7 +22,6 @@ for tool in gh git jq opencode; do
 done
 
 repo_root="$(git rev-parse --show-toplevel)"
-unset AGENT_AUTOSHIP
 
 reviewer_login="$(gh api user --jq .login)"
 

@@ -8,6 +8,26 @@ Follow the format used below. Newest entries at the top.
 
 ---
 
+## OQ-0008 — The autoship post-commit hook is removed
+
+- **Found:** `.pre-commit-config.yaml` wired a `post-commit` hook to `scripts/ship.sh --post-commit`,
+  which pushed the branch when `AGENT_AUTOSHIP=1`. After OQ-0005 made `ship.sh` push-only, that was
+  its whole job. It also fired the pre-push hook — the full backend and frontend test suites — on
+  *every commit*, and it was redundant: the author agent has to push anyway, because the PR tools
+  need the branch on the remote and `scripts/review.sh` refuses an unpushed head.
+- **Change (owner decision):** remove the autoship mechanism. `.pre-commit-config.yaml` keeps only
+  the commit and push stages; `scripts/ship.sh` drops `--post-commit` (and `AGENT_AUTOSHIP`), keeps
+  its `main` guard, and now rejects any unknown flag with a usage error. `scripts/review.sh` drops
+  its `unset AGENT_AUTOSHIP` guard. Pushing is an explicit step before opening or updating the PR.
+- **Impact:** `ACCEPTANCE.md` AC-WF-01 and AC-WF-07, `AGENTS.md` (install command and the pushing
+  paragraph), `ARCHITECTURE.md` §2 tree and §13.1/§13.2/§13.4, `README.md`, `docs/GITHUB_SETUP.md`
+  §5, `.opencode/pull-requests.md`, and `backend/tests/test_workflow_scripts.py`.
+- **In the meantime:** implemented as above. The three `post_commit_*` tests were replaced by an
+  explicit-push test, a later-commit push test, a "committing alone pushes nothing" test, a
+  "`--post-commit` is rejected" test, and a check that the hook config has no `post-commit` stage.
+
+---
+
 ## OQ-0007 — Merge method: rebase by default, squash available, no merge commits
 
 - **Found:** the repo was configured squash-only (`scripts/setup-github.sh`) and `scripts/merge.sh`
@@ -59,6 +79,8 @@ Follow the format used below. Newest entries at the top.
   `.github/pull_request_template.md`.
 - **Note:** all of these are governance files, so a human must merge the change. The GitHub MCP
   server must stay configured for author agents, or no PRs will be opened.
+- **Superseded in part:** the `post-commit` hook itself was removed in OQ-0008. `ship.sh` is now run
+  explicitly by the author agent; there is no hook stage that pushes.
 
 ---
 
@@ -79,9 +101,10 @@ Follow the format used below. Newest entries at the top.
 - **Resolved (2026-10-17):** option 1, without changing the scripts.
   `backend/tests/test_workflow_scripts.py` runs the real `ship.sh` and `merge.sh` in a throwaway git
   repository with a stub `gh` first on `PATH`, so the gates are driven from synthetic
-  `gh pr view --json` payloads: push with and without `AGENT_AUTOSHIP`, refusal on `main`, `--ready`
-  (ready + label), draft and closed PRs, no/pending/failing checks, every governance path, and
-  `--allow-governance`. Covers AC-WF-07, AC-WF-08, AC-WF-09, AC-WF-13, and AC-WF-15.
+  `gh pr view --json` payloads: pushing the branch and later commits, refusal on `main`, `--ready`
+  (ready + label), draft and closed PRs, no/pending/failing checks, every governance path,
+  `--allow-governance`, and the merge-method flags. Covers AC-WF-07, AC-WF-08, AC-WF-09, AC-WF-13,
+  and AC-WF-15. (The `AGENT_AUTOSHIP` cases were replaced when the hook was removed; see OQ-0008.)
 
 ---
 

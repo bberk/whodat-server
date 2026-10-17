@@ -29,7 +29,7 @@ Key principle: **dependencies point inward**. The VP engine knows nothing about 
 ```
 /
 ├── SPEC.md  ACCEPTANCE.md  ARCHITECTURE.md  AGENTS.md  README.md
-├── .pre-commit-config.yaml      # commit/push/post-commit hooks (section 13)
+├── .pre-commit-config.yaml      # commit and push hooks (section 13)
 ├── .github/
 │   ├── workflows/ci.yml         # CI + coverage comment
 │   └── pull_request_template.md
@@ -288,11 +288,11 @@ ESPN cookies are read only inside `providers/espn/` and must be redacted from al
  agent commits ──▶ pre-commit hooks (lint, format, types, secrets) ──fail──▶ fix, commit again
         │ pass
         ▼
- post-commit hook (AGENT_AUTOSHIP=1) ──▶ pre-push hook runs tests ──▶ push branch
+ agent ──▶ scripts/ship.sh ──▶ pre-push hook runs tests ──▶ push branch
         │
         ▼
  author ──▶ open one draft PR (GitHub MCP tools, else `gh`) and fill in the description
-        │ ... more commits push to the same branch ...
+        │ ... later commits: push with ship.sh again ...
         ▼
  task done ──▶ rebase on main ──▶ scripts/ship.sh --ready ──▶ PR ready + label `ready-for-review`
         │                                                    │
@@ -315,9 +315,10 @@ ESPN cookies are read only inside `providers/espn/` and must be redacted from al
 |---|---|
 | commit | trailing whitespace, EOF newline, YAML/TOML/JSON validity, merge-conflict markers, large files, private keys, no commit to `main`; gitleaks secret scan; ruff (lint with fixes) and ruff-format on `backend/`; mypy (strict); prettier, eslint, and tsc on `frontend/` |
 | push | backend tests (`pytest -x`), frontend tests (`vitest run`) |
-| post-commit | `scripts/ship.sh --post-commit`: push the branch, only when `AGENT_AUTOSHIP=1` |
 
 Local hooks skip themselves while `backend/` or `frontend/` does not exist (before M0). Hooks that auto-fix leave the files modified and fail the commit; staging the fixes and committing again passes.
+
+Nothing runs on `post-commit`: committing never pushes and never opens a pull request, so pushing (`scripts/ship.sh`) is an explicit step the author agent takes.
 
 ### 13.3 CI (`.github/workflows/ci.yml`)
 
@@ -336,7 +337,7 @@ An end-to-end Playwright job is added in M6. The workflow's default token is rea
 
 | Script | Run by | Purpose |
 |---|---|---|
-| `scripts/ship.sh [--ready \| --post-commit]` | author agent / git hook | Push the branch; `--ready` marks the PR ready and labels it |
+| `scripts/ship.sh [--ready]` | author agent | Push the branch; `--ready` marks the PR ready and labels it |
 | `scripts/review.sh <pr>` | orchestrator | Run the reviewer in a fresh session; posts a review comment; exit 0 no blocking issues, 2 changes requested, 1 error |
 | `scripts/merge.sh <pr> [--rebase \| --squash] [--allow-governance]` | human | Verify the CI and governance gates and merge (rebase by default) |
 | `scripts/setup-github.sh` | repo owner, once | Repo settings, label, Actions token permissions, ruleset |
