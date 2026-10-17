@@ -7,7 +7,8 @@
 #
 # With no branch arguments it considers every local `agent/*` branch. A branch is removed only when
 # every condition below holds, so nothing in flight is lost:
-#   - it is not `main`/`master`, and it is not the branch checked out in the current directory;
+#   - it is not `main`/`master`, and it is not the branch checked out in the current directory
+#     (run `git checkout main && git pull` first when that is the branch you just had merged);
 #   - GitHub reports a merged pull request for it;
 #   - its local head is exactly the commit that pull request merged (no commits after the merge);
 #   - when another worktree has it checked out, that worktree has no uncommitted or untracked
@@ -67,7 +68,8 @@ clean() {
       ;;
   esac
   if [[ "$branch" == "$current" ]]; then
-    echo "cleanup.sh: $branch: checked out here, keeping"
+    echo "cleanup.sh: $branch: checked out here, keeping."
+    echo "            switch away first (git checkout main && git pull) and re-run."
     return 0
   fi
   if ! git show-ref --verify --quiet "refs/heads/$branch"; then
