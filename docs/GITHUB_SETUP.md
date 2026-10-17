@@ -55,7 +55,7 @@ Agents push branches and open PRs as **you** (your `gh auth login`, or a fine-gr
 
 Each agent's environment (worktree) needs:
 
-- `pre-commit install` run in the worktree (hooks are per clone; for `git worktree` setups the hooks are shared via the main repo's `.git/hooks`, so install once in the main clone and verify it fires in a worktree);
+- `pre-commit install --hook-type pre-commit --hook-type pre-push --hook-type post-commit` run in the worktree (hooks are per clone; for `git worktree` setups the hooks are shared via the main repo's `.git/hooks`, so install once in the main clone and verify it fires in a worktree);
 - `AGENT_AUTOSHIP=1` so commits push the branch and open a draft PR (human commits are unaffected);
 - `gh`, `uv`, `pnpm`, and Node installed and authenticated as above.
 
