@@ -8,6 +8,44 @@ Follow the format used below. Newest entries at the top.
 
 ---
 
+## OQ-0005 — The author agent opens the PR; `scripts/ship.sh` only pushes
+
+- **Found:** `scripts/ship.sh` created the draft PR from `.github/pull_request_template.md`
+  verbatim, so every PR started with empty placeholder sections and had to be filled in by hand
+  afterwards. The post-commit hook runs in a shell with no model, so it cannot write a description.
+- **Change (owner decision):** `scripts/ship.sh` and the `post-commit` hook now **push only**. The
+  author agent opens the draft PR with the GitHub MCP tools (`tools.github.create_pull_request`,
+  which supports `draft: true`) and fills in the body, following the new
+  `.opencode/pull-requests.md`. `scripts/ship.sh --ready` still marks the PR ready and adds the
+  `ready-for-review` label, because the GitHub MCP server exposes no tool for labels.
+- **Impact:** AC-WF-07 no longer mentions opening a PR; AC-WF-22 records the new author
+  responsibility. Updated: `scripts/ship.sh`, `AGENTS.md`, `ACCEPTANCE.md`, `ARCHITECTURE.md`
+  (sections 2, 11, 13), `docs/GITHUB_SETUP.md`, `README.md`, and
+  `.github/pull_request_template.md`.
+- **Note:** all of these are governance files, so a human must merge the change. The GitHub MCP
+  server must stay configured for author agents, or no PRs will be opened.
+
+---
+
+## OQ-0004 — Workflow-script tests are not implemented
+
+- **Found:** `ACCEPTANCE.md` AC-WF-07 and AC-WF-13 require tests of the workflow scripts' behavior,
+  and `ARCHITECTURE.md` section 11 claimed the `scripts/merge.sh` gate logic "is tested against
+  synthetic `gh pr view --json` payloads". No such tests exist: the only tests in the repo are under
+  `backend/tests/` and `frontend/src/App.test.tsx`. Both scripts call `gh` inline, so they cannot be
+  tested without a seam.
+- **Impact:** AC-WF-07 and AC-WF-13 are implemented but unverified by the suite.
+- **Options:**
+  1. Add a payload seam (for example `MERGE_PR_JSON`/`SHIP_PR_JSON`) so a pytest module can drive
+     the scripts against synthetic `gh pr view --json` output.
+  2. Test the scripts end to end against a throwaway repository (slow, needs network).
+  3. Accept manual verification only.
+- **Recommendation:** option 1, as part of finishing M0.
+- **In the meantime:** `ARCHITECTURE.md` section 11 now says these tests are not written yet, and
+  this entry records the gap. No behavior changed.
+
+---
+
 ## OQ-0003 — Runtime versions moved to Python 3.15, Node 26, and Postgres 18
 
 - **Found:** `SPEC.md` §7 proposed **Python 3.12**, and CI pinned **Node 22** and **Postgres 16**.

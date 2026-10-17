@@ -69,7 +69,8 @@ Each agent's environment (worktree) needs:
 - `pre-commit install --hook-type pre-commit --hook-type pre-push --hook-type post-commit` run in
   the worktree (hooks are per clone; for `git worktree` setups the hooks are shared via the main
   repo's `.git/hooks`, so install once in the main clone and verify it fires in a worktree);
-- `AGENT_AUTOSHIP=1` so commits push the branch and open a draft PR (human commits are unaffected);
+- `AGENT_AUTOSHIP=1` so commits push the branch (human commits are unaffected); the author agent
+  opens the draft PR itself through the GitHub MCP tools (`.opencode/pull-requests.md`);
 - `gh`, `uv`, `pnpm`, and Node 26 installed and authenticated as above.
 
 ## 6. First CI run, then verify
@@ -81,7 +82,7 @@ After the skeleton milestone lands and CI has run once:
    `scripts/setup-github.sh`.
 2. Open a test PR with a deliberate lint error: CI and pre-commit must fail.
 3. Try `git push origin main` from a scratch clone: it must be rejected (ruleset).
-4. Run the whole loop once on a trivial change: agent commit -> draft PR ->
+4. Run the whole loop once on a trivial change: agent commit -> agent opens the draft PR ->
    `scripts/ship.sh --ready` -> `scripts/review.sh <n>` -> review the report yourself and merge
    (desktop, `gh pr merge`, or `scripts/merge.sh <n>`). Confirm a coverage comment appears on the
    PR and updates when you push again.
