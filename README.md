@@ -41,7 +41,7 @@ Postgres for production. React + TypeScript + Vite + Tailwind on the frontend. T
 |---|---|---|
 | [uv](https://docs.astral.sh/uv/) | Python deps and commands | `brew install uv` |
 | [pnpm](https://pnpm.io/) | Frontend deps and commands | `brew install pnpm` (or `corepack enable`) |
-| Node.js 24 | Frontend runtime | `brew install node@24` |
+| Node.js 26 | Frontend runtime | `brew install node@26` |
 | [pre-commit](https://pre-commit.com/) | Git hooks | `uv tool install pre-commit` |
 | `gh` | PR/merge automation | `brew install gh` then `gh auth login` |
 | [gitleaks](https://github.com/gitleaks/gitleaks) | Secret scanning hook | `brew install gitleaks` |
