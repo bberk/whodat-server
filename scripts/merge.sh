@@ -2,17 +2,15 @@
 # Squash-merge a pull request if, and only if, it is ready:
 #   - open and not a draft
 #   - every CI check passed (none pending, none failed, at least one exists)
-#   - approved by someone OTHER than the author, on the CURRENT head commit
-#     (an approval of an older commit does not count), with no outstanding change requests
 #   - it does not modify governance files (the rules, gates, and scripts themselves);
 #     those need a human: re-run with --allow-governance after reviewing them yourself
 #
-# This enforces the rules client-side so they hold even where GitHub cannot enforce them
-# (e.g. private repos on a plan without branch protection). Where GitHub rulesets are
-# available (see docs/GITHUB_SETUP.md) they enforce the same rules server-side as well.
+# A human runs this after reading the independent reviewer's report; reviewers never approve or
+# merge. This enforces the CI and governance gates client-side so they hold even where GitHub
+# cannot enforce them (e.g. private repos on a plan without branch protection).
 #
 # Usage: scripts/merge.sh <pr-number> [--allow-governance]
-# Requires: gh (authenticated as the author/orchestrator identity with write access), jq.
+# Requires: gh (authenticated with write access), jq.
 set -euo pipefail
 
 pr="${1:?usage: scripts/merge.sh <pr-number> [--allow-governance]}"
@@ -28,13 +26,12 @@ fail() {
   exit 1
 }
 
-json="$(gh pr view "$pr" --json state,isDraft,headRefOid,author,reviews,statusCheckRollup,files)"
+json="$(gh pr view "$pr" --json state,isDraft,headRefOid,statusCheckRollup,files)"
 
 [[ "$(jq -r .state <<<"$json")" == "OPEN" ]] || fail "PR is not open"
 [[ "$(jq -r .isDraft <<<"$json")" == "false" ]] || fail "PR is still a draft"
 
 head_sha="$(jq -r .headRefOid <<<"$json")"
-author="$(jq -r .author.login <<<"$json")"
 
 checks="$(jq -r '
   [.statusCheckRollup[] | (.conclusion // .state)]
@@ -46,12 +43,6 @@ case "$checks" in
   NONE) fail "no CI checks have reported yet" ;;
   *) fail "CI checks are pending or failing" ;;
 esac
-
-approved="$(jq -r --arg sha "$head_sha" --arg author "$author" '
-  [.reviews[] | select(.author.login != $author and .commit.oid == $sha)]
-  | group_by(.author.login) | map(last)
-  | (any(.[]; .state == "APPROVED")) and (all(.[]; .state != "CHANGES_REQUESTED"))' <<<"$json")"
-[[ "$approved" == "true" ]] || fail "no current approval from a non-author reviewer on $head_sha"
 
 if [[ "$allow_governance" -eq 0 ]]; then
   governance="$(jq -r '.files[].path' <<<"$json" \

@@ -261,7 +261,7 @@ ESPN cookies are read only inside `providers/espn/` and must be redacted from al
 - **API**: FastAPI `TestClient` tests including authorization matrices and golden JSON comparison.
 - **Frontend**: Vitest + Testing Library for components; Playwright for the end-to-end smoke test, responsive screenshots, and axe accessibility checks.
 - **Coverage**: pytest-cov (lines and branches) for the backend and vitest's v8 coverage for the frontend, both reported on every PR (section 13.5). Thresholds are enforced by CI, not just reported.
-- **Workflow scripts**: the gate logic in `scripts/merge.sh` is tested against synthetic `gh pr view --json` payloads (approval on the current head, stale approval, self-approval, failing and pending checks, governance paths).
+- **Workflow scripts**: the gate logic in `scripts/merge.sh` is tested against synthetic `gh pr view --json` payloads (draft vs open, failing and pending checks, governance paths, `--allow-governance`).
 
 ## 12. Design decisions and rationale
 
@@ -274,7 +274,7 @@ ESPN cookies are read only inside `providers/espn/` and must be redacted from al
 | Provider returns matchups, scores derived from them | Matches how ESPN reports data and works for most other providers. |
 | Contract-first API with generated TS types | Lets backend and frontend agents work in parallel with a machine-checked contract. |
 | Merge gate in a script, plus GitHub rulesets where available | GitHub cannot enforce branch rules on private repos on a free plan; the script makes the rules hold anyway, and rulesets add server-side enforcement where possible. |
-| Reviewer uses a separate GitHub account and a definition taken from `main` | GitHub forbids self-approval, and a PR must not be able to weaken the reviewer that judges it. |
+| Reviewer is a separate agent that posts a review comment, and a human approves and merges | GitHub forbids self-approval, so the formal approval must be a human's; the reviewer's definition comes from `main`, so a PR cannot weaken the reviewer that judges it. |
 | Draft PR on first commit, review only when marked ready | Reviewers never spend effort on half-finished work. |
 | Governance files are human-merge only | Agents cannot loosen the rules or gates that bind them. |
 
@@ -294,14 +294,14 @@ ESPN cookies are read only inside `providers/espn/` and must be redacted from al
         │                          CI: pre-commit | backend (sqlite) | backend (postgres)
         │                              | frontend | coverage comment on the PR
         ▼
- orchestrator ──▶ scripts/review.sh <pr>  (fresh session, clean worktree, reviewer account)
+ orchestrator ──▶ scripts/review.sh <pr>  (fresh session, clean worktree, reviewer from main)
         │                 │
         │            exit 2: changes requested ──▶ author fixes, ship.sh --ready, new review (max 3 rounds)
-        │ exit 0: approved
+        │ exit 0: no blocking issues
         ▼
- orchestrator ──▶ scripts/merge.sh <pr> ──▶ squash merge, branch deleted
-                    (gates: not draft, CI green, non-author approval on current head,
-                     no governance files changed)
+ human ──▶ approve + merge (desktop, gh, or scripts/merge.sh) ──▶ squash merge, branch deleted
+                    (gates: not draft, CI green, no governance files changed
+                     unless a human runs merge.sh --allow-governance)
 ```
 
 ### 13.2 Pre-commit hooks (`.pre-commit-config.yaml`)
@@ -332,8 +332,8 @@ An end-to-end Playwright job is added in M6. The workflow's default token is rea
 | Script | Run by | Purpose |
 |---|---|---|
 | `scripts/ship.sh [--ready \| --post-commit]` | author agent / git hook | Push the branch and open a draft PR; `--ready` marks it ready and labels it |
-| `scripts/review.sh <pr>` | orchestrator | Run the reviewer in a fresh session; exit 0 approved, 2 changes requested, 1 error |
-| `scripts/merge.sh <pr> [--allow-governance]` | orchestrator / human | Verify the gates and squash-merge |
+| `scripts/review.sh <pr>` | orchestrator | Run the reviewer in a fresh session; posts a review comment; exit 0 no blocking issues, 2 changes requested, 1 error |
+| `scripts/merge.sh <pr> [--allow-governance]` | human | Verify the CI and governance gates and squash-merge |
 | `scripts/setup-github.sh` | repo owner, once | Repo settings, label, Actions token permissions, ruleset |
 | `scripts/coverage_report.py` | CI | Combine backend (Cobertura XML) and frontend (vitest `json-summary`) coverage into markdown |
 
@@ -347,11 +347,10 @@ An end-to-end Playwright job is added in M6. The workflow's default token is rea
 
 | Identity | Used for | Holds |
 |---|---|---|
-| Owner (human) | one-time setup, human merges of governance changes | admin on the repo |
-| Author identity (your account or your token) | agents pushing branches, opening PRs, `scripts/merge.sh` | Contents + Pull requests: write |
-| Reviewer identity (separate machine account) | `scripts/review.sh` only | write collaborator; token with Pull requests: write, Contents/Checks/Statuses: read |
+| Owner (human) | one-time setup, and approving and merging every PR | admin on the repo |
+| Author identity (your account or your token) | agents pushing branches, opening PRs, and posting review comments; a human may run `scripts/merge.sh` | Contents + Pull requests: write |
 
-Rules: the reviewer token is never given to authors and the author token is never given to the reviewer. The reviewer's agent definition is read from `main` and cannot be altered by the PR under review, and the reviewer treats PR text and code comments as untrusted input. Details and the one-time setup are in `docs/GITHUB_SETUP.md`.
+There is **no separate reviewer account**. The reviewer agent runs in a fresh session and a clean worktree but with the author identity, so it can only post a review *comment*, never an approval; a human makes the formal approval and merge. The reviewer's agent definition is read from `main` and cannot be altered by the PR under review, and the reviewer treats PR text and code comments as untrusted input. Details are in `docs/GITHUB_SETUP.md`.
 
 ### 13.7 Known limits
 

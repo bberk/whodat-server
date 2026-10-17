@@ -47,6 +47,14 @@ Follow the format used below. Newest entries at the top.
 - **Recommendation:** If avoiding a second GitHub account matters more than server-side
   enforcement, take option 2 and accept the weaker gate (documented in `docs/GITHUB_SETUP.md`).
 - **In the meantime:** M0 keeps the existing design (options 1/3 remain valid). No spec change made.
+- **Resolved (2026-10-17, owner decision):** option 2 with the repo's own reviewer kept. **Humans
+  approve and merge every PR**; a separate agent posts a fresh-eyes review comment through
+  `scripts/review.sh` (no second account, no `REVIEWER_GH_TOKEN`). The `main` ruleset no longer
+  requires an approval, because GitHub forbids self-approval and a human is the formal approver.
+  Updated: `SPEC.md` §4.6 items 3/4/6 and Q9–Q11, `ACCEPTANCE.md` AC-WF-10/11/13/14/15/20/21,
+  `ARCHITECTURE.md` §12/§13, `AGENTS.md`, `scripts/setup-github.sh`, `scripts/merge.sh`,
+  `scripts/review.sh`, `.opencode/agents/reviewer.md`, and `docs/GITHUB_SETUP.md`. All of these are
+  governance files, so a human must merge the change.
 
 ## OQ-0002 — M0 skeleton decisions
 

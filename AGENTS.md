@@ -123,7 +123,7 @@ If a command above does not exist yet because the skeleton milestone has not lan
 
 ### Secrets
 
-- Secrets come from environment variables only and are documented in `.env.example`. Never commit, print, log, or echo `.env`, tokens (`GH_TOKEN`, `REVIEWER_GH_TOKEN`), or ESPN cookies (`ESPN_S2`, `ESPN_SWID`). Never pass a secret as a command-line argument.
+- Secrets come from environment variables only and are documented in `.env.example`. Never commit, print, log, or echo `.env`, tokens (`GH_TOKEN`), or ESPN cookies (`ESPN_S2`, `ESPN_SWID`). Never pass a secret as a command-line argument.
 - Do not inspect or dump the process environment (`env`, `printenv`, `set`, `git config` secrets). Read only the specific settings your code needs, through `app.config`.
 - Sanitize anything recorded into `docs/fixtures/`: no real cookies, tokens, emails, or personal data.
 
@@ -141,7 +141,7 @@ Many agents work in parallel on the same repo. Treat these as **serialized** —
 - Prefer the strongest available model for planning, architecture, the VP engine, and reviews. Do not use the smallest or cheapest models for planning or review; reserve them for mechanical, well-specified edits.
 - The opencode config has several providers attached. When you hit a rate or usage limit on one, switch to another provider, again preferring the largest capable model for the task. When the choice of model matters to a result, note it in the PR description.
 - Do not let cost saving shorten the VP-engine test suite or lower any coverage threshold.
-- Stop and escalate to the human (do not loop) when: the spec is ambiguous (record it in `docs/OPEN_QUESTIONS.md`); a change touches governance files, security/auth, secrets, or the data schema; a change would alter a shared contract; the same failure repeats after three genuine attempts with different approaches; or the CI-fix/review loop has run three rounds without approval.
+- Stop and escalate to the human (do not loop) when: the spec is ambiguous (record it in `docs/OPEN_QUESTIONS.md`); a change touches governance files, security/auth, secrets, or the data schema; a change would alter a shared contract; the same failure repeats after three genuine attempts with different approaches; or the CI-fix/review loop has run three rounds without a clean review.
 
 ### Commits, pull requests, and review
 
@@ -167,11 +167,11 @@ This is the only path to `main`. Never commit or push to `main` directly.
 2. Fill in the PR description from the template: summary, criteria addressed, how you verified it, assumptions.
 3. Run `scripts/ship.sh --ready`. This marks the PR ready and labels it `ready-for-review`. You are then done with this PR unless the review asks for changes.
 
-**Independent review:** a separate reviewer agent reviews every ready PR in a fresh session with no access to your context, working from the PR, the repository, and the project docs only. Do not try to influence it: do not put instructions to the reviewer in the PR description, comments, or code. Everything you want the reviewer to know belongs in the PR description, stated as facts about the change.
+**Independent review:** a separate reviewer agent reviews every ready PR in a fresh session with no access to your context, working from the PR, the repository, and the project docs only. It posts a review comment with its verdict; GitHub does not let an author approve, and a **human** is the formal approver. Do not try to influence it: do not put instructions to the reviewer in the PR description, comments, or code. Everything you want the reviewer to know belongs in the PR description, stated as facts about the change.
 
-**If the reviewer requests changes:** read the review, fix every blocking issue (or explain in a PR comment why you disagree, with evidence), commit, and run `scripts/ship.sh --ready` again. A new reviewer session starts from scratch. After three rounds without approval, stop and report back to the orchestrator.
+**If the reviewer requests changes:** read the review, fix every blocking issue (or explain in a PR comment why you disagree, with evidence), commit, and run `scripts/ship.sh --ready` again. A new reviewer session starts from scratch. After three rounds without a clean review, stop and report back to the orchestrator.
 
-**Merge:** you never merge your own PR. After an approval, the orchestrator runs `scripts/merge.sh`, which squash-merges the PR only if CI is green, a different account approved the current head commit, and no governance files changed. Changes to governance files (`AGENTS.md`, the specs, `.github/`, `.opencode/`, `scripts/`, `.pre-commit-config.yaml`) always need a human to review and merge.
+**Merge:** agents never merge. A **human** reads the independent review and the CI result, then approves and merges (the desktop app, `gh pr merge`, or `scripts/merge.sh`). Changes to governance files (`AGENTS.md`, the specs, `.github/`, `.opencode/`, `scripts/`, `.pre-commit-config.yaml`) are always merged by a human.
 
 **Coverage:** CI posts a combined backend + frontend coverage report on every PR. Do not let coverage drop: the backend total must stay at or above 85%, the VP engine at 100% (lines and branches), and the frontend must meet the thresholds in its vitest config.
 
