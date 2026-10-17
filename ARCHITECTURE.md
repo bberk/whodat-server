@@ -257,7 +257,7 @@ ESPN cookies are read only inside `providers/espn/` and must be redacted from al
 
 - **Engine**: exhaustive unit tests from ACCEPTANCE 1.1 plus property-based tests (Hypothesis) for AC-VP-12/13.
 - **Providers**: ESPN adapter tested against recorded fixtures in `docs/fixtures/espn/`; a small manual script can refresh fixtures from the real API, but tests never call ESPN.
-- **Database/services**: run against SQLite by default; CI also runs the suite against Postgres.
+- **Database/services**: run against SQLite by default locally; CI runs the suite against Postgres.
 - **API**: FastAPI `TestClient` tests including authorization matrices and golden JSON comparison.
 - **Frontend**: Vitest + Testing Library for components; Playwright for the end-to-end smoke test, responsive screenshots, and axe accessibility checks.
 - **Coverage**: pytest-cov (lines and branches) for the backend and vitest's v8 coverage for the frontend, both reported on every PR (section 13.5). Thresholds are enforced by CI, not just reported.
@@ -291,7 +291,7 @@ ESPN cookies are read only inside `providers/espn/` and must be redacted from al
         ▼
  task done ──▶ rebase on main ──▶ scripts/ship.sh --ready ──▶ PR ready + label `ready-for-review`
         │                                                    │
-        │                          CI: pre-commit | backend (sqlite) | backend (postgres)
+        │                          CI: pre-commit | backend
         │                              | frontend | coverage comment on the PR
         ▼
  orchestrator ──▶ scripts/review.sh <pr>  (fresh session, clean worktree, reviewer from main)
@@ -321,7 +321,7 @@ Jobs (the names are the required status checks in the `main` ruleset):
 | Job | What it does |
 |---|---|
 | `pre-commit` | `pre-commit run --all-files` (so skipped local hooks still fail the PR) |
-| `backend (sqlite)`, `backend (postgres)` | `pytest` with coverage; total >= 85%; VP engine (`app/domain/*`) 100% lines and branches; coverage XML uploaded from the SQLite run |
+| `backend` | `pytest` with coverage against Postgres; total >= 85%; VP engine (`app/domain/*`) 100% lines and branches; coverage XML uploaded |
 | `frontend` | eslint, tsc, `vitest run --coverage` (thresholds in the vitest config), build; coverage summary uploaded |
 | `coverage-report` | PRs only: downloads both coverage artifacts, builds one markdown report with `scripts/coverage_report.py`, writes it to the job summary, and posts or updates a single PR comment |
 

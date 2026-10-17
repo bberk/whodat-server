@@ -31,8 +31,8 @@ deployment is **not implemented yet**; see [Deploy to production](#deploy-to-pro
 
 ## Tech stack
 
-Python 3.15 + FastAPI + SQLAlchemy/Alembic + Pydantic; SQLite for local dev and tests,
-Postgres for production. React + TypeScript + Vite + Tailwind on the frontend. Tooling: `uv`,
+Python 3.15 + FastAPI + SQLAlchemy/Alembic + Pydantic; SQLite for local dev,
+Postgres in CI and production. React + TypeScript + Vite + Tailwind on the frontend. Tooling: `uv`,
 `pnpm`, `pytest`, `ruff`, `mypy`, `vitest`, `eslint`, `prettier`, `pre-commit`, GitHub Actions.
 
 ## Prerequisites

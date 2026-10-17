@@ -142,7 +142,7 @@ Three tied teams each get exactly 1/3 high-score VP (tests must use exact fracti
 | ID | Criterion |
 |---|---|
 | AC-DX-01 | A fresh clone can run the app locally following README steps only (or `docker compose up`). |
-| AC-DX-02 | CI runs `pre-commit` on all files, backend tests (on SQLite and Postgres), and frontend lint, type check, tests, and build on every pull request and every push to `main`, and they all pass on `main`. |
+| AC-DX-02 | CI runs `pre-commit` on all files, backend tests (against Postgres), and frontend lint, type check, tests, and build on every pull request and every push to `main`, and they all pass on `main`. |
 | AC-DX-03 | The VP engine module has 100% line and branch coverage (enforced in CI). |
 | AC-DX-04 | Overall backend coverage is at least 85% (enforced in CI). |
 | AC-DX-05 | No secrets are committed; `.env.example` documents every required variable. |

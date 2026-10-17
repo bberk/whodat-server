@@ -37,9 +37,9 @@ Run `scripts/setup-github.sh` (optionally pass `owner/repo`). It:
 - creates the `ready-for-review` label;
 - makes the default Actions token read-only;
 - creates a ruleset on `main` requiring a pull request and the CI checks `pre-commit`,
-  `backend (sqlite)`, `backend (postgres)`, and `frontend`, with linear history and no force-push
-  or deletion. It does **not** require an approval, because a human approves and merges every PR
-  (see step 3). (If your plan does not allow a ruleset, the script says so and continues.)
+  `backend`, and `frontend`, with linear history and no force-push or deletion. It does **not**
+  require an approval, because a human approves and merges every PR (see step 3). (If your plan
+  does not allow a ruleset, the script says so and continues.)
 
 Re-running it is safe.
 
