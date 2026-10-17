@@ -68,12 +68,12 @@ Checks: Read for this repo). There is no separate reviewer token to create or pr
 
 Each agent's environment (worktree) needs:
 
-- `pre-commit install --hook-type pre-commit --hook-type pre-push --hook-type post-commit` run in
-  the worktree (hooks are per clone; for `git worktree` setups the hooks are shared via the main
-  repo's `.git/hooks`, so install once in the main clone and verify it fires in a worktree);
-- `AGENT_AUTOSHIP=1` so commits push the branch (human commits are unaffected); the author agent
-  opens the draft PR itself through the GitHub MCP tools (`.opencode/pull-requests.md`);
-- `gh`, `uv`, `pnpm`, and Node 26 installed and authenticated as above.
+- `pre-commit install --hook-type pre-commit --hook-type pre-push` run in the worktree (hooks are
+  per clone; for `git worktree` setups the hooks are shared via the main repo's `.git/hooks`, so
+  install once in the main clone and verify it fires in a worktree);
+- `gh`, `uv`, `pnpm`, and Node 26 installed and authenticated as above. The author agent pushes the
+  branch with `scripts/ship.sh` and opens the draft PR itself through the GitHub MCP tools
+  (`.opencode/pull-requests.md`); no hook pushes on commit.
 
 ## 6. First CI run, then verify
 

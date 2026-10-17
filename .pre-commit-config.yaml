@@ -1,7 +1,7 @@
 # Pre-commit hooks for the whole repo. See ARCHITECTURE.md section 13.2.
 #
-# Install every stage once per clone/worktree:
-#   pre-commit install --hook-type pre-commit --hook-type pre-push --hook-type post-commit
+# Install the commit and push hooks once per clone/worktree:
+#   pre-commit install --hook-type pre-commit --hook-type pre-push
 #
 # Backend and frontend hooks only run when files under backend/ or frontend/ change, so the
 # config is usable even before those trees exist (pre-M0). Hooks that auto-fix (ruff, prettier,
@@ -88,11 +88,3 @@ repos:
         language: system
         pass_filenames: false
         stages: [pre-push]
-
-      - id: autoship
-        name: push branch and open a draft PR (AGENT_AUTOSHIP=1 only)
-        entry: scripts/ship.sh --post-commit
-        language: system
-        pass_filenames: false
-        always_run: true
-        stages: [post-commit]

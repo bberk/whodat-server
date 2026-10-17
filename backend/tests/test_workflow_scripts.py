@@ -87,7 +87,7 @@ def _open_pr(**overrides: object) -> dict[str, object]:
 
 @pytest.fixture
 def env(tmp_path: Path) -> dict[str, str]:
-    """An isolated environment: stub ``gh`` on PATH, git config disabled, no AGENT_AUTOSHIP."""
+    """An isolated environment: stub ``gh`` on PATH and git config disabled."""
     stub_dir = tmp_path / "bin"
     stub_dir.mkdir()
     stub = stub_dir / "gh"
@@ -112,7 +112,6 @@ def env(tmp_path: Path) -> dict[str, str]:
             "GIT_COMMITTER_EMAIL": "agent@example.test",
         }
     )
-    environment.pop("AGENT_AUTOSHIP", None)
     return environment
 
 
@@ -136,42 +135,53 @@ def repo(tmp_path: Path, env: dict[str, str]) -> Path:
 # --- scripts/ship.sh --------------------------------------------------------------------------
 
 
-def test_AC_WF_07_post_commit_pushes_the_branch_when_autoship_is_enabled(
-    repo: Path, env: dict[str, str]
-) -> None:
-    env["AGENT_AUTOSHIP"] = "1"
-
-    result = _run(SHIP, repo, env, "--post-commit")
+def test_AC_WF_07_ship_pushes_the_branch(repo: Path, env: dict[str, str]) -> None:
+    result = _run(SHIP, repo, env)
 
     assert result.returncode == 0, result.stderr
     assert f"refs/heads/{WORK_BRANCH}" in _git(repo, env, "ls-remote", "--heads", "origin")
     assert _pr_create_calls(env) == [], "ship.sh must not open a pull request"
 
 
-def test_AC_WF_07_post_commit_pushes_nothing_without_autoship(
+def test_AC_WF_07_ship_pushes_later_commits_to_the_same_branch(
     repo: Path, env: dict[str, str]
 ) -> None:
-    result = _run(SHIP, repo, env, "--post-commit")
-
-    assert result.returncode == 0, result.stderr
-    assert _git(repo, env, "ls-remote", "--heads", "origin") == ""
-
-
-def test_AC_WF_07_a_second_commit_pushes_the_same_branch_again(
-    repo: Path, env: dict[str, str]
-) -> None:
-    env["AGENT_AUTOSHIP"] = "1"
-    _run(SHIP, repo, env, "--post-commit")
+    _run(SHIP, repo, env)
     (repo / "more.txt").write_text("more\n")
     _git(repo, env, "add", "-A")
     _git(repo, env, "commit", "-m", "More")
 
-    result = _run(SHIP, repo, env, "--post-commit")
+    result = _run(SHIP, repo, env)
 
     assert result.returncode == 0, result.stderr
     pushed = _git(repo, env, "ls-remote", "--heads", "origin")
     assert pushed.count(f"refs/heads/{WORK_BRANCH}") == 1
     assert _pr_create_calls(env) == []
+
+
+def test_AC_WF_07_a_commit_alone_pushes_nothing(repo: Path, env: dict[str, str]) -> None:
+    """There is no post-commit hook: committing must never push behind the agent's back."""
+    (repo / "more.txt").write_text("more\n")
+    _git(repo, env, "add", "-A")
+    _git(repo, env, "commit", "-m", "More")
+
+    assert _git(repo, env, "ls-remote", "--heads", "origin") == ""
+
+
+def test_AC_WF_07_the_removed_post_commit_mode_is_rejected(repo: Path, env: dict[str, str]) -> None:
+    result = _run(SHIP, repo, env, "--post-commit")
+
+    assert result.returncode == 64
+    assert "usage" in result.stderr
+    assert _git(repo, env, "ls-remote", "--heads", "origin") == ""
+
+
+def test_AC_WF_07_the_hook_config_has_no_post_commit_stage() -> None:
+    """Autoship is gone: no hook stage fires on commit to push or open a PR."""
+    config = (REPO_ROOT / ".pre-commit-config.yaml").read_text()
+
+    assert "post-commit" not in config
+    assert "AGENT_AUTOSHIP" not in config
 
 
 def test_AC_WF_08_ship_refuses_to_push_main(repo: Path, env: dict[str, str]) -> None:
