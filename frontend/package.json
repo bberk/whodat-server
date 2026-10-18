@@ -28,7 +28,7 @@
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
-    "@vitest/coverage-v8": "^2.1.8",
+    "@vitest/coverage-v8": "^5.0.5",
     "autoprefixer": "^10.4.20",
     "eslint": "^9.17.0",
     "eslint-plugin-react-hooks": "^5.1.0",
@@ -41,6 +41,6 @@
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.18.1",
     "vite": "^6.0.5",
-    "vitest": "^2.1.8"
+    "vitest": "^5.0.5"
   }
 }
