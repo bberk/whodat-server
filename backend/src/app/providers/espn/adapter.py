@@ -61,7 +61,7 @@ class ESPNLeagueProvider:
         if espn_s2 is None or swid is None:
             settings = get_espn_settings()
             self._espn_s2 = espn_s2 if espn_s2 is not None else settings.espn_s2
-            self._swid = swid if swid is not None else settings.swid
+            self._swid = swid if swid is not None else settings.espn_swid
         else:
             self._espn_s2 = espn_s2
             self._swid = swid
