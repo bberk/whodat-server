@@ -67,15 +67,18 @@ class SyncService:
         self,
         league_ref: LeagueRef,
         provider_id: str,
-        provider_config_ref: str,
         season: int,
         weeks: Sequence[int] | None = None,
+        provider_config_ref: str = "env:default",
     ) -> SyncSummary:
         """Fetch, upsert, and compute VP for a league season.
 
         The provider_config_ref is a non-secret label identifying which credential configuration
         to use for this league (e.g. "espn-prod", "espn-league-123"). It is stored in the database
-        but never contains actual secrets.
+        but never contains actual secrets. The default value "env:default" indicates that the
+        provider reads credentials from the process environment (ESPN_S2/ESPN_SWID env vars) and
+        is the only configuration supported until M4 introduces per-league config resolution.
+        ESPN cookies are never written to DTOs or the database.
 
         When weeks is None, sync defaults to 1..last_completed_week. If last_completed_week
         is None and no explicit weeks were requested, only league/owners/teams are upserted
