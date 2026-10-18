@@ -128,6 +128,12 @@ def env(tmp_path: Path) -> dict[str, str]:
     return environment
 
 
+def test_throwaway_repo_environment_clears_git_hook_context(env: dict[str, str]) -> None:
+    """Nested repositories must not inherit the calling hook's repository paths."""
+    assert "GIT_DIR" not in env
+    assert "GIT_WORK_TREE" not in env
+
+
 @pytest.fixture
 def repo(tmp_path: Path, env: dict[str, str]) -> Path:
     """A throwaway repo with a bare ``origin`` and one commit on ``agent/test-task``."""
