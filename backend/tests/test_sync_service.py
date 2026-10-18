@@ -210,7 +210,7 @@ def test_AC_DB_01_fresh_sync_populates_every_entity(session: Session) -> None:
     provider = _build_provider(_basic_seed())
     service = SyncService(provider, session)
 
-    summary = service.sync_league(_league_ref(), "fake", "test-config", 2026)
+    summary = service.sync_league(_league_ref(), "fake", 2026)
     session.commit()
 
     repo = SyncRepository(session)
@@ -219,6 +219,8 @@ def test_AC_DB_01_fresh_sync_populates_every_entity(session: Session) -> None:
     assert league.name == "VP League"
     assert summary.league_id == league.id
     assert summary.league_changed is True
+    # Verify the default provider_config_ref "env:default" is persisted
+    assert league.provider_config_ref == "env:default"
 
     owners = list(session.scalars(select(Owner).where(Owner.league_id == league.id)).all())
     assert len(owners) == 4
@@ -272,7 +274,7 @@ def test_AC_DB_02_idempotent_repeat_sync(session: Session) -> None:
     provider = _build_provider(_basic_seed())
     service = SyncService(provider, session)
 
-    first = service.sync_league(_league_ref(), "fake", "test-config", 2026)
+    first = service.sync_league(_league_ref(), "fake", 2026)
     session.commit()
 
     league_id_first = first.league_id
@@ -295,7 +297,7 @@ def test_AC_DB_02_idempotent_repeat_sync(session: Session) -> None:
         for s in session.scalars(select(Score)).all()
     }
 
-    second = service.sync_league(_league_ref(), "fake", "test-config", 2026)
+    second = service.sync_league(_league_ref(), "fake", 2026)
     session.commit()
 
     # No changes reported on the second sync.
@@ -340,7 +342,7 @@ def test_AC_DB_03_score_correction_recomputes_full_week(session: Session) -> Non
     provider = _build_provider(_basic_seed())
     service = SyncService(provider, session)
 
-    service.sync_league(_league_ref(), "fake", "test-config", 2026)
+    service.sync_league(_league_ref(), "fake", 2026)
     session.commit()
 
     repo = SyncRepository(session)
@@ -372,7 +374,7 @@ def test_AC_DB_03_score_correction_recomputes_full_week(session: Session) -> Non
 
     corrected_provider = _build_provider(corrected_seed)
     corrected_service = SyncService(corrected_provider, session)
-    corrected_summary = corrected_service.sync_league(_league_ref(), "fake", "test-config", 2026)
+    corrected_summary = corrected_service.sync_league(_league_ref(), "fake", 2026)
     session.commit()
 
     # The week with the correction was recomputed.
@@ -412,7 +414,7 @@ def test_AC_DB_04_score_rows_store_total_and_components(session: Session) -> Non
     """Score rows carry the victory_points total and all four component columns."""
     provider = _build_provider(_basic_seed())
     service = SyncService(provider, session)
-    service.sync_league(_league_ref(), "fake", "test-config", 2026)
+    service.sync_league(_league_ref(), "fake", 2026)
     session.commit()
 
     repo = SyncRepository(session)
@@ -438,7 +440,7 @@ def test_bye_team_gets_rank_components_but_no_h2h(session: Session) -> None:
     provider = _build_provider(seed)
     service = SyncService(provider, session)
 
-    service.sync_league(_league_ref(), "fake", "test-config", 2026)
+    service.sync_league(_league_ref(), "fake", 2026)
     session.commit()
 
     repo = SyncRepository(session)
@@ -474,7 +476,7 @@ def test_incomplete_week_stores_rows_but_no_vp(session: Session) -> None:
     provider = _build_provider(seed)
     service = SyncService(provider, session)
 
-    summary = service.sync_league(_league_ref(), "fake", "test-config", 2026, weeks=[1, 2, 3])
+    summary = service.sync_league(_league_ref(), "fake", 2026, weeks=[1, 2, 3])
     session.commit()
 
     # All three weeks were synced.
@@ -503,7 +505,7 @@ def test_playoff_week_stores_rows_but_no_vp(session: Session) -> None:
     provider = _build_provider(seed)
     service = SyncService(provider, session)
 
-    summary = service.sync_league(_league_ref(), "fake", "test-config", 2026, weeks=[1, 2, 3])
+    summary = service.sync_league(_league_ref(), "fake", 2026, weeks=[1, 2, 3])
     session.commit()
 
     assert 3 not in summary.weeks_with_vp_recomputed
@@ -531,7 +533,7 @@ def test_week_status_none_with_no_explicit_weeks_upserts_only_metadata(
     provider = _build_provider(seed)
     service = SyncService(provider, session)
 
-    summary = service.sync_league(_league_ref(), "fake", "test-config", 2026)
+    summary = service.sync_league(_league_ref(), "fake", 2026)
     session.commit()
 
     # Metadata was persisted.
@@ -551,7 +553,7 @@ def test_explicit_weeks_synced_regardless_of_week_status(session: Session) -> No
     provider = _build_provider(seed)
     service = SyncService(provider, session)
 
-    summary = service.sync_league(_league_ref(), "fake", "test-config", 2026, weeks=[1, 2])
+    summary = service.sync_league(_league_ref(), "fake", 2026, weeks=[1, 2])
     session.commit()
 
     # The two requested weeks were synced and, being complete, had VP recomputed.
@@ -607,7 +609,7 @@ def test_exact_fractional_component_conservation(session: Session) -> None:
     week_status = WeekStatus(last_completed_week=1)
     provider = FakeProvider({("tie-league", 2026): (league, owners, teams, matchups, week_status)})
     service = SyncService(provider, session)
-    service.sync_league(_league_ref("tie-league"), "fake", "test-config", 2026)
+    service.sync_league(_league_ref("tie-league"), "fake", 2026)
     session.commit()
 
     # Verify in exact Fraction space: the engine returns 1/3 for the high component of each
@@ -673,7 +675,7 @@ def test_caller_owns_transaction_and_can_rollback(session: Session) -> None:
     provider = _build_provider(_basic_seed())
     service = SyncService(provider, session)
 
-    service.sync_league(_league_ref(), "fake", "test-config", 2026)
+    service.sync_league(_league_ref(), "fake", 2026)
     # No commit yet: nothing is visible to a separate snapshot query... actually within the same
     # session uncommitted writes ARE visible. But we can verify rollback removes them.
     assert session.scalar(select(func.count()).select_from(Score)) == 8
@@ -712,7 +714,7 @@ def test_default_weeks_range_is_one_through_last_completed_inclusive(
     provider = FakeProvider({("five-week", 2026): (league, owners, teams, matchups, week_status)})
     service = SyncService(provider, session)
 
-    summary = service.sync_league(_league_ref("five-week"), "fake", "test-config", 2026)
+    summary = service.sync_league(_league_ref("five-week"), "fake", 2026)
     session.commit()
 
     assert summary.weeks_synced == (1, 2, 3, 4, 5)
@@ -738,7 +740,7 @@ def test_external_ids_map_to_local_ids_correctly(session: Session) -> None:
     """The sync translates provider external IDs to local integer IDs for every row."""
     provider = _build_provider(_basic_seed())
     service = SyncService(provider, session)
-    service.sync_league(_league_ref(), "fake", "test-config", 2026)
+    service.sync_league(_league_ref(), "fake", 2026)
     session.commit()
 
     repo = SyncRepository(session)
@@ -778,7 +780,7 @@ def test_newly_completed_week_triggers_vp_recompute(session: Session) -> None:
     seed = _basic_seed(last_completed_week=1, incomplete_week=2)
     provider = _build_provider(seed)
     service = SyncService(provider, session)
-    first = service.sync_league(_league_ref(), "fake", "test-config", 2026, weeks=[1, 2])
+    first = service.sync_league(_league_ref(), "fake", 2026, weeks=[1, 2])
     session.commit()
 
     # Week 2 was incomplete so no VP was written.
@@ -793,7 +795,7 @@ def test_newly_completed_week_triggers_vp_recompute(session: Session) -> None:
     completed_seed = _basic_seed(last_completed_week=2)
     completed_provider = _build_provider(completed_seed)
     completed_service = SyncService(completed_provider, session)
-    second = completed_service.sync_league(_league_ref(), "fake", "test-config", 2026, weeks=[1, 2])
+    second = completed_service.sync_league(_league_ref(), "fake", 2026, weeks=[1, 2])
     session.commit()
 
     # Week 2 was newly completed (matchup is_complete flipped) → VP recomputed.
