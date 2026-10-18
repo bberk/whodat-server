@@ -4,7 +4,4 @@ from sqlalchemy.orm import DeclarativeBase
 
 
 class Base(DeclarativeBase):
-    """Base class for ORM models.
-
-    Models are added in milestone M2; Alembic reads `Base.metadata` to autogenerate migrations.
-    """
+    """Base class for ORM models, with metadata consumed by Alembic."""
