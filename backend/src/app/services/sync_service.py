@@ -67,10 +67,15 @@ class SyncService:
         self,
         league_ref: LeagueRef,
         provider_id: str,
+        provider_config_ref: str,
         season: int,
         weeks: Sequence[int] | None = None,
     ) -> SyncSummary:
         """Fetch, upsert, and compute VP for a league season.
+
+        The provider_config_ref is a non-secret label identifying which credential configuration
+        to use for this league (e.g. "espn-prod", "espn-league-123"). It is stored in the database
+        but never contains actual secrets.
 
         When weeks is None, sync defaults to 1..last_completed_week. If last_completed_week
         is None and no explicit weeks were requested, only league/owners/teams are upserted
@@ -89,7 +94,7 @@ class SyncService:
             external_id=league_dto.external_id,
             name=league_dto.name,
             league_metadata=dict(league_dto.metadata),
-            provider_config_ref=provider_id,
+            provider_config_ref=provider_config_ref,
         )
         league_id = league_result.row.id
         league_changed = league_result.changed
