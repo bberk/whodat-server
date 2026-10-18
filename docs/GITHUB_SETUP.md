@@ -65,9 +65,20 @@ request, and agents never merge, so the roles are split:
 
 ## 4. Author identity for agents
 
-Agents push branches, open PRs, and post review comments as **you** (your `gh auth login`, or a
-fine-grained token of your own with Contents: Write, Pull requests: Write, Metadata: Read, and
-Checks: Read for this repo). There is no separate reviewer token to create or protect.
+Agents author commits, push branches, and open PRs as the GitHub App **`brads-bots`** (bot user ID
+`344180581`), not as you. GitHub does not let you approve code authored by your own account, so the
+bot's work is what you review and approve. The App needs these repository permissions: Contents:
+Read and write, Pull requests: Read and write, Metadata: Read (and Workflows: Read and write only if
+agents must change `.github/workflows/`). Install it on this repository only.
+
+- The App's private key lives at `~/.config/brads-bots/private-key.pem` (mode `600`), outside the
+  repository. Never commit it.
+- Set `BRADS_BOTS_APP_ID` to the App's numeric ID in the agent environment. The key path can be
+  overridden with `BRADS_BOTS_KEY`.
+- `scripts/bot-identity.sh` mints a one-hour installation token from the key. Only `scripts/ship.sh`
+  uses it, for pushing and for `gh`; the human's credentials are cleared for that push.
+- Reviewing and merging stay with you. `scripts/review.sh` and `scripts/merge.sh` run with your own
+  `gh` login, so the reviewer's comments and your approval come from you, not from the bot.
 
 ## 5. Agent environment
 
@@ -76,9 +87,15 @@ Each agent's environment (worktree) needs:
 - `pre-commit install --hook-type pre-commit --hook-type pre-push` run in the worktree (hooks are
   per clone; for `git worktree` setups the hooks are shared via the main repo's `.git/hooks`, so
   install once in the main clone and verify it fires in a worktree);
-- `gh`, `uv`, `pnpm`, and Node 26 installed and authenticated as above. The author agent pushes the
-  branch with `scripts/ship.sh` and opens the draft PR itself through the GitHub MCP tools
-  (`.opencode/pull-requests.md`); no hook pushes on commit.
+- `scripts/bot-identity.sh install` run once in the worktree, so its commits are authored by
+  `brads-bots[bot]`. It refuses to run in the main checkout and changes only this worktree's config
+  (it enables `extensions.worktreeConfig` for the repository, which leaves your own commits alone).
+- `BRADS_BOTS_APP_ID` set (see section 4), and `jq` and `openssl` installed.
+- `gh`, `uv`, `pnpm`, and Node 26 installed. The author agent pushes the branch with
+  `scripts/ship.sh`, which refuses to push commits not authored by the bot, and opens the draft PR
+  with `gh` (`.opencode/pull-requests.md`); no hook pushes on commit. Every `gh` call goes through
+  `scripts/bot-identity.sh run gh ...`, so it never falls back to your login. The GitHub MCP server
+  is not used by the agents.
 
 ## 6. First CI run, then verify
 

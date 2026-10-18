@@ -2,44 +2,33 @@
 
 You author the branch, and a **human** reads the description before deciding whether to merge. Write
 it as a factual case for the change: no requests, no instructions to the reviewer, no marketing.
-`scripts/ship.sh` only pushes the branch — **you open the pull request yourself** with the GitHub
-MCP tools.
+`scripts/ship.sh` only pushes the branch — **you open the pull request yourself** with `gh`,
+running as the App identity through `scripts/bot-identity.sh run` (never a bare `gh`, which would
+act as the owner).
 
 ## Open it early, as a draft
 
-Push your branch first with `scripts/ship.sh` (nothing pushes on commit), then open a **draft** PR:
+Push your branch first with `scripts/ship.sh` (nothing pushes on commit). Write the body to a file
+outside the repository (for example under `$TMPDIR`), then open a **draft** PR:
 
-```
-tools.github.create_pull_request({
-  owner: "bberk",
-  repo: "whodat-server",
-  base: "main",
-  head: "agent/<task-id>-<slug>",
-  title: "<imperative summary, about 50 characters, no trailing period>",
-  body: "<the filled-in body described below>",
-  draft: true,
-})
+```bash
+scripts/bot-identity.sh run gh pr create --draft --base main \
+  --head "agent/<task-id>-<slug>" \
+  --title "<imperative summary, about 50 characters, no trailing period>" \
+  --body-file "$TMPDIR/pr-body.md"
 ```
 
 A draft PR is never reviewed or merged, so opening it before the work is finished is safe and
 useful: CI runs and the work is visible. Keep committing to the same branch and do not open a second
-PR. Update the description with `tools.github.update_pull_request` (`owner`, `repo`, `pullNumber`,
-and the new `body`) whenever the scope changes — never leave stale text.
-
-### When the GitHub MCP tools are unavailable
-
-The MCP server is the preferred path, but it needs valid credentials. If a `tools.github.*` call
-fails — the server has been seen to answer `401 token authentication failed` — fall back to `gh`,
-which is authenticated in the agent environment:
+PR. Update the description whenever the scope changes — never leave stale text:
 
 ```bash
-gh pr create --draft --base main --head "agent/<task-id>-<slug>" \
-  --title "<imperative summary>" --body-file <file>
-gh pr edit <pr-number> --body-file <file>   # later updates
+scripts/bot-identity.sh run gh pr edit <pr-number> --body-file "$TMPDIR/pr-body.md"
 ```
 
-Tell the orchestrator that the MCP call failed instead of switching silently, so the credentials
-get fixed; AC-WF-22 accepts either path.
+Find the PR later with `scripts/bot-identity.sh run gh pr view <branch> --json url,number`. If `gh`
+fails with an authentication error, stop and tell the orchestrator; do not fall back to your own
+credentials.
 
 ## Fill in the body
 
@@ -67,8 +56,7 @@ squash-merged. `Add tie-splitting for lowest score`, not `VP fixes (WIP)`.
 
 1. Rebase on `main` and re-read the body against the final diff; fix anything stale.
 2. Run `scripts/ship.sh --ready`. It pushes, marks the PR ready, and adds the `ready-for-review`
-   label (GitHub labels are not available over MCP), which is the orchestrator's cue to start a
-   review.
+   label, which is the orchestrator's cue to start a review.
 3. Address a `changes requested` review by fixing, committing, and running `scripts/ship.sh --ready`
    again; a new reviewer session starts from scratch.
 
