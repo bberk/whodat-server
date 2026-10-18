@@ -295,7 +295,7 @@ ESPN cookies are read only inside `providers/espn/` and must be redacted from al
  agent ──▶ scripts/ship.sh ──▶ pre-push hook runs tests ──▶ push branch
         │
         ▼
- author ──▶ open one draft PR (GitHub MCP tools, else `gh`) and fill in the description
+ author ──▶ open one draft PR (`gh` as the App identity) and fill in the description
         │ ... later commits: push with ship.sh again ...
         ▼
  task done ──▶ rebase on main ──▶ scripts/ship.sh --ready ──▶ PR ready + label `ready-for-review`

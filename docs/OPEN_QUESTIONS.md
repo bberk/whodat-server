@@ -8,6 +8,22 @@ Follow the format used below. Newest entries at the top.
 
 ---
 
+## OQ-0009 — Agents open PRs with `gh` as the App identity, not the GitHub MCP server
+
+- **Found:** the GitHub MCP server fails with `401` (OQ-0006), and agents now commit, push, and act
+  through the `brads-bots` GitHub App (`scripts/bot-identity.sh`). Routing PR creation through MCP
+  would need a second credential configured outside the repo.
+- **Change (owner decision):** author agents open, update, and inspect PRs with
+  `scripts/bot-identity.sh run gh ...`. There is no MCP fallback. `gh` also adds the
+  `ready-for-review` label, which MCP could not. Updated: `AGENTS.md`, `ACCEPTANCE.md` (AC-WF-22),
+  `ARCHITECTURE.md` (the author-agent flow), `.opencode/pull-requests.md`, `scripts/ship.sh`, and
+  `docs/GITHUB_SETUP.md`.
+- **Supersedes:** the MCP-first procedure in OQ-0005 and the fallback in OQ-0006. OQ-0006's
+  diagnosis still stands for the global MCP config, which is now unused by the agents.
+- **Note:** these are governance and source-of-truth files, so a human merges the change.
+
+---
+
 ## OQ-0008 — The autoship post-commit hook is removed
 
 - **Found:** `.pre-commit-config.yaml` wired a `post-commit` hook to `scripts/ship.sh --post-commit`,
