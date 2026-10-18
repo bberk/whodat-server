@@ -21,23 +21,19 @@ class ESPNSettings(BaseSettings):
     These are read ONLY by the ESPN provider and must never appear in logs,
     error messages, or API responses (AC-DB-08).
 
-    The env_prefix means the adapter reads `ESPN_S2` and `ESPN_SWID`
-    (matching `.env.example`). Values come from the real environment first,
-    then fall back to the repo-root `.env` file.
+    The adapter reads `ESPN_S2` and `ESPN_SWID` (matching `.env.example`).
+    Values come from the real environment first, then fall back to the
+    repo-root `.env` file.
     """
 
-    model_config = SettingsConfigDict(
-        env_file=_REPO_ROOT / ".env",
-        env_prefix="ESPN_",
-        extra="ignore",
-    )
+    model_config = SettingsConfigDict(env_file=_REPO_ROOT / ".env", extra="ignore")
 
     espn_s2: str = ""
-    swid: str = ""
+    espn_swid: str = ""
 
     def has_credentials(self) -> bool:
         """Return True when both ESPN auth cookies are configured."""
-        return bool(self.espn_s2 and self.swid)
+        return bool(self.espn_s2 and self.espn_swid)
 
 
 @lru_cache
