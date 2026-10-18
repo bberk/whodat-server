@@ -15,6 +15,8 @@
 #   BRADS_BOTS_APP_ID   numeric App ID of brads-bots (required for token/run)
 #   BRADS_BOTS_KEY      path to the App private key
 #                       (default: ~/.config/brads-bots/private-key.pem)
+#   BRADS_BOTS_TOKEN    a token to use as-is instead of minting one (tests only; never set it
+#                       in a real agent environment)
 #
 # The installation is looked up from the `origin` remote, so the App must be installed on this
 # repository. Tokens last one hour and are never written to disk or passed on a command line.
@@ -40,6 +42,10 @@ api() {
 }
 
 mint_token() {
+  if [[ -n "${BRADS_BOTS_TOKEN:-}" ]]; then
+    echo "$BRADS_BOTS_TOKEN"
+    return
+  fi
   local app_id="${BRADS_BOTS_APP_ID:-}"
   local key="${BRADS_BOTS_KEY:-$HOME/.config/brads-bots/private-key.pem}"
   [[ -n "$app_id" ]] || die "set BRADS_BOTS_APP_ID to the numeric App ID of $bot_slug"
