@@ -107,7 +107,8 @@ def env(tmp_path: Path) -> dict[str, str]:
     payload.write_text("{}")
     merged = tmp_path / "merged.json"
     merged.write_text("[]")
-    environment = dict(os.environ)
+    # Git hooks export GIT_DIR and friends; drop them so the throwaway repos are not the real one.
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
     environment.update(
         {
             "PATH": f"{stub_dir}{os.pathsep}{environment['PATH']}",
@@ -132,9 +133,12 @@ def repo(tmp_path: Path, env: dict[str, str]) -> Path:
     """A throwaway repo with a bare ``origin`` and one commit on ``agent/test-task``."""
     origin = tmp_path / "origin.git"
     work = tmp_path / "work"
-    subprocess.run(["git", "init", "--bare", str(origin)], check=True, capture_output=True)
+    subprocess.run(["git", "init", "--bare", str(origin)], check=True, capture_output=True, env=env)
     subprocess.run(
-        ["git", "init", "--initial-branch=main", str(work)], check=True, capture_output=True
+        ["git", "init", "--initial-branch=main", str(work)],
+        check=True,
+        capture_output=True,
+        env=env,
     )
     _git(work, env, "remote", "add", "origin", str(origin))
     (work / "seed.txt").write_text("seed\n")
