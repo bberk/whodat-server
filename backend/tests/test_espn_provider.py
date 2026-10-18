@@ -319,6 +319,74 @@ class TestESPNLeagueProviderCredentials:
         assert "secret_swid" not in error_message
 
 
+class TestESPNSettingsNormalization:
+    """Test credential normalization handles .env formatting issues."""
+
+    def test_normalization_strips_leading_trailing_whitespace(self) -> None:
+        """Whitespace around credentials is stripped."""
+        from app.providers.espn.settings import ESPNSettings
+
+        settings = ESPNSettings(espn_s2="  ABC123  ", espn_swid="  {XYZ-456}  ")
+        assert settings.espn_s2 == "ABC123"
+        assert settings.espn_swid == "{XYZ-456}"
+
+    def test_normalization_strips_matching_double_quotes(self) -> None:
+        """One matching pair of double quotes is stripped."""
+        from app.providers.espn.settings import ESPNSettings
+
+        settings = ESPNSettings(espn_s2='"ABC123"', espn_swid='"{XYZ-456}"')
+        assert settings.espn_s2 == "ABC123"
+        assert settings.espn_swid == "{XYZ-456}"
+
+    def test_normalization_strips_matching_single_quotes(self) -> None:
+        """One matching pair of single quotes is stripped."""
+        from app.providers.espn.settings import ESPNSettings
+
+        settings = ESPNSettings(espn_s2="'ABC123'", espn_swid="'{XYZ-456}'")
+        assert settings.espn_s2 == "ABC123"
+        assert settings.espn_swid == "{XYZ-456}"
+
+    def test_normalization_strips_whitespace_then_quotes(self) -> None:
+        """Whitespace is stripped first, then quotes."""
+        from app.providers.espn.settings import ESPNSettings
+
+        settings = ESPNSettings(espn_s2='  "ABC123"  ', espn_swid='  "{XYZ-456}"  ')
+        assert settings.espn_s2 == "ABC123"
+        assert settings.espn_swid == "{XYZ-456}"
+
+    def test_normalization_preserves_internal_quotes(self) -> None:
+        """Quotes inside the credential value are preserved."""
+        from app.providers.espn.settings import ESPNSettings
+
+        settings = ESPNSettings(espn_s2='ABC"123"DEF', espn_swid='{X"Y"Z}')
+        assert settings.espn_s2 == 'ABC"123"DEF'
+        assert settings.espn_swid == '{X"Y"Z}'
+
+    def test_normalization_preserves_mismatched_quotes(self) -> None:
+        """Mismatched quote pairs are not stripped."""
+        from app.providers.espn.settings import ESPNSettings
+
+        settings = ESPNSettings(espn_s2="\"ABC123'", espn_swid="'{XYZ-456}\"")
+        assert settings.espn_s2 == "\"ABC123'"
+        assert settings.espn_swid == "'{XYZ-456}\""
+
+    def test_normalization_handles_empty_strings(self) -> None:
+        """Empty strings remain empty."""
+        from app.providers.espn.settings import ESPNSettings
+
+        settings = ESPNSettings(espn_s2="", espn_swid="")
+        assert settings.espn_s2 == ""
+        assert settings.espn_swid == ""
+
+    def test_normalization_handles_whitespace_only(self) -> None:
+        """Whitespace-only strings become empty."""
+        from app.providers.espn.settings import ESPNSettings
+
+        settings = ESPNSettings(espn_s2="   ", espn_swid="   ")
+        assert settings.espn_s2 == ""
+        assert settings.espn_swid == ""
+
+
 class TestESPNLeagueProviderEdgeCases:
     """Test edge cases and fallback behavior."""
 
