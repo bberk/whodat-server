@@ -19,6 +19,8 @@ SHIP = REPO_ROOT / "scripts" / "ship.sh"
 MERGE = REPO_ROOT / "scripts" / "merge.sh"
 CLEANUP = REPO_ROOT / "scripts" / "cleanup.sh"
 WORK_BRANCH = "agent/test-task"
+BOT_NAME = "brads-bots[bot]"
+BOT_EMAIL = "344180581+brads-bots[bot]@users.noreply.github.com"
 
 # Stub `gh`: log every call, answer `pr view` from a canned payload, and fail loudly on `pr create`
 # so a script that tries to open a pull request is caught by the assertion and by the exit code.
@@ -115,10 +117,11 @@ def env(tmp_path: Path) -> dict[str, str]:
             "GH_PR_URL": "https://example.test/pr/7",
             "GIT_CONFIG_GLOBAL": os.devnull,
             "GIT_CONFIG_NOSYSTEM": "1",
-            "GIT_AUTHOR_NAME": "Agent",
-            "GIT_AUTHOR_EMAIL": "agent@example.test",
-            "GIT_COMMITTER_NAME": "Agent",
-            "GIT_COMMITTER_EMAIL": "agent@example.test",
+            "GIT_AUTHOR_NAME": BOT_NAME,
+            "GIT_AUTHOR_EMAIL": BOT_EMAIL,
+            "GIT_COMMITTER_NAME": BOT_NAME,
+            "GIT_COMMITTER_EMAIL": BOT_EMAIL,
+            "BRADS_BOTS_TOKEN": "test-token",
         }
     )
     return environment
@@ -137,6 +140,7 @@ def repo(tmp_path: Path, env: dict[str, str]) -> Path:
     (work / "seed.txt").write_text("seed\n")
     _git(work, env, "add", "-A")
     _git(work, env, "commit", "-m", "Initial")
+    _git(work, env, "update-ref", "refs/remotes/origin/main", "HEAD")
     _git(work, env, "checkout", "-b", WORK_BRANCH)
     return work
 
@@ -150,6 +154,21 @@ def test_AC_WF_07_ship_pushes_the_branch(repo: Path, env: dict[str, str]) -> Non
     assert result.returncode == 0, result.stderr
     assert f"refs/heads/{WORK_BRANCH}" in _git(repo, env, "ls-remote", "--heads", "origin")
     assert _pr_create_calls(env) == [], "ship.sh must not open a pull request"
+
+
+def test_AC_WF_07_ship_refuses_commits_not_authored_by_the_bot(
+    repo: Path, env: dict[str, str]
+) -> None:
+    human = {**env, "GIT_AUTHOR_NAME": "Human", "GIT_AUTHOR_EMAIL": "human@example.test"}
+    (repo / "change.txt").write_text("change\n")
+    _git(repo, env, "add", "-A")
+    _git(repo, human, "commit", "-m", "Human change")
+
+    result = _run(SHIP, repo, env)
+
+    assert result.returncode != 0
+    assert "not authored by" in result.stderr
+    assert f"refs/heads/{WORK_BRANCH}" not in _git(repo, env, "ls-remote", "--heads", "origin")
 
 
 def test_AC_WF_07_ship_pushes_later_commits_to_the_same_branch(
