@@ -1,0 +1,127 @@
+{
+  "description": "4-team league with bye week in week 2 (team 4 has bye)",
+  "league_id": 12346,
+  "year": 2024,
+  "status": {
+    "currentMatchupPeriod": 3,
+    "firstScoringPeriod": 1,
+    "finalScoringPeriod": 14,
+    "latestScoringPeriod": 14
+  },
+  "settings": {
+    "name": "Bye Week Test League",
+    "size": 4,
+    "scheduleSettings": {
+      "matchupPeriodCount": 14,
+      "divisions": [
+        {"id": 0, "name": "Division 1"}
+      ],
+      "playoffTeamCount": 4
+    },
+    "scoringSettings": {
+      "scoringType": "H2H_POINTS"
+    }
+  },
+  "members": [
+    {"id": "owner-1", "firstName": "John", "lastName": "Doe", "displayName": "John D."},
+    {"id": "owner-2", "firstName": "Jane", "lastName": "Smith", "displayName": "Jane S."},
+    {"id": "owner-3", "firstName": "Bob", "lastName": "Johnson", "displayName": "Bob J."},
+    {"id": "owner-4", "firstName": "Alice", "lastName": "Williams", "displayName": "Alice W."}
+  ],
+  "teams": [
+    {
+      "id": 1,
+      "abbrev": "TEAM1",
+      "name": "Team Alpha",
+      "divisionId": 0,
+      "owners": ["owner-1"],
+      "record": {
+        "overall": {
+          "wins": 2,
+          "losses": 0,
+          "ties": 0,
+          "pointsFor": 240.5,
+          "pointsAgainst": 195.0
+        }
+      }
+    },
+    {
+      "id": 2,
+      "abbrev": "TEAM2",
+      "name": "Team Beta",
+      "divisionId": 0,
+      "owners": ["owner-2"],
+      "record": {
+        "overall": {
+          "wins": 1,
+          "losses": 1,
+          "ties": 0,
+          "pointsFor": 215.0,
+          "pointsAgainst": 220.5
+        }
+      }
+    },
+    {
+      "id": 3,
+      "abbrev": "TEAM3",
+      "name": "Team Gamma",
+      "divisionId": 0,
+      "owners": ["owner-3"],
+      "record": {
+        "overall": {
+          "wins": 1,
+          "losses": 1,
+          "ties": 0,
+          "pointsFor": 220.0,
+          "pointsAgainst": 215.0
+        }
+      }
+    },
+    {
+      "id": 4,
+      "abbrev": "TEAM4",
+      "name": "Team Delta",
+      "divisionId": 0,
+      "owners": ["owner-4"],
+      "record": {
+        "overall": {
+          "wins": 0,
+          "losses": 2,
+          "ties": 0,
+          "pointsFor": 195.0,
+          "pointsAgainst": 240.5
+        }
+      }
+    }
+  ],
+  "schedule": [
+    {
+      "matchupPeriodId": 1,
+      "home": {"teamId": 1, "totalPoints": 120.5},
+      "away": {"teamId": 2, "totalPoints": 95.0},
+      "winner": "HOME"
+    },
+    {
+      "matchupPeriodId": 1,
+      "home": {"teamId": 3, "totalPoints": 110.0},
+      "away": {"teamId": 4, "totalPoints": 100.0},
+      "winner": "HOME"
+    },
+    {
+      "matchupPeriodId": 2,
+      "home": {"teamId": 1, "totalPoints": 120.0},
+      "away": {"teamId": 3, "totalPoints": 110.0},
+      "winner": "HOME"
+    },
+    {
+      "matchupPeriodId": 2,
+      "home": {"teamId": 4, "totalPoints": 95.0},
+      "winner": "UNDECIDED"
+    },
+    {
+      "matchupPeriodId": 2,
+      "home": {"teamId": 2, "totalPoints": 120.0},
+      "winner": "UNDECIDED"
+    }
+  ]
+}

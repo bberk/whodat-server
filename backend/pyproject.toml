@@ -11,6 +11,7 @@ dependencies = [
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
     "psycopg[binary]>=3.2",
+    "espn-api>=0.34.0",  # ESPN fantasy sports API client for M3 provider adapter
 ]
 
 [dependency-groups]
