@@ -92,8 +92,10 @@ All ESPN-specific code lives behind a provider interface that returns normalized
 
 ### 4.4 Accounts and access
 
-- Accounts are invite-only: signing up requires a valid, unexpired shared invite code. Invites belong
-  to a league, default to a 7-day expiry, and carry either the **admin** or **member** role.
+- Accounts are invite-only: signing up requires a valid, unexpired shared invite code, which is
+  validated against its stored hash. Invites belong to a league, default to a 7-day expiry, and
+  carry either the **admin** or **member** role. The raw code is shown only once when an admin
+  creates the invite and is never retrievable afterwards; regenerating means creating a new invite.
 - Users and leagues are many-to-many. A membership row links a user to a league, optionally records
   that user's owner (team) association, and stores that user's ESPN credentials, encrypted at rest.
 - An admin can add a league by providing `espn_league_id`, an optional season, and optional
