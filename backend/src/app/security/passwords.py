@@ -51,10 +51,12 @@ def hash_password(raw: str) -> str:
 def verify_password(raw: str, encoded: str) -> bool:
     """Return whether ``raw`` matches the Argon2id hash in ``encoded``.
 
-    Verification is constant-time inside argon2-cffi. A malformed, empty, truncated, or
-    otherwise unparseable ``encoded`` hash returns ``False`` rather than raising, so callers can
-    treat a stored value as untrusted input.
+    Verification is constant-time inside argon2-cffi. Non-string or empty inputs (including a
+    malformed, truncated, or unparseable stored hash) return ``False`` rather than raising, so
+    callers can treat a stored value as untrusted input.
     """
+    if not isinstance(raw, str) or not isinstance(encoded, str) or not raw or not encoded:
+        return False
     try:
         return _hasher.verify(encoded, raw)
     except Argon2Error, ValueError, TypeError:

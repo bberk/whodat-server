@@ -5,9 +5,14 @@ A token is self-describing and versioned so the format can evolve without ambigu
     base64url(version byte || 12-byte nonce || AES-256-GCM ciphertext and tag)
 
 The 256-bit key is read on every call from ``Settings.league_credentials_key`` via
-``app.config.get_settings``. The key is never cached here, so rotating the setting takes effect
-without restarting the process. There is deliberately no default or derived fallback key: a
-missing or malformed key raises instead of silently encrypting credentials with a guessable key.
+``app.config.get_settings``. There is deliberately no default or derived fallback key: a missing
+or malformed key raises instead of silently encrypting credentials with a guessable key. Because
+``get_settings`` is process-cached, changing ``LEAGUE_CREDENTIALS_KEY`` takes effect only after
+``get_settings.cache_clear()`` or a process restart; tokens encrypted with a replaced key are not
+decryptable under the new key (there is no multi-key ring in this module).
+
+The associated data is the fixed string ``whodat-server:league-credentials:v1``. It is static for
+this token version; a future version must use a new AAD value together with a new version byte.
 
 Error messages identify the failure but never include the key or the plaintext.
 """
