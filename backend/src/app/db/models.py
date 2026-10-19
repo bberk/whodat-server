@@ -9,15 +9,27 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     Text,
     UniqueConstraint,
     func,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from app.db.base import Base
+
+ROLE_ADMIN = "admin"
+ROLE_MEMBER = "member"
+VALID_ROLES: frozenset[str] = frozenset({ROLE_ADMIN, ROLE_MEMBER})
+
+
+def _checked_role(value: str) -> str:
+    """Return a supported role, raising for anything outside the documented values."""
+    if value not in VALID_ROLES:
+        raise ValueError(f"invalid role {value!r}; expected one of {sorted(VALID_ROLES)}")
+    return value
 
 
 class TimestampMixin:
@@ -168,7 +180,12 @@ class Score(TimestampMixin, Base):
 
 
 class AppUser(TimestampMixin, Base):
-    """An account optionally linked to a league owner."""
+    """An account with an email, password hash, and role.
+
+    The role is validated here rather than by a database enum so that SQLite and Postgres share
+    the same schema while unsupported values still fail before they are persisted. Owner
+    associations live on :class:`UserLeague`, not on the account.
+    """
 
     __tablename__ = "app_user"
     __table_args__ = (UniqueConstraint("email", name="uq_app_user_email"),)
@@ -176,6 +193,71 @@ class AppUser(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     email: Mapped[str] = mapped_column(Text, nullable=False)
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
-    owner_id: Mapped[int | None] = mapped_column(
-        ForeignKey("owner.id", name="fk_app_user_owner_id_owner"), nullable=True
+    role: Mapped[str] = mapped_column(
+        Text, nullable=False, default=ROLE_MEMBER, server_default=ROLE_MEMBER
     )
+
+    @validates("role")
+    def _validate_role(self, _key: str, value: str) -> str:
+        return _checked_role(value)
+
+
+class Invite(TimestampMixin, Base):
+    """A league invite that grants admin or member access until it expires.
+
+    Only a one-way hash of the raw code is stored. ``expires_at`` is supplied by the caller (the
+    admin CLI applies the documented seven-day default); the repository reports whether a stored
+    invite is still valid.
+    """
+
+    __tablename__ = "invite"
+    __table_args__ = (
+        UniqueConstraint("code_hash", name="uq_invite_code_hash"),
+        Index("ix_invite_league_id", "league_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    league_id: Mapped[int] = mapped_column(
+        ForeignKey("league.id", name="fk_invite_league_id_league"), nullable=False
+    )
+    code_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    role: Mapped[str] = mapped_column(
+        Text, nullable=False, default=ROLE_MEMBER, server_default=ROLE_MEMBER
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    league: Mapped[League] = relationship()
+
+    @validates("role")
+    def _validate_role(self, _key: str, value: str) -> str:
+        return _checked_role(value)
+
+
+class UserLeague(TimestampMixin, Base):
+    """A user's membership in a league, with optional owner association and credentials.
+
+    The two credential columns hold the self-describing encrypted tokens produced by the security
+    layer; this module never sees plaintext credentials. A user may belong to many leagues and a
+    league may have many members, but each (user, league) pair is unique.
+    """
+
+    __tablename__ = "user_league"
+    __table_args__ = (
+        UniqueConstraint("user_id", "league_id", name="uq_user_league_user_id_league_id"),
+        Index("ix_user_league_league_id", "league_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("app_user.id", name="fk_user_league_user_id_app_user"), nullable=False
+    )
+    league_id: Mapped[int] = mapped_column(
+        ForeignKey("league.id", name="fk_user_league_league_id_league"), nullable=False
+    )
+    owner_id: Mapped[int | None] = mapped_column(
+        ForeignKey("owner.id", name="fk_user_league_owner_id_owner"), nullable=True
+    )
+    espn_s2_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    espn_swid_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    user: Mapped[AppUser] = relationship()
+    league: Mapped[League] = relationship()
+    owner: Mapped[Owner | None] = relationship()

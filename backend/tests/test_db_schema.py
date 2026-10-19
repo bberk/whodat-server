@@ -113,7 +113,7 @@ def test_schema_natural_keys_and_foreign_keys_match_contract() -> None:
             ("away_team_id", "team.id"),
         },
         "score": {("team_id", "team.id"), ("league_id", "league.id")},
-        "app_user": {("owner_id", "owner.id")},
+        "app_user": set(),
         "league": set(),
         "league_season": {("league_id", "league.id")},
     }
