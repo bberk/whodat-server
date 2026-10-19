@@ -200,10 +200,17 @@ def test_AC_DB_01_model_metadata_matches_the_schema_contract() -> None:
     assert app_user_role.nullable is False
     assert app_user_role.server_default is not None
     assert str(app_user_role.server_default.arg) == "member"
-    invite_role = Invite.__table__.c.role
-    assert isinstance(invite_role.type, Text)
-    assert invite_role.nullable is False
-    assert str(invite_role.server_default.arg) == "member"
-    assert UserLeague.__table__.c.owner_id.nullable is True
-    assert UserLeague.__table__.c.espn_s2_encrypted.nullable is True
-    assert UserLeague.__table__.c.espn_swid_encrypted.nullable is True
+    invite_columns = Invite.__table__.c
+    assert isinstance(invite_columns.role.type, Text)
+    assert invite_columns.role.nullable is False
+    assert str(invite_columns.role.server_default.arg) == "member"
+    # Invite requires both the hashed code and an expiry; the unique key is in EXPECTED_UNIQUE_KEYS.
+    assert invite_columns.code_hash.nullable is False
+    assert invite_columns.expires_at.nullable is False
+    membership_columns = UserLeague.__table__.c
+    # A membership requires both sides of the many-to-many; owner and credentials stay optional.
+    assert membership_columns.user_id.nullable is False
+    assert membership_columns.league_id.nullable is False
+    assert membership_columns.owner_id.nullable is True
+    assert membership_columns.espn_s2_encrypted.nullable is True
+    assert membership_columns.espn_swid_encrypted.nullable is True
