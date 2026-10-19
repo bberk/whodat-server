@@ -28,6 +28,22 @@ describe("StandingsPage", () => {
     expect(screen.getByText(/4 completed weeks/i)).toBeInTheDocument();
   });
 
+  it("shows overall league ranks in the division tables", async () => {
+    renderScenario("ready");
+    const east = await screen.findByRole("table", { name: /east division standings/i });
+    const west = screen.getByRole("table", { name: /west division standings/i });
+    expect(
+      within(east)
+        .getAllByRole("rowheader")
+        .map((cell) => cell.textContent),
+    ).toEqual(["1", "2", "3"]);
+    expect(
+      within(west)
+        .getAllByRole("rowheader")
+        .map((cell) => cell.textContent),
+    ).toEqual(["4", "5", "6"]);
+  });
+
   it("highlights the selected team in both the table and the chart", async () => {
     const user = userEvent.setup();
     const { container } = renderScenario("ready");

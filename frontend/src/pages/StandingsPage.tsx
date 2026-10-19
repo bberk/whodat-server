@@ -179,7 +179,8 @@ export function StandingsPage({ source = defaultStandingsSource }: StandingsPage
             Division standings
           </h2>
           <p className="mt-1 text-[13px] text-gray-500">
-            Same ranking rules, applied within each division; ranks come from the API rows as-is.
+            Each division groups the same teams; the rank shown is the team&rsquo;s overall league
+            rank.
           </p>
           {bundle === null ? (
             <DataState
@@ -195,7 +196,7 @@ export function StandingsPage({ source = defaultStandingsSource }: StandingsPage
                 <div key={division.name} className="min-w-0">
                   <h3 className="text-sm font-semibold text-gray-700">{division.name}</h3>
                   <StandingsTable
-                    caption={`${division.name} division standings, ${season}.`}
+                    caption={`${division.name} division standings, ${season}. Ranks are overall league ranks.`}
                     ariaLabel={`${division.name} division standings, scrollable horizontally`}
                     rows={division.standings}
                     weeks={weeks}
