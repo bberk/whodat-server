@@ -80,25 +80,6 @@ def test_AC_ST_03_vp_tie_broken_by_h2h_wins_descending() -> None:
     assert _ranks(result) == [1, 2, 3]
 
 
-def test_AC_ST_03_h2h_ties_do_not_count_as_wins() -> None:
-    """Two teams with equal VP, equal H2H wins (e.g., both 3-0-2) stay tied.
-
-    The tie count is not part of the ranking key, so they share rank.
-    """
-    rows = [
-        _row(1, "Alpha", Fraction(10), 3, "1000.00"),
-        _row(2, "Beta", Fraction(10), 3, "900.00"),
-    ]
-
-    result = rank_teams(rows)
-
-    # VP and wins equal; Beta has fewer points but ranks by points_for next
-    assert result[0].team_id == 1  # Alpha on top on points_for
-    assert result[0].rank == 1
-    assert result[1].team_id == 2
-    assert result[1].rank == 2
-
-
 def test_AC_ST_04_points_for_breaks_remaining_ties() -> None:
     rows = [
         _row(1, "Low PF", Fraction(10), 3, "800.00"),
