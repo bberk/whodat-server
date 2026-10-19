@@ -144,6 +144,23 @@ def test_request_key_combines_client_address_and_path() -> None:
     assert request_rate_limit_key(request, route="login") == "198.51.100.7|login"
 
 
+def test_request_key_ignores_x_forwarded_for() -> None:
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "scheme": "http",
+            "path": "/api/v1/auth/login",
+            "query_string": b"",
+            "headers": [(b"x-forwarded-for", b"198.51.100.99")],
+            "client": ("203.0.113.5", 50000),
+            "server": ("testserver", 80),
+        }
+    )
+
+    assert request_rate_limit_key(request) == "203.0.113.5|/api/v1/auth/login"
+
+
 def test_request_key_without_a_client_address_uses_unknown() -> None:
     request = Request(
         {

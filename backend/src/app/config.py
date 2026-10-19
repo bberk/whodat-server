@@ -8,6 +8,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # config.py -> app -> src -> backend -> repo root
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
+#: The placeholder shipped in `.env.example`. It is safe for local development and tests only.
+DEFAULT_SECRET_KEY = "dev-insecure-change-me"
+
 
 class Settings(BaseSettings):
     """Environment-driven settings.
@@ -20,7 +23,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=_REPO_ROOT / ".env", extra="ignore")
 
     database_url: str = "sqlite:///./dev.db"
-    secret_key: str = "dev-insecure-change-me"
+    secret_key: str = DEFAULT_SECRET_KEY
     env: str = "local"
     cors_origins: str = "http://localhost:5173"
     league_credentials_key: str | None = None

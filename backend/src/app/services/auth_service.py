@@ -61,15 +61,6 @@ class UserNotFoundError(AuthServiceError, LookupError):
         super().__init__(f"no account exists for user {user_id}")
 
 
-class InactiveUserError(UserNotFoundError):
-    """The account exists but must not authenticate.
-
-    The current schema has no inactive flag, so every stored account is active; this typed error is
-    reserved for when accounts can be deactivated. Callers already treat it as unauthenticated
-    because it subclasses :class:`UserNotFoundError`.
-    """
-
-
 def _utc_now() -> datetime:
     return datetime.now(UTC)
 
@@ -150,7 +141,7 @@ class AuthService:
         """Return the account for ``user_id`` or raise :class:`UserNotFoundError`.
 
         Cookies can outlive an account, so callers translate this error into an unauthenticated
-        response. :class:`InactiveUserError` is the corresponding error once deactivation exists.
+        response.
         """
         user = self._users.get_by_id(user_id)
         if user is None:
