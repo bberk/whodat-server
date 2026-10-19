@@ -80,6 +80,21 @@ def test_AC_ST_03_vp_tie_broken_by_h2h_wins_descending() -> None:
     assert _ranks(result) == [1, 2, 3]
 
 
+def test_AC_ST_03_tiebreak_chain_reaches_points_for() -> None:
+    """When VP and H2H wins are tied, points_for is used as the tiebreaker."""
+    rows = [
+        _row(1, "Alpha", Fraction(10), 3, "1000.00"),
+        _row(2, "Beta", Fraction(10), 3, "900.00"),
+    ]
+
+    result = rank_teams(rows)
+
+    assert result[0].team_id == 1
+    assert result[0].rank == 1
+    assert result[1].team_id == 2
+    assert result[1].rank == 2
+
+
 def test_AC_ST_04_points_for_breaks_remaining_ties() -> None:
     rows = [
         _row(1, "Low PF", Fraction(10), 3, "800.00"),
@@ -145,8 +160,12 @@ def test_AC_ST_05_rank_gap_follows_tied_group() -> None:
     assert _ranks(result) == [1, 2, 2, 2, 5]
 
 
-def test_AC_ST_06_division_subset_uses_same_ranking_logic() -> None:
-    """Passing only division rows produces division-local ranks."""
+def test_AC_ST_06_division_tables_display_overall_league_rank() -> None:
+    """Division tables show each team's overall league rank, not division-local rank.
+
+    The rank_teams function remains callable on any subset, but production division
+    tables reuse the overall ranking and only group rows by division.
+    """
     all_rows = [
         _row(1, "East-1", Fraction(15), 5, "1200.00", "East"),
         _row(2, "West-1", Fraction(20), 4, "1100.00", "West"),
@@ -155,14 +174,18 @@ def test_AC_ST_06_division_subset_uses_same_ranking_logic() -> None:
         _row(5, "East-3", Fraction(5), 1, "700.00", "East"),
     ]
 
-    east_rows = [r for r in all_rows if r.division == "East"]
-    east_ranked = rank_teams(east_rows)
+    # Compute overall ranks first
+    overall = rank_teams(all_rows)
 
-    # East ranks are within the division only
-    assert _ids(east_ranked) == [1, 3, 5]
-    assert _ranks(east_ranked) == [1, 2, 3]
+    # Division table reuses overall ranks, only filters by division
+    east_table = [r for r in overall if r.division == "East"]
+
+    # East teams keep their overall league ranks: East-1 is 2nd overall,
+    # East-2 is 4th overall, East-3 is 5th overall
+    assert {r.team_id: r.rank for r in east_table} == {1: 2, 3: 4, 5: 5}
+    assert [r.team_id for r in east_table] == [1, 3, 5]
     # Division field is preserved on output
-    assert all(row.division == "East" for row in east_ranked)
+    assert all(row.division == "East" for row in east_table)
 
 
 def test_AC_ST_07_overall_ranking_across_all_rows() -> None:
@@ -361,8 +384,13 @@ def test_two_tied_groups() -> None:
     assert [r.team_name for r in result[2:]] == ["C", "D", "E"]
 
 
-def test_ranking_function_works_on_division_subset_and_full_league() -> None:
-    """Same function produces different ranks for full league vs. division."""
+def test_ranking_function_works_on_any_subset() -> None:
+    """The rank_teams function is generic and can rank any subset of rows.
+
+    Note: Production division tables do not call rank_teams on division subsets;
+    they compute overall ranks and filter by division (see AC-ST-06 test).
+    This test demonstrates the function's generic behavior on arbitrary inputs.
+    """
     rows = [
         _row(1, "East-1", Fraction(20), 5, "1500.00", "East"),
         _row(2, "West-1", Fraction(15), 4, "1400.00", "West"),
@@ -371,12 +399,13 @@ def test_ranking_function_works_on_division_subset_and_full_league() -> None:
     ]
 
     overall = rank_teams(rows)
-    east = rank_teams([r for r in rows if r.division == "East"])
+    east_subset = rank_teams([r for r in rows if r.division == "East"])
 
     # Overall: East-1 (rank 1), West-2 (rank 2), West-1 (rank 3), East-2 (rank 4)
     assert {r.team_id: r.rank for r in overall} == {1: 1, 4: 2, 2: 3, 3: 4}
-    # East-only: East-1 rank 1, East-2 rank 2
-    assert {r.team_id: r.rank for r in east} == {1: 1, 3: 2}
+    # Subset ranking (demonstrates function works on any input):
+    # East-1 rank 1, East-2 rank 2 (within this subset)
+    assert {r.team_id: r.rank for r in east_subset} == {1: 1, 3: 2}
 
 
 def test_season_row_and_ranked_row_are_frozen_dataclasses() -> None:
