@@ -76,8 +76,8 @@ repos:
         stages: [pre-commit]
 
       - id: backend-tests
-        name: backend tests (pytest)
-        entry: bash -c 'cd backend && uv run pytest -x'
+        name: backend tests (pytest, fast suite)
+        entry: bash -c 'cd backend && uv run pytest -x -m "not slow and not postgres"'
         language: system
         pass_filenames: false
         stages: [pre-push]

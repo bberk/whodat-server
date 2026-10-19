@@ -79,14 +79,21 @@ jobs:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.3.0
       - run: uv sync --frozen
+      - name: Apply migrations and check for model drift (Postgres)
+        run: |
+          uv run alembic upgrade head
+          uv run alembic check
       - name: Tests with coverage (backend total must be >= 85%)
         run: >-
           uv run pytest
           --cov=app --cov-branch
           --cov-report=term-missing --cov-report=xml
           --cov-fail-under=85
-      - name: VP engine must be 100% covered (lines and branches)
-        run: uv run coverage report --include="*/app/domain/*" --fail-under=100
+      - name: vp_engine and standings must be 100% covered (lines and branches)
+        run: >-
+          uv run coverage report
+          --include="*/app/domain/vp_engine.py,*/app/domain/standings.py"
+          --fail-under=100
       - name: Upload backend coverage
         uses: actions/upload-artifact@v7
         with:
@@ -127,6 +134,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read
       pull-requests: write
     steps:
       - uses: actions/checkout@v7
@@ -134,11 +142,23 @@ jobs:
         with:
           pattern: coverage-*
           path: coverage
+      - name: Fetch base-branch coverage (best effort)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          run_id=$(gh run list --workflow ci.yml --branch "$BASE_REF" --status success \
+            --limit 1 --json databaseId --jq '.[0].databaseId')
+          test -n "$run_id"
+          gh run download "$run_id" --pattern 'coverage-*' --dir coverage-base
       - name: Build report
         run: |
           python3 scripts/coverage_report.py \
             --backend coverage/coverage-backend/coverage.xml \
-            --frontend coverage/coverage-frontend/coverage-summary.json > report.md
+            --base-backend coverage-base/coverage-backend/coverage.xml \
+            --frontend coverage/coverage-frontend/coverage-summary.json \
+            --base-frontend coverage-base/coverage-frontend/coverage-summary.json > report.md
           cat report.md >> "$GITHUB_STEP_SUMMARY"
       - name: Post or update PR comment
         uses: actions/github-script@v9

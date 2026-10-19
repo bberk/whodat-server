@@ -50,3 +50,14 @@ mypy_path = "src"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--strict-markers --strict-config"
+markers = [
+    "postgres: needs a Postgres database (configured DATABASE_URL); skipped on SQLite",
+    "slow: too slow for the pre-push hook; CI runs it",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["app"]
+
+[tool.coverage.report]
+show_missing = true
