@@ -76,6 +76,7 @@ def _seed(
     weeks: tuple[int, ...] = (1, 2),
     last_completed_week: int | None = 2,
     regular_season_length: int | None = 2,
+    season: int = SEASON,
 ) -> dict[tuple[str, int], FakeSeed]:
     """Build a 2-team FakeProvider seed for the CLI league and season."""
     metadata: dict[str, object] = {"teams": 2}
@@ -103,7 +104,7 @@ def _seed(
         for week in weeks
     }
     return {
-        (LEAGUE_EXTERNAL_ID, SEASON): (
+        (LEAGUE_EXTERNAL_ID, season): (
             league,
             owners,
             teams,
@@ -214,6 +215,28 @@ def test_cli_sync_accepts_an_inclusive_week_range(
     assert "weeks_synced=1,2" in capsys.readouterr().out
     with session_factory() as session:
         assert _score_count(session) == 4
+
+
+def test_cli_sync_supports_historical_seasons(
+    session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The same league can be backfilled season by season with independent rows."""
+    registry = _registry({**_seed(season=2025), **_seed(season=2026)})
+    for season in (2025, 2026):
+        code = main(
+            ["sync", "--league", LEAGUE_EXTERNAL_ID, "--season", str(season)],
+            registry=registry,
+            session_factory=session_factory,
+            provider_id="fake",
+        )
+        assert code == 0
+        capsys.readouterr()
+
+    with session_factory() as session:
+        scores = session.scalars(select(Score)).all()
+        # Two teams over two weeks in each of two seasons, stored independently.
+        assert {score.season for score in scores} == {2025, 2026}
+        assert len(scores) == 8
 
 
 def test_cli_sync_unknown_league_reports_a_structured_error(
