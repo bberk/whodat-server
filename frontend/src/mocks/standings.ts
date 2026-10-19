@@ -27,11 +27,9 @@ export interface StandingsRow {
 export interface DivisionStandings {
   name: string;
   /**
-   * Division rows, each with the `rank` the data layer supplies. The table renders that value
-   * verbatim and the frontend computes no division-local rank. The owner has signalled these ranks
-   * will be overall league ranks once the contract amendment is confirmed; until then this mock
-   * keeps mirroring the current ARCHITECTURE.md §8 / AC-ST-06 division-local ranks so the
-   * illustrative numbers stay as approved.
+   * Division rows, each carrying the team's **overall league rank** (the owner confirmed that a
+   * division only groups/filters rows and does not rank within itself). The table renders that
+   * value verbatim and the frontend computes no rank of its own.
    */
   standings: StandingsRow[];
 }
@@ -220,7 +218,7 @@ export const mockStandingsBundle: StandingsBundle = {
         name: "West",
         standings: [
           {
-            rank: 1,
+            rank: 4,
             team_id: 5,
             team_name: "Echo",
             owner_name: "Emery",
@@ -233,7 +231,7 @@ export const mockStandingsBundle: StandingsBundle = {
             weekly_vp: ["0", "0", "-0.5", "2.33"],
           },
           {
-            rank: 2,
+            rank: 5,
             team_id: 2,
             team_name: "Delta",
             owner_name: "Devon",
@@ -246,7 +244,7 @@ export const mockStandingsBundle: StandingsBundle = {
             weekly_vp: ["0", "0.5", "0", "0"],
           },
           {
-            rank: 3,
+            rank: 6,
             team_id: 4,
             team_name: "Foxtrot",
             owner_name: "Frankie",

@@ -59,6 +59,19 @@ describe("standings bundle consistency", () => {
     }
   });
 
+  it("carries overall league ranks in the division rows, not division-local ones", () => {
+    const rankByTeam = new Map(
+      mockStandingsBundle.standings.overall.map((row) => [row.team_id, row.rank]),
+    );
+    for (const division of mockStandingsBundle.standings.divisions) {
+      const ranks = division.standings.map((row) => row.rank);
+      expect(ranks).toEqual(division.standings.map((row) => rankByTeam.get(row.team_id)));
+      expect(ranks).toEqual([...ranks].sort((a, b) => a - b));
+    }
+    const west = mockStandingsBundle.standings.divisions.find((row) => row.name === "West");
+    expect(west?.standings.map((row) => row.rank)).toEqual([4, 5, 6]);
+  });
+
   it("has weekly component rows that add up to the displayed total", () => {
     for (const week of mockStandingsBundle.weekly) {
       for (const row of week.rows) {
