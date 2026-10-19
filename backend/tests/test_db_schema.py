@@ -2,14 +2,15 @@ from sqlalchemy import JSON, Numeric, UniqueConstraint
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.schema import CreateTable
 
-from app.db.models import AppUser, League, Matchup, Owner, Score, Team
+from app.db.models import AppUser, League, LeagueSeason, Matchup, Owner, Score, Team
 
 
 def test_AC_DB_01_schema_defines_normalized_league_entities() -> None:
     """The schema contains each league, owner, team, matchup, score, and user entity."""
-    expected = {"league", "owner", "team", "matchup", "score", "app_user"}
+    expected = {"league", "owner", "team", "matchup", "score", "app_user", "league_season"}
     assert {
-        model.__tablename__ for model in (League, Owner, Team, Matchup, Score, AppUser)
+        model.__tablename__
+        for model in (League, Owner, Team, Matchup, Score, AppUser, LeagueSeason)
     } == expected
 
     assert {column.name for column in League.__table__.columns} >= {
@@ -49,6 +50,15 @@ def test_AC_DB_01_schema_defines_normalized_league_entities() -> None:
         "points",
         "victory_points",
     }
+    assert {column.name for column in LeagueSeason.__table__.columns} >= {
+        "league_id",
+        "season",
+        "metadata",
+        "created_at",
+        "updated_at",
+    }
+    # Per-season settings carry no name: league.name stays the single league name.
+    assert "name" not in {column.name for column in LeagueSeason.__table__.columns}
 
 
 def test_AC_DB_04_score_persists_total_and_each_vp_component() -> None:
@@ -66,7 +76,7 @@ def test_AC_DB_04_score_persists_total_and_each_vp_component() -> None:
 
 def test_AC_DB_05_schema_ddl_compiles_for_sqlite_and_postgresql() -> None:
     """All table DDL uses types supported by both configured database engines."""
-    for model in (League, Owner, Team, Matchup, Score, AppUser):
+    for model in (League, Owner, Team, Matchup, Score, AppUser, LeagueSeason):
         table = model.__table__
         sqlite_ddl = str(CreateTable(table).compile(dialect=sqlite.dialect()))
         postgres_ddl = str(CreateTable(table).compile(dialect=postgresql.dialect()))
@@ -83,8 +93,9 @@ def test_schema_natural_keys_and_foreign_keys_match_contract() -> None:
         "matchup": {("league_id", "season", "week", "home_team_id")},
         "score": {("team_id", "season", "week")},
         "app_user": {("email",)},
+        "league_season": {("league_id", "season")},
     }
-    models = (League, Owner, Team, Matchup, Score, AppUser)
+    models = (League, Owner, Team, Matchup, Score, AppUser, LeagueSeason)
     for model in models:
         unique_keys = {
             tuple(column.name for column in constraint.columns)
@@ -104,6 +115,7 @@ def test_schema_natural_keys_and_foreign_keys_match_contract() -> None:
         "score": {("team_id", "team.id"), ("league_id", "league.id")},
         "app_user": {("owner_id", "owner.id")},
         "league": set(),
+        "league_season": {("league_id", "league.id")},
     }
     for model in models:
         actual = {
@@ -111,3 +123,24 @@ def test_schema_natural_keys_and_foreign_keys_match_contract() -> None:
             for foreign_key in model.__table__.foreign_keys
         }
         assert actual == expected_foreign_keys[model.__tablename__]
+
+
+def test_league_season_settings_are_constrained_json_per_league_and_season() -> None:
+    """league_season names its constraints per convention and defaults settings to JSON."""
+    column = LeagueSeason.__table__.c.metadata
+    assert isinstance(column.type, JSON)
+    assert column.nullable is False
+    assert column.default is not None
+
+    constraint_names = {
+        constraint.name: tuple(constraint_column.name for constraint_column in constraint.columns)
+        for constraint in LeagueSeason.__table__.constraints
+        if isinstance(constraint, UniqueConstraint)
+    }
+    assert constraint_names == {"uq_league_season_league_season": ("league_id", "season")}
+
+    foreign_key_names = {
+        foreign_key.name: (foreign_key.parent.name, foreign_key.target_fullname)
+        for foreign_key in LeagueSeason.__table__.foreign_keys
+    }
+    assert foreign_key_names == {"fk_league_season_league_id_league": ("league_id", "league.id")}

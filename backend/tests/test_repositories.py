@@ -5,10 +5,11 @@ from typing import cast
 
 import pytest
 from sqlalchemy import create_engine, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.base import Base
-from app.db.models import League, Matchup, Owner, Score, Team
+from app.db.models import League, LeagueSeason, Matchup, Owner, Score, Team
 from app.db.repositories import SyncRepository, WeeklyVPValues
 
 
@@ -130,6 +131,114 @@ def test_repository_natural_key_lookups_return_rows_or_none(session: Session) ->
     assert repository.get_league("fake", "league-1") is not None
     assert repository.get_owner(league_id, "owner-1") is not None
     assert repository.get_owner(league_id, "missing") is None
+
+
+def test_repository_league_season_upsert_is_idempotent_and_reports_changes(
+    session: Session,
+) -> None:
+    """Repeated league-season upserts reuse one row and report only real settings changes."""
+    repository = SyncRepository(session)
+    league_id = repository.upsert_league("fake", "league-1", "League", {}, "config").row.id
+
+    created = repository.upsert_league_season(league_id, 2025, {"regular_season_length": 14})
+    repeated = repository.upsert_league_season(league_id, 2025, {"regular_season_length": 14})
+
+    assert created.changed
+    assert not repeated.changed
+    assert repeated.row.id == created.row.id
+    assert created.row.season == 2025
+    assert repository.get_league_season(league_id, 2025).league_season_metadata == {
+        "regular_season_length": 14
+    }
+
+    updated = repository.upsert_league_season(
+        league_id, 2025, {"regular_season_length": 15, "team_count": 12}
+    )
+
+    assert updated.changed
+    assert updated.row.id == created.row.id
+    assert updated.row.league_season_metadata == {
+        "regular_season_length": 15,
+        "team_count": 12,
+    }
+    assert session.scalar(select(func.count()).select_from(LeagueSeason)) == 1
+
+
+def test_league_season_metadata_defaults_to_an_empty_object(session: Session) -> None:
+    """A league season created without settings stores an empty JSON object."""
+    league_id = SyncRepository(session).upsert_league("fake", "league-1", "League", {}, "c").row.id
+    row = LeagueSeason(league_id=league_id, season=2026)
+
+    session.add(row)
+    session.flush()
+
+    assert row.league_season_metadata == {}
+
+
+def test_repository_league_seasons_are_independent_of_each_other(session: Session) -> None:
+    """Refreshing one season's settings leaves every other stored season untouched."""
+    repository = SyncRepository(session)
+    league_id = repository.upsert_league("fake", "league-1", "League", {}, "config").row.id
+
+    repository.upsert_league_season(
+        league_id, 2024, {"team_count": 10, "division_count": 2, "scoring_type": "standard"}
+    )
+    repository.upsert_league_season(
+        league_id, 2025, {"team_count": 12, "division_count": 3, "scoring_type": "ppr"}
+    )
+    repository.upsert_league_season(league_id, 2025, {"team_count": 12, "playoff_week": 16})
+
+    assert repository.get_league_season(league_id, 2024).league_season_metadata == {
+        "team_count": 10,
+        "division_count": 2,
+        "scoring_type": "standard",
+    }
+    assert repository.get_league_season(league_id, 2025).league_season_metadata == {
+        "team_count": 12,
+        "playoff_week": 16,
+    }
+
+
+def test_repository_league_season_lookups_return_rows_or_none(session: Session) -> None:
+    """Season reads return the requested season only, in stable ascending season order."""
+    repository = SyncRepository(session)
+    league_id = repository.upsert_league("fake", "league-1", "League", {}, "config").row.id
+    other_league_id = repository.upsert_league("fake", "league-2", "Other", {}, "config").row.id
+    for season in (2025, 2023, 2024):
+        repository.upsert_league_season(league_id, season, {"team_count": season % 10})
+    repository.upsert_league_season(other_league_id, 2024, {"team_count": 8})
+
+    assert repository.get_league_season(league_id, 2022) is None
+    assert repository.get_league_season(league_id, 2024).league_season_metadata == {"team_count": 4}
+    assert repository.get_league_season(other_league_id, 2024).league_season_metadata == {
+        "team_count": 8
+    }
+    assert [row.season for row in repository.list_league_seasons(league_id)] == [2023, 2024, 2025]
+    assert [row.season for row in repository.list_league_seasons(other_league_id)] == [2024]
+    assert [row.season for row in repository.get_league("fake", "league-1").seasons] == [
+        2023,
+        2024,
+        2025,
+    ]
+
+
+def test_league_season_natural_key_rejects_a_duplicate_season(session: Session) -> None:
+    """The (league_id, season) unique constraint blocks a second row for the same season."""
+    repository = SyncRepository(session)
+    league_id = repository.upsert_league("fake", "league-1", "League", {}, "config").row.id
+    repository.upsert_league_season(league_id, 2025, {"team_count": 12})
+    session.commit()
+
+    session.add(
+        LeagueSeason(league_id=league_id, season=2025, league_season_metadata={"team_count": 14})
+    )
+    with pytest.raises(IntegrityError):
+        session.flush()
+    session.rollback()
+
+    stored = repository.list_league_seasons(league_id)
+    assert [row.season for row in stored] == [2025]
+    assert stored[0].league_season_metadata == {"team_count": 12}
 
 
 def test_repository_requires_decimal_values_at_persistence_boundary(session: Session) -> None:

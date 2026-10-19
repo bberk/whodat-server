@@ -15,7 +15,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 
@@ -47,6 +47,34 @@ class League(TimestampMixin, Base):
         "metadata", JSON, nullable=False, default=dict
     )
     provider_config_ref: Mapped[str] = mapped_column(Text, nullable=False)
+    seasons: Mapped[list[LeagueSeason]] = relationship(
+        back_populates="league", order_by="LeagueSeason.season"
+    )
+
+
+class LeagueSeason(TimestampMixin, Base):
+    """Provider settings for one league season.
+
+    Settings that can differ between seasons (regular season length, team count, division count,
+    scoring type, playoff configuration) live here rather than on ``league``, so a sync of one
+    season never overwrites another season's settings. ``league.name`` stays the single league
+    name; there is deliberately no per-season name column.
+    """
+
+    __tablename__ = "league_season"
+    __table_args__ = (
+        UniqueConstraint("league_id", "season", name="uq_league_season_league_season"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    league_id: Mapped[int] = mapped_column(
+        ForeignKey("league.id", name="fk_league_season_league_id_league"), nullable=False
+    )
+    season: Mapped[int] = mapped_column(Integer, nullable=False)
+    league_season_metadata: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSON, nullable=False, default=dict
+    )
+    league: Mapped[League] = relationship(back_populates="seasons")
 
 
 class Owner(TimestampMixin, Base):

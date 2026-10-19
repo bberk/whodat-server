@@ -90,8 +90,15 @@ These boundaries are enforced by an automated import test (AC-VP-14, AC-PR-03).
 All tables have `id` (integer PK) and `created_at`/`updated_at`. Natural keys are enforced with unique constraints so that sync can upsert safely.
 
 ### `league`
-`provider` (text, e.g. `espn`), `external_id` (text), `name`, `metadata` (JSON: scoring settings, number of teams, regular season length, etc.), `provider_config_ref` (text; a pointer to credentials in config, **not** the credentials themselves).
+`provider` (text, e.g. `espn`), `external_id` (text), `name`, `metadata` (JSON: provider-level settings; defaults to `{}`), `provider_config_ref` (text; a pointer to credentials in config, **not** the credentials themselves).
 Unique: (`provider`, `external_id`).
+
+### `league_season`
+Per-season provider settings, so each season can be refreshed independently and a sync of one
+season never overwrites another season's settings: `league_id` → league, `season` (int),
+`metadata` (JSON: regular season length, team count, division count, scoring type, playoff
+settings).
+Unique: (`league_id`, `season`).
 
 ### `owner`
 `league_id` → league, `external_id` (provider's owner/member ID), `display_name`.
@@ -143,7 +150,10 @@ DTO rules:
 
 `sync_service.sync_league(league, season, weeks=None)`:
 
-1. Fetch league, owners, teams from the provider; upsert.
+1. Fetch league, league-season settings, owners, teams from the provider; upsert. League-season
+   settings (regular season length, team count, division count, scoring type, playoff
+   configuration) are stored per `league_season` row, so refreshing one season leaves the other
+   seasons untouched.
 2. Determine weeks to sync (default: all weeks up to and including the current completed week).
 3. For each week: fetch matchups; upsert matchups; upsert scores' `points`.
 4. For each week whose matchup/score data changed (or is newly completed): load that week's scores and matchups, run the VP engine, and write `victory_points` and components for all teams in that week, in a single transaction.
