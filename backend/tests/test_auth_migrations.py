@@ -192,6 +192,7 @@ def _configured_postgres_admin_url() -> URL | None:
     return configured
 
 
+@pytest.mark.postgres
 def test_AC_DB_06_auth_migration_round_trips_on_postgres() -> None:
     """The same round trip holds on a throwaway database in the configured Postgres instance."""
     admin_url = _configured_postgres_admin_url()
