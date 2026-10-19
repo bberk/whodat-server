@@ -220,7 +220,7 @@ All endpoints are under `/api/v1`, JSON, cookie-session or bearer-token auth (ba
     }
   ],
   "divisions": [
-    { "name": "East", "standings": [ /* same row shape, rank within division */ ] }
+    { "name": "East", "standings": [ /* same row shape as overall; rank is the overall league rank */ ] }
   ]
 }
 ```
