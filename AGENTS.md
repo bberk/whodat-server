@@ -93,11 +93,39 @@ If a command above does not exist yet because the skeleton milestone has not lan
 
 ### Testing
 
-- Write tests with the code, not after. A change without tests for new behavior is not done.
-- Name tests after acceptance criteria where applicable, e.g. `test_AC_VP_06_three_way_tie_for_high_score`.
-- Tests never call the live ESPN API. Use fixtures in `docs/fixtures/` and the `FakeProvider`.
-- Database-touching tests must keep passing on both engines. SQLite is the local and pre-push default and each worktree gets its own throwaway databases; CI and production use Postgres. To debug a Postgres-specific issue, start a **worktree-local** instance with `scripts/dev-postgres.sh up` and point `DATABASE_URL` at it. Never point two worktrees (or two agents) at one Postgres; if you start `docker compose up -d postgres` yourself, stop it when you are done.
-- The VP engine requires 100% line and branch coverage; the backend total must be at least 85%; frontend thresholds live in the vitest config. CI enforces all three and comments the report on the PR.
+- Test behaviour, not implementation. A test must fail for one reason and name the behaviour it
+  protects. Acceptance tests are named `test_AC_<ID>_<behaviour>`; other tests are named
+  `test_<unit>_<scenario>_<expected>`.
+- Write tests with the code. Every new behaviour needs a test at the lowest layer that can
+  observe it, and only one layer owns it.
+- **Must test:** VP arithmetic and tie rules (AC-VP-*), standings ranking and tiebreaks (AC-ST-*),
+  authorization boundaries at the HTTP layer (401/403/404, admin-only credentials,
+  own-membership-only updates), data integrity and migrations, provider adapters against recorded
+  fixtures, credential/password security, the OpenAPI/golden-response contract, and the
+  Playwright critical journey.
+- **Should test:** error paths that change a response or exit code, boundary values (expiry
+  instant, 2dp quantization, byes, empty weeks), and each page’s
+  loading/empty/error/ready state.
+- **Do not test:** framework or library behaviour, trivial getters or pass-through wrappers, a
+  rule already owned by another layer, private methods or internals reached by monkeypatching,
+  exhaustive permutations of equivalent inputs, mock/demo data self-consistency, or whole-DOM
+  snapshots. For an unreachable defensive branch, use a justified coverage exclusion instead of
+  a contrived test.
+- Tests never call the live ESPN API. Use `docs/fixtures/` and `FakeProvider`. Do not add
+  outbound network calls.
+- Database tests use one shared transaction-rollback fixture. They must pass on SQLite locally
+  and Postgres in CI. Do not create or drop the schema per test. Mark Postgres-only tests
+  `postgres` and slow tests `slow`.
+- Tests are deterministic: inject clocks, seed randomness, never sleep, never retry. A flaky
+  test is a defect and is fixed or deleted in the same PR.
+- Coverage is a diagnostic, not a target. `domain/vp_engine.py` and `domain/standings.py`
+  require 100% lines and branches. Backend total stays at or above 85%; frontend thresholds live
+  in `vitest.config.ts`. There is no other per-file coverage mandate. PRs may not reduce total
+  coverage by more than 1.0 percentage point.
+- Coverage exclusions require a same-line reason and an AC/issue reference. Blanket file
+  exclusions are limited to entrypoints, generated code, and demo/mock data.
+- Removing or merging a test is allowed only when another test still owns its behaviour. State
+  which test now owns it and which AC IDs remain covered in the PR description.
 
 ### Frontend
 
@@ -187,13 +215,21 @@ After the merge the author's local branch and worktree are deleted: `scripts/mer
 
 Your task is complete only when all of the following hold:
 
-1. The acceptance criteria listed for your task pass, with tests that demonstrate each.
-2. All checks pass locally via the pre-commit and pre-push hooks (backend `ruff`, `mypy`, `pytest`; frontend `eslint`, `tsc`, `prettier`, `vitest`; plus `playwright` if you touched UI flows), without bypassing any hook.
+1. The acceptance criteria listed for your task pass, with tests that fail if the behaviour
+   regresses. No criterion is covered only by a test that duplicates another layer.
+2. All checks pass locally via the pre-commit and pre-push hooks (backend `ruff`, `mypy`,
+   `pytest`; frontend `eslint`, `tsc`, `prettier`, `vitest`), without bypassing any hook. Run
+   `playwright` when you touched UI flows.
 3. No new boundary violations (import-boundary tests pass).
-4. Docs are updated if behavior or setup changed (README, `.env.example`, `docs/openapi.json` for any API change).
+4. Docs are updated if behavior or setup changed (README, `.env.example`, `docs/openapi.json`
+   for any API change).
 5. Open questions or deviations are recorded in `docs/OPEN_QUESTIONS.md`.
-6. The PR is up to date with `main`, CI is green, the coverage comment shows no regression, and the PR is marked ready with `scripts/ship.sh --ready`.
-7. Your final message summarizes what changed, how you verified it, the PR link, and anything the next agent or the human needs to know.
+6. The PR is up to date with `main`, CI is green, and the coverage comment shows no decrease of
+   more than 1.0 percentage point. The PR is marked ready with `scripts/ship.sh --ready`.
+7. No new flaky test, unexplained coverage exclusion, or retry/quarantine was added.
+8. Your final message summarizes what changed, how you verified it, the PR link, which tests
+   were removed or merged (with their AC IDs), and anything the next agent or the human needs
+   to know.
 
 ## When stuck
 

@@ -88,7 +88,7 @@ Three tied teams each get exactly 1/3 high-score VP (tests must use exact fracti
 | AC-DB-03 | If a provider reports a changed score for an already-synced week, the score is updated and VP for that whole week is recomputed for all teams. |
 | AC-DB-04 | Each Score row stores total VP and the component breakdown (h2h, top-half, high, low). |
 | AC-DB-05 | The same test suite passes against both engines: SQLite locally and in the pre-push hook, Postgres in CI. |
-| AC-DB-06 | A migration from an empty database to the latest schema succeeds, and downgrade/upgrade round-trips without error. |
+| AC-DB-06 | One head round-trip plus `alembic check` per engine; the downgrade path of a new revision is exercised once in its PR, not forever in the suite. |
 | AC-DB-07 | Sync tests run entirely from recorded fixtures; the test suite makes no live ESPN calls. |
 | AC-DB-08 | ESPN credentials (`espn_s2`, `SWID`) never appear in logs, error messages, API responses, or the repository. |
 
@@ -123,7 +123,7 @@ Three tied teams each get exactly 1/3 high-score VP (tests must use exact fracti
 
 | ID | Criterion |
 |---|---|
-| AC-API-01 | The endpoints in ARCHITECTURE.md exist and match the published OpenAPI spec. |
+| AC-API-01 | The endpoints in ARCHITECTURE.md exist and match the published OpenAPI spec. CI regenerates OpenAPI and fails if it differs from `docs/openapi.json`; generated TS types compile. |
 | AC-API-02 | The standings response for a known fixture league matches a checked-in golden JSON file exactly (ranks, VP, tiebreak ordering, weekly VP). |
 | AC-API-03 | The cumulative VP response for a team at week W equals the sum of its weekly VP for weeks 1..W. |
 | AC-API-04 | Invalid inputs (unknown season, week out of range) return 4xx with a structured error body, never a 500. |
@@ -137,7 +137,7 @@ Three tied teams each get exactly 1/3 high-score VP (tests must use exact fracti
 | AC-FE-02 | Division standings render as one table per division; each row shows the team's overall league rank. |
 | AC-FE-03 | The cumulative VP chart shows one line per team with week on the x-axis and cumulative VP on the y-axis; values match the API. |
 | AC-FE-04 | Selecting a team highlights it in both the chart and the table; teams can be toggled in the chart. |
-| AC-FE-05 | The layout is usable at 360px, 768px, and 1280px widths: no horizontal scrolling of the page body, wide tables scroll within their container with the team column pinned (Playwright screenshot tests at those widths). |
+| AC-FE-05 | The layout is usable at 360px, 768px, and 1280px widths: no horizontal scrolling of the page body, wide tables scroll within their container with the team column pinned (Playwright screenshot tests at those widths). Exactly three widths in one Playwright spec; no per-component visual snapshots. |
 | AC-FE-06 | Loading, empty (no data yet), and error states are shown for each data view. |
 | AC-FE-07 | Automated accessibility check (axe) reports no serious or critical violations on the login and standings pages. |
 | AC-FE-08 | Unauthenticated users are redirected to login; after login they return to the page they requested. |
@@ -149,8 +149,8 @@ Three tied teams each get exactly 1/3 high-score VP (tests must use exact fracti
 |---|---|
 | AC-DX-01 | A fresh clone can run the app locally following README steps only (or `docker compose up`). |
 | AC-DX-02 | CI runs `pre-commit` on all files, backend tests (against Postgres), and frontend lint, type check, tests, and build on every pull request and every push to `main`, and they all pass on `main`. |
-| AC-DX-03 | The VP engine module has 100% line and branch coverage (enforced in CI). |
-| AC-DX-04 | Overall backend coverage is at least 85% (enforced in CI). |
+| AC-DX-03 | `backend/src/app/domain/vp_engine.py` and `backend/src/app/domain/standings.py` each have 100% line and branch coverage; no other module has a per-file target. |
+| AC-DX-04 | Backend total coverage is at least 85% lines and branches; no PR reduces it by more than 1.0 percentage point. |
 | AC-DX-05 | No secrets are committed; `.env.example` documents every required variable. |
 
 ## 9. Development workflow and quality gates
@@ -161,7 +161,7 @@ Three tied teams each get exactly 1/3 high-score VP (tests must use exact fracti
 | AC-WF-02 | The commit-time hooks include: ruff lint (with auto-fix), ruff format, mypy, eslint, tsc, prettier, secret scanning, and file-hygiene checks (whitespace, EOF, YAML/TOML/JSON validity, merge-conflict markers, large files, private keys). |
 | AC-WF-03 | A commit containing a ruff violation (or a failing mypy, eslint, or tsc check) is rejected by the hooks. (Verified once by hand during M0 with a throwaway branch.) |
 | AC-WF-04 | A commit made directly on `main` is rejected by the `no-commit-to-branch` hook. |
-| AC-WF-05 | The pre-push hook runs the backend and frontend tests; a push with a failing test is rejected. |
+| AC-WF-05 | Pre-push runs the fast suite and excludes tests marked `slow`/`postgres` and Playwright; CI runs the full suite. |
 | AC-WF-06 | CI runs `pre-commit run --all-files`, so a change that bypassed the local hooks still fails the PR. |
 | AC-WF-07 | Pushing is an explicit step: committing runs no hook that pushes or opens a PR, and the author agent pushes its branch with `scripts/ship.sh` before opening or updating the pull request. |
 | AC-WF-08 | `scripts/ship.sh` refuses to run on `main`. |
@@ -173,8 +173,8 @@ Three tied teams each get exactly 1/3 high-score VP (tests must use exact fracti
 | AC-WF-14 | An independent review of an earlier commit does not count for a newer head: the review records the head commit it reviewed, and a push after a review requires a new review. |
 | AC-WF-15 | A PR that changes governance files (`AGENTS.md`, `SPEC.md`, `ACCEPTANCE.md`, `ARCHITECTURE.md`, `.opencode/`, `.github/`, `scripts/`, `.pre-commit-config.yaml`) is not merged by `scripts/merge.sh` without `--allow-governance`, and only a human merges it. |
 | AC-WF-16 | Every PR gets a single combined coverage comment covering the backend and the frontend, updated in place on each push, also written to the CI job summary. |
-| AC-WF-17 | The coverage comment reports lines and branches for the backend, and lines, statements, functions, and branches for the frontend, and lists the least-covered files. |
-| AC-WF-18 | CI fails when backend coverage is below 85%, VP engine coverage is below 100%, or frontend coverage is below its configured thresholds. |
+| AC-WF-17 | The coverage comment reports lines and branches for the backend, and lines, statements, functions, and branches for the frontend, and lists the least-covered files. It also reports the change from the base branch and the two named 100% modules separately. |
+| AC-WF-18 | CI fails below 85% total, below 100% for the two named modules, or below the frontend thresholds; it does not enforce other per-file targets. |
 | AC-WF-19 | (manual) The repo is configured per `docs/GITHUB_SETUP.md`: squash and rebase merges (linear history, so no merge commits), branches deleted on merge, `ready-for-review` label exists, Actions token read-only. |
 | AC-WF-20 | (manual, requires a public repo or paid plan) The `main` ruleset rejects direct pushes, force-pushes, and merges without passing required checks, and requires a pull request; required check names match the real CI job names. (No approval is required: a human approves and merges.) |
 | AC-WF-21 | (manual) One trivial change goes through the whole loop successfully: commit, draft PR, ready, independent agent review, human merge (rebase or squash). A second trivial change with a deliberate defect gets a changes-requested review. |
