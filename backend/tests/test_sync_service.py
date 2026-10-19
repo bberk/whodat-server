@@ -16,7 +16,7 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
 from app.db.base import Base
-from app.db.models import League, Matchup, Owner, Score, Team
+from app.db.models import League, LeagueSeason, Matchup, Owner, Score, Team
 from app.db.repositories import SyncRepository
 from app.domain.types import TeamWeek
 from app.domain.vp_engine import compute_week_vp
@@ -73,16 +73,18 @@ def _basic_seed(
     playoff_week: int | None = None,
     incomplete_week: int | None = None,
     regular_season_length: int | None = 2,
+    season: int = 2026,
 ) -> dict[
     tuple[str, int],
     tuple[LeagueDTO, list[OwnerDTO], list[TeamDTO], dict[int, list[MatchupDTO]], WeekStatus],
 ]:
-    """Build a FakeProvider seed for a 4-team league with configurable week states.
+    """Build a FakeProvider seed for a 4-team league season with configurable week states.
 
     ``regular_season_length`` is written into the league metadata the way a real provider does;
-    pass None to build a league whose stored metadata omits it.
+    pass None to build a league whose stored metadata omits it. ``season`` keys the seed and the
+    metadata, so the same league can be seeded for several seasons in one provider.
     """
-    metadata: dict[str, object] = {"teams": 4, "season": 2026}
+    metadata: dict[str, object] = {"teams": 4, "season": season}
     if regular_season_length is not None:
         metadata["regular_season_length"] = regular_season_length
     league = LeagueDTO(
@@ -201,7 +203,7 @@ def _basic_seed(
 
     week_status = WeekStatus(last_completed_week=last_completed_week)
     return {
-        ("league-1", 2026): (league, owners, teams, matchups, week_status),
+        ("league-1", season): (league, owners, teams, matchups, week_status),
     }
 
 
@@ -1075,3 +1077,129 @@ def test_recompute_preserves_bye_week_results(session: Session) -> None:
     assert week3[teams["team-1"]].vp_high == Decimal("1.000000")
     assert week3[teams["team-4"]].vp_h2h == Decimal("0.000000")
     assert week3[teams["team-4"]].vp_low == Decimal("-1.000000")
+
+
+# ---------------------------------------------------------------------------
+# Per-season settings: sync writes the league_season row recompute reads
+# ---------------------------------------------------------------------------
+
+
+def test_sync_writes_the_provider_metadata_to_a_league_season_row(session: Session) -> None:
+    """Sync stores the provider's per-season settings on the requested season's row."""
+    seed = _basic_seed(regular_season_length=2)
+    provider = _build_provider(seed)
+    SyncService(provider, session).sync_league(_league_ref(), "fake", 2026)
+    session.commit()
+
+    repo = SyncRepository(session)
+    league = repo.get_league("fake", "league-1")
+    assert league is not None
+    season_row = repo.get_league_season(league.id, 2026)
+    assert season_row is not None
+    # The whole provider metadata round-trips onto the season row, including the length.
+    assert season_row.league_season_metadata == seed[("league-1", 2026)][0].metadata
+    assert season_row.league_season_metadata["regular_season_length"] == 2
+
+
+def test_repeat_sync_keeps_the_league_season_row_idempotent(session: Session) -> None:
+    """Re-running the same sync leaves one unchanged league_season row (AC-DB-02)."""
+    provider = _build_provider(_basic_seed())
+    service = SyncService(provider, session)
+    service.sync_league(_league_ref(), "fake", 2026)
+    session.commit()
+
+    repo = SyncRepository(session)
+    league = repo.get_league("fake", "league-1")
+    assert league is not None
+    first_row = repo.get_league_season(league.id, 2026)
+    assert first_row is not None
+    first = (first_row.id, dict(first_row.league_season_metadata))
+    count_first = session.scalar(select(func.count()).select_from(LeagueSeason))
+
+    service.sync_league(_league_ref(), "fake", 2026)
+    session.commit()
+
+    second_row = repo.get_league_season(league.id, 2026)
+    assert second_row is not None
+    assert (second_row.id, dict(second_row.league_season_metadata)) == first
+    assert count_first == 1
+    assert session.scalar(select(func.count()).select_from(LeagueSeason)) == 1
+
+
+def test_recompute_uses_each_seasons_own_regular_season_length(session: Session) -> None:
+    """Two seasons with different lengths each recompute against their own stored value.
+
+    The league row is shared by both seasons and its metadata is overwritten by the newest sync
+    (2026, length 2), so a league-level lookup would recompute 2025 with length 2. Reading the
+    season row keeps 2025 at its own length 1: week 2 is stored and complete but outside that
+    season's regular season, so it is not recomputed.
+    """
+    seed = {
+        # 2025 has two stored, complete weeks but a one-week regular season.
+        **_basic_seed(season=2025, regular_season_length=1, last_completed_week=2),
+        **_basic_seed(season=2026, regular_season_length=2),
+    }
+    provider = _build_provider(seed)
+    service = SyncService(provider, session)
+    service.sync_league(_league_ref(), "fake", 2025)
+    session.commit()
+    service.sync_league(_league_ref(), "fake", 2026)
+    session.commit()
+
+    repo = SyncRepository(session)
+    league = repo.get_league("fake", "league-1")
+    assert league is not None
+    season_2025 = repo.get_league_season(league.id, 2025)
+    season_2026 = repo.get_league_season(league.id, 2026)
+    assert season_2025 is not None
+    assert season_2026 is not None
+    assert season_2025.league_season_metadata["regular_season_length"] == 1
+    assert season_2026.league_season_metadata["regular_season_length"] == 2
+    # Week 2 of 2025 really is stored and complete; only the season bound keeps it out.
+    assert len(repo.get_week_matchups(league.id, 2025, 2)) == 2
+
+    summary_2025 = SyncService(None, session).recompute_league(_league_ref(), "fake", 2025)
+    session.commit()
+    summary_2026 = SyncService(None, session).recompute_league(_league_ref(), "fake", 2026)
+    session.commit()
+
+    assert summary_2025.regular_season_length == 1
+    assert summary_2025.weeks_recomputed == (1,)
+    assert summary_2026.regular_season_length == 2
+    assert summary_2026.weeks_recomputed == (1, 2)
+
+
+def test_recompute_reads_the_season_row_not_the_league_row(session: Session) -> None:
+    """Recompute uses the season row even when the league row has no usable length."""
+    provider = _build_provider(_basic_seed(regular_season_length=2))
+    SyncService(provider, session).sync_league(_league_ref(), "fake", 2026)
+    session.commit()
+
+    repo = SyncRepository(session)
+    league = repo.get_league("fake", "league-1")
+    assert league is not None
+    # Strip the league-level value: recompute must not fall back to it.
+    league.league_metadata = {}
+    session.commit()
+
+    summary = SyncService(None, session).recompute_league(_league_ref(), "fake", 2026)
+
+    assert summary.regular_season_length == 2
+    assert summary.weeks_recomputed == (1, 2)
+
+
+def test_recompute_without_a_league_season_row_raises(session: Session) -> None:
+    """A stored league with no row for the requested season refuses to guess its shape."""
+    repo = SyncRepository(session)
+    league = repo.upsert_league(
+        provider="fake",
+        external_id="league-1",
+        name="VP League",
+        league_metadata={},
+        provider_config_ref="env:default",
+    ).row
+    session.commit()
+    assert repo.get_league_season(league.id, 2026) is None
+
+    with pytest.raises(MissingRegularSeasonLengthError, match="league_season"):
+        SyncService(None, session).recompute_league(_league_ref(), "fake", 2026)

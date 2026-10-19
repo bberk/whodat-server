@@ -51,7 +51,12 @@ class LeagueNotFoundError(SyncError):
 
 
 class MissingRegularSeasonLengthError(SyncError):
-    """Raised when stored league metadata has no usable regular-season length."""
+    """Raised when a stored league season has no usable regular-season length.
+
+    The length is read from that season's ``league_season`` row; a missing row or a row whose
+    metadata lacks an integer, positive ``regular_season_length`` makes a season-shaped
+    recompute impossible, so the CLI reports the error instead of guessing a week range.
+    """
 
 
 # Quantization policy: NUMERIC(10,6) schema requires six decimal places.
@@ -75,9 +80,10 @@ def _fraction_to_decimal(value: Fraction) -> Decimal:
 def _regular_season_length(metadata: Mapping[str, object]) -> int | None:
     """Return the stored regular-season length, or None when it is absent or unusable.
 
-    The length is persisted by every provider in the league metadata (the ESPN adapter writes
-    ``regular_season_length`` from ``settings.reg_season_count``). Booleans are rejected even
-    though ``bool`` is an ``int`` subclass, and non-positive values are treated as missing.
+    The length is per season: each provider writes it into the ``league_season`` row's metadata
+    for the season being synced (the ESPN adapter writes ``regular_season_length`` from
+    ``settings.reg_season_count``). Booleans are rejected even though ``bool`` is an ``int``
+    subclass, and non-positive values are treated as missing.
     """
     value = metadata.get("regular_season_length")
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
@@ -121,6 +127,10 @@ class SyncService:
         indicating that credentials are read from process environment variables (ESPN_S2/ESPN_SWID).
         ESPN cookies are never written to DTOs or the database.
 
+        The provider's per-season settings (``LeagueDTO.metadata``: regular season length, team
+        count, scoring type, ...) are written to this season's ``league_season`` row, so a league's
+        seasons stay independent and refreshing one season never overwrites another's settings.
+
         When weeks is None, sync defaults to 1..last_completed_week. If last_completed_week
         is None and no explicit weeks were requested, only league/owners/teams are upserted
         and no matchup/score rows are created.
@@ -135,7 +145,7 @@ class SyncService:
         """
         provider = self._require_provider()
 
-        # Fetch and upsert league metadata.
+        # Fetch the league, then upsert its league row and this season's row.
         try:
             league_dto = provider.fetch_league(league_ref, season)
         except KeyError as exc:
@@ -152,6 +162,11 @@ class SyncService:
         )
         league_id = league_result.row.id
         league_changed = league_result.changed
+
+        # Persist the provider's per-season settings for the requested season. They live on the
+        # league_season row (one per season) so that syncing one season never overwrites another
+        # season's regular-season length or scoring settings.
+        self._repository.upsert_league_season(league_id, season, dict(league_dto.metadata))
 
         # Fetch and upsert owners, tracking their external_id → id mapping.
         owners_dto = provider.fetch_owners(league_ref, season)
@@ -251,17 +266,18 @@ class SyncService:
         """Recompute VP for a stored league season using only persisted data.
 
         This operation never calls the provider: it locates the league by its stored natural key
-        (provider_id, external id) and reads the season's regular-season length from the stored
-        league metadata, which every provider writes on sync. It then recomputes VP for every
-        stored, complete, non-playoff week in that range with the pure engine and the existing
-        repository. Weeks with no stored matchups, incomplete weeks, and playoff weeks are
-        skipped and keep whatever VP sync stored for them (normally zero).
+        (provider_id, external id) and reads the season's regular-season length from that season's
+        stored ``league_season`` row, which every provider writes on sync. It then recomputes VP
+        for every stored, complete, non-playoff week in that range with the pure engine and the
+        existing repository. Weeks with no stored matchups, incomplete weeks, and playoff weeks
+        are skipped and keep whatever VP sync stored for them (normally zero).
 
         Because sync only writes VP for weeks whose data changed, this is the operation to run
         after a scoring-rule change or to rebuild VP for every stored week in one pass.
 
         Raises LeagueNotFoundError when no league is stored for the natural key, and
-        MissingRegularSeasonLengthError when the stored metadata has no usable length.
+        MissingRegularSeasonLengthError when the requested season has no ``league_season`` row or
+        its stored metadata has no usable length.
         """
         league = self._repository.get_league(provider_id, league_ref.external_id)
         if league is None:
@@ -269,11 +285,17 @@ class SyncService:
                 f"league {league_ref.external_id!r} for provider {provider_id!r} is not stored"
             )
 
-        regular_season_length = _regular_season_length(league.league_metadata)
+        league_season = self._repository.get_league_season(league.id, season)
+        if league_season is None:
+            raise MissingRegularSeasonLengthError(
+                f"league {league_ref.external_id!r} season {season} has no stored league_season row"
+            )
+
+        regular_season_length = _regular_season_length(league_season.league_season_metadata)
         if regular_season_length is None:
             raise MissingRegularSeasonLengthError(
                 f"league {league_ref.external_id!r} season {season} has no usable "
-                "regular_season_length in its stored metadata"
+                "regular_season_length in its stored league-season metadata"
             )
 
         weeks_recomputed: list[int] = []
