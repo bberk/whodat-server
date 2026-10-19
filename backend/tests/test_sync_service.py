@@ -577,6 +577,39 @@ def test_explicit_weeks_synced_regardless_of_week_status(session: Session) -> No
     assert session.scalar(select(func.count()).select_from(Score)) == 8
 
 
+def test_changed_week_without_stored_matchups_is_skipped(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A changed week with no stored matchup rows is skipped rather than recomputed.
+
+    Sync only queues a week for recompute after it changed something, so the guard is defensive and
+    not reachable through the FakeProvider alone; substitute the repository's week lookup to drive
+    it directly and keep the branch covered.
+    """
+    provider = _build_provider(_basic_seed())
+    service = SyncService(provider, session)
+    real_get_week_matchups = service._repository.get_week_matchups
+
+    def without_week_one(league_id: int, season: int, week: int) -> list[Matchup]:
+        if week == 1:
+            return []
+        return real_get_week_matchups(league_id, season, week)
+
+    monkeypatch.setattr(service._repository, "get_week_matchups", without_week_one)
+
+    summary = service.sync_league(_league_ref(), "fake", 2026)
+    session.commit()
+
+    # Week 1 changed but had no stored matchups to rank, so it kept its VP; week 2 was recomputed.
+    assert 1 not in summary.weeks_with_vp_recomputed
+    assert 2 in summary.weeks_with_vp_recomputed
+
+    repo = SyncRepository(session)
+    league = repo.get_league("fake", "league-1")
+    assert league is not None
+    assert len(repo.get_week_scores(league.id, 2026, 1)) == 4
+
+
 # ---------------------------------------------------------------------------
 # Exact fractional component conservation
 # ---------------------------------------------------------------------------
