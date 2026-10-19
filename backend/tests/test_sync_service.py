@@ -408,11 +408,13 @@ def test_AC_DB_03_score_correction_recomputes_full_week(session: Session) -> Non
         s.team_id: (s.points, s.victory_points, s.vp_h2h, s.vp_top_half, s.vp_high, s.vp_low)
         for s in repo.get_week_scores(league.id, 2026, 1)
     }
-    assert week1_scores_after != week1_scores_before
-    # team-1's points updated.
-    assert week1_scores_after[week1_scores_after.__iter__().__next__()][0] is not None
-    # All four teams have fresh VP rows (the recompute wrote every row).
+    # AC-DB-03: the corrected week is re-ranked as a whole, so every team's total VP changes,
+    # not only the corrected team's points.
     assert len(week1_scores_after) == 4
+    for team_id, before in week1_scores_before.items():
+        assert week1_scores_after[team_id][1] != before[1]
+    team_one_id = next(t.id for t in repo.get_teams(league.id, 2026) if t.external_id == "team-1")
+    assert week1_scores_after[team_one_id][0] == Decimal("80.00")
 
     # Week 2 was untouched.
     week2_scores_after = {
