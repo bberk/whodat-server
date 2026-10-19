@@ -5,6 +5,7 @@ isolated in-memory SQLite database, so nothing here touches ESPN, the live netwo
 configured development database (AC-DB-07).
 """
 
+import runpy
 from collections.abc import Iterator
 from decimal import Decimal
 
@@ -392,7 +393,7 @@ def test_invalid_week_ranges_are_structured_argparse_errors(
 
 
 # ---------------------------------------------------------------------------
-# create-user stub
+# create-user stub and module entry point
 # ---------------------------------------------------------------------------
 
 
@@ -400,6 +401,14 @@ def test_cli_create_user_is_still_a_stub(capsys: pytest.CaptureFixture[str]) -> 
     """create-user stays an explicit no-op until M4 implements auth."""
     assert main(["create-user"]) == 0
     assert "not implemented yet" in capsys.readouterr().out
+
+
+def test_cli_module_entry_point(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`python -m app.cli create-user` exits 0 through the module entry point."""
+    monkeypatch.setattr("sys.argv", ["app.cli", "create-user"])
+    with pytest.raises(SystemExit) as excinfo:
+        runpy.run_module("app.cli", run_name="__main__")
+    assert excinfo.value.code == 0
 
 
 def test_build_provider_registry_registers_espn(monkeypatch: pytest.MonkeyPatch) -> None:
