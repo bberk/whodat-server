@@ -59,6 +59,21 @@ describe("StandingsTable", () => {
     expect(cells.some((cell) => cell.textContent?.startsWith("+") ?? false)).toBe(false);
   });
 
+  it("renders the rank supplied by the data layer without re-ranking", () => {
+    const divisionRows = [
+      { ...rows[0], rank: 1 },
+      { ...rows[3], rank: 4 },
+      { ...rows[5], rank: 6 },
+    ];
+    renderTable({
+      rows: divisionRows,
+      caption: "West division standings, 2026.",
+      ariaLabel: "West division standings, scrollable horizontally",
+    });
+    const ranks = screen.getAllByRole("rowheader").map((cell) => cell.textContent);
+    expect(ranks).toEqual(["1", "4", "6"]);
+  });
+
   it("selects a team through a keyboard-operable button", async () => {
     const onSelectTeam = vi.fn();
     const user = userEvent.setup();

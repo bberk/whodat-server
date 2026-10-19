@@ -26,6 +26,13 @@ export interface StandingsRow {
 
 export interface DivisionStandings {
   name: string;
+  /**
+   * Division rows, each with the `rank` the data layer supplies. The table renders that value
+   * verbatim and the frontend computes no division-local rank. The owner has signalled these ranks
+   * will be overall league ranks once the contract amendment is confirmed; until then this mock
+   * keeps mirroring the current ARCHITECTURE.md §8 / AC-ST-06 division-local ranks so the
+   * illustrative numbers stay as approved.
+   */
   standings: StandingsRow[];
 }
 
