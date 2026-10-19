@@ -7,7 +7,7 @@ the worktree-local PostgreSQL URL to run the same assertions against Postgres.
 """
 
 import os
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -104,10 +104,29 @@ def test_user_repository_lowercases_email_and_rejects_duplicates(session: Sessio
         repository.create("fan@example.com", "other-hash")
 
 
-def test_user_repository_resurfaces_non_unique_integrity_errors(session: Session) -> None:
-    """Only duplicate-email violations become DuplicateEmailError."""
+def _create_user_without_a_password(session: Session) -> object:
+    """Trigger a non-unique NOT NULL violation on the user table."""
+    return UserRepository(session).create("no-password@example.com", None)  # type: ignore[arg-type]
+
+
+def _create_membership_without_a_user(session: Session) -> object:
+    """Trigger a non-unique NOT NULL violation on the membership table."""
+    return MembershipRepository(session).create(None, 1)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "create_invalid",
+    [
+        pytest.param(_create_user_without_a_password, id="user"),
+        pytest.param(_create_membership_without_a_user, id="membership"),
+    ],
+)
+def test_repositories_resurface_non_unique_integrity_errors(
+    session: Session, create_invalid: Callable[[Session], object]
+) -> None:
+    """Only the expected unique violations become domain errors; other integrity errors re-raise."""
     with pytest.raises(IntegrityError):
-        UserRepository(session).create("no-password@example.com", None)  # type: ignore[arg-type]
+        create_invalid(session)
     session.rollback()
 
 
