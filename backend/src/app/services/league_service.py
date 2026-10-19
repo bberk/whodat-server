@@ -1,0 +1,541 @@
+"""League membership, owner association, credential storage, and refresh.
+
+The service is transaction-neutral with a documented commit boundary: every method flushes its
+writes (through repositories or the sync service) but never commits. HTTP callers call
+:meth:`LeagueService.commit` after a successful mutating request; the session dependency rolls the
+request back when an exception escapes. Multi-step writes that must not survive a later failure
+(a credentialed add and a refresh) additionally run inside a SAVEPOINT, so a typed sync error never
+leaves a partial league, membership, or refresh behind even if a caller commits afterwards.
+
+Credential handling follows the provider boundary: the service encrypts request credentials with
+:mod:`app.security.crypto` immediately and only ever passes ciphertext to the injected provider
+factory. It never decrypts a stored token and never logs or returns a credential value. The
+factory (production: :func:`app.providers.espn.credentials.create_espn_provider`) owns decryption.
+
+Errors are typed so routers can map them to structured responses. Error messages are fixed and
+never include cookie values, ciphertext, password material, or provider exception text.
+"""
+
+from __future__ import annotations
+
+import math
+import threading
+import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from typing import Protocol
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.db.auth_repositories import DuplicateMembershipError as DatabaseDuplicateMembershipError
+from app.db.auth_repositories import MembershipRepository
+from app.db.models import ROLE_ADMIN, League, Owner, UserLeague
+from app.db.repositories import SyncRepository
+from app.providers.base import LeagueDTO, LeagueProvider, LeagueRef
+from app.security.crypto import CredentialCryptoError, encrypt
+from app.services.sync_service import SyncError, SyncService, SyncSummary
+
+#: The only provider the HTTP API currently stores leagues for.
+PROVIDER_ID = "espn"
+
+#: A league-wide refresh is allowed once per league in this interval.
+DEFAULT_LEAGUE_REFRESH_INTERVAL_SECONDS = 5 * 60.0
+
+#: A user may trigger this many refreshes in the rolling window below.
+DEFAULT_USER_REFRESH_LIMIT = 3
+
+#: Rolling window for the per-user refresh limit.
+DEFAULT_USER_REFRESH_WINDOW_SECONDS = 60 * 60.0
+
+
+@dataclass(frozen=True)
+class LeagueUser:
+    """The authenticated caller identity needed by this service."""
+
+    user_id: int
+    role: str
+
+
+@dataclass(frozen=True)
+class EspnCredentials:
+    """Plaintext credentials supplied by an admin for one add-league request.
+
+    The fields are excluded from ``repr`` so an accidental log or traceback does not expose them.
+    The service encrypts them immediately and never stores or returns the plaintext.
+    """
+
+    espn_s2: str = field(repr=False)
+    espn_swid: str = field(repr=False)
+
+
+@dataclass(frozen=True)
+class EncryptedCredentials:
+    """Opaque credential tokens handed to the provider factory and stored on a membership."""
+
+    espn_s2_encrypted: str = field(repr=False)
+    espn_swid_encrypted: str = field(repr=False)
+
+
+class ProviderFactory(Protocol):
+    """Build a provider from stored ciphertext, decrypting only behind the provider layer."""
+
+    def __call__(self, *, espn_s2_encrypted: str, espn_swid_encrypted: str) -> LeagueProvider: ...
+
+
+@dataclass(frozen=True)
+class MembershipView:
+    """A membership and its league, safe to return to a browser."""
+
+    league_id: int
+    provider: str
+    external_id: str
+    name: str
+    owner_id: int | None
+    has_credentials: bool
+
+
+@dataclass(frozen=True)
+class OwnerView:
+    """A league owner available for the caller's owner association."""
+
+    id: int
+    external_id: str
+    display_name: str
+
+
+@dataclass(frozen=True)
+class AddLeagueResult:
+    """Outcome of adding or joining a league."""
+
+    membership: MembershipView
+    season: int
+    weeks_synced: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class RefreshResult:
+    """Outcome of a league-wide refresh."""
+
+    league_id: int
+    season: int
+    weeks_synced: tuple[int, ...]
+    weeks_with_vp_recomputed: tuple[int, ...]
+
+
+class LeagueServiceError(Exception):
+    """Base class for expected league-service failures."""
+
+
+class InvalidLeagueRequestError(LeagueServiceError):
+    """The requested league id, season, or credential pair is not usable."""
+
+
+class CredentialPermissionError(LeagueServiceError):
+    """A non-admin tried to supply credentials, or supplied credentials without permission."""
+
+
+class NotAMemberError(LeagueServiceError, LookupError):
+    """The caller has no membership in the requested league."""
+
+
+class LeagueNotFoundError(LeagueServiceError, LookupError):
+    """No stored league matches the requested provider external id."""
+
+
+class AlreadyMemberError(LeagueServiceError):
+    """The caller already holds a membership in the league."""
+
+
+class OwnerNotFoundError(LeagueServiceError, LookupError):
+    """The requested owner does not belong to the league."""
+
+
+class CredentialsRequiredError(LeagueServiceError):
+    """The caller's membership holds no credentials, so it cannot refresh the league."""
+
+
+class IncompleteCredentialsError(InvalidLeagueRequestError):
+    """Only one of the two ESPN cookies was supplied, or a supplied value is empty."""
+
+
+class LeagueProviderError(LeagueServiceError):
+    """The provider could not be configured or did not recognize the league season."""
+
+
+class LeagueSyncError(LeagueServiceError):
+    """The provider-backed sync failed after validation."""
+
+
+class RefreshRateLimitedError(LeagueServiceError):
+    """The refresh was rejected by the per-league or per-user rate limit."""
+
+    def __init__(self, retry_after: int) -> None:
+        """Record the whole seconds a caller should wait before trying again."""
+        self.retry_after = retry_after
+        super().__init__("league refresh is rate limited")
+
+
+@dataclass(frozen=True)
+class RefreshRateLimitDecision:
+    """Outcome of one league-refresh rate-limit check."""
+
+    allowed: bool
+    retry_after: int
+
+
+class RefreshRateLimiter:
+    """A thread-safe refresh limiter with independent per-league and per-user limits.
+
+    The defaults allow one refresh per league every five minutes and three refreshes per user per
+    rolling hour. The clock is injectable (seconds, monotonically non-decreasing in tests) so the
+    behaviour is deterministic. A denied attempt does not consume quota; an allowed attempt is
+    recorded before the provider call, so a failed sync still counts.
+
+    State is process-local, like the auth limiter: a multi-worker deployment needs a shared store.
+    """
+
+    def __init__(
+        self,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+        league_interval_seconds: float = DEFAULT_LEAGUE_REFRESH_INTERVAL_SECONDS,
+        user_limit: int = DEFAULT_USER_REFRESH_LIMIT,
+        user_window_seconds: float = DEFAULT_USER_REFRESH_WINDOW_SECONDS,
+    ) -> None:
+        """Configure the limits and clock; non-negative intervals and a positive limit are valid."""
+        if league_interval_seconds < 0:
+            raise ValueError("league_interval_seconds must not be negative")
+        if user_limit < 1:
+            raise ValueError("user_limit must be at least 1")
+        if user_window_seconds <= 0:
+            raise ValueError("user_window_seconds must be positive")
+        self._clock = clock
+        self._league_interval_seconds = float(league_interval_seconds)
+        self._user_limit = user_limit
+        self._user_window_seconds = float(user_window_seconds)
+        self._last_league_refresh: dict[int, float] = {}
+        self._user_attempts: dict[int, list[float]] = {}
+        self._lock = threading.Lock()
+
+    def check(self, *, league_id: int, user_id: int) -> RefreshRateLimitDecision:
+        """Record one allowed refresh or report how long the caller must wait.
+
+        Both limits are evaluated before either counter changes, so a denial by one limit does not
+        consume the other. ``retry_after`` is the largest whole-second wait implied by the two
+        limits (at least one when denied).
+        """
+        now = float(self._clock())
+        with self._lock:
+            league_retry = self._league_retry(league_id, now)
+            attempts = [
+                attempt
+                for attempt in self._user_attempts.get(user_id, [])
+                if now - attempt < self._user_window_seconds
+            ]
+            self._user_attempts[user_id] = attempts
+            user_retry = self._user_retry(attempts, now)
+
+            if league_retry > 0 or user_retry > 0:
+                return RefreshRateLimitDecision(
+                    allowed=False, retry_after=max(league_retry, user_retry)
+                )
+
+            self._last_league_refresh[league_id] = now
+            attempts.append(now)
+            return RefreshRateLimitDecision(allowed=True, retry_after=0)
+
+    def reset(self) -> None:
+        """Forget every counter (used by tests and administrative resets)."""
+        with self._lock:
+            self._last_league_refresh.clear()
+            self._user_attempts.clear()
+
+    def _league_retry(self, league_id: int, now: float) -> int:
+        """Return whole seconds until this league may refresh again, or zero when allowed."""
+        last = self._last_league_refresh.get(league_id)
+        if last is None or now >= last + self._league_interval_seconds:
+            return 0
+        return max(1, math.ceil(last + self._league_interval_seconds - now))
+
+    def _user_retry(self, attempts: list[float], now: float) -> int:
+        """Return whole seconds until this user's oldest attempt leaves the window, or zero."""
+        if len(attempts) < self._user_limit:
+            return 0
+        return max(1, math.ceil(attempts[0] + self._user_window_seconds - now))
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+class LeagueService:
+    """Add and join leagues, list membership-scoped data, and refresh using stored credentials."""
+
+    def __init__(
+        self,
+        session: Session,
+        provider_factory: ProviderFactory,
+        *,
+        provider_id: str = PROVIDER_ID,
+        refresh_limiter: RefreshRateLimiter | None = None,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        """Bind the service to a caller-owned session and an injected credential-backed factory."""
+        self._session = session
+        self._provider_factory = provider_factory
+        self._provider_id = provider_id
+        self._refresh_limiter = refresh_limiter or RefreshRateLimiter()
+        self._clock = clock or _utc_now
+        self._memberships = MembershipRepository(session)
+        self._sync = SyncRepository(session)
+
+    def commit(self) -> None:
+        """Commit the caller's current unit of work (the service never commits on its own)."""
+        self._session.commit()
+
+    # ------------------------------------------------------------------
+    # Mutations
+    # ------------------------------------------------------------------
+
+    def add_league(
+        self,
+        user: LeagueUser,
+        espn_league_id: str,
+        season: int | None = None,
+        credentials: EspnCredentials | None = None,
+    ) -> AddLeagueResult:
+        """Add a league as an admin with credentials, or join an existing league as a member.
+
+        A credentialed add requires an admin account. The credentials are encrypted before use,
+        the provider is constructed and the requested season is fetched, and only after that
+        validation succeeds are the league, membership, encrypted tokens, and initial sync written
+        inside one SAVEPOINT. A duplicate membership is rejected before any provider call.
+
+        Without credentials the league must already be stored; the caller is joined without
+        credentials and no provider is contacted. The caller commits.
+        """
+        external_id = espn_league_id.strip()
+        if not external_id:
+            raise InvalidLeagueRequestError("espn_league_id must not be empty")
+        requested_season = self._clock().year if season is None else season
+        if requested_season <= 0:
+            raise InvalidLeagueRequestError("season must be a positive year")
+
+        if credentials is not None and user.role != ROLE_ADMIN:
+            raise CredentialPermissionError("only an admin may add league credentials")
+
+        existing = self._sync.get_league(self._provider_id, external_id)
+        if existing is not None and self._memberships.get(user.user_id, existing.id) is not None:
+            raise AlreadyMemberError("user already belongs to this league")
+
+        if credentials is None:
+            if existing is None:
+                raise LeagueNotFoundError("league is not stored and no credentials were supplied")
+            membership = self._create_membership(user.user_id, existing.id)
+            return AddLeagueResult(
+                membership=self._view(membership),
+                season=requested_season,
+                weeks_synced=(),
+            )
+
+        encrypted = self._encrypt_credentials(credentials)
+        provider = self._build_provider(encrypted)
+        league_dto = self._fetch_league(provider, external_id, requested_season)
+
+        try:
+            with self._session.begin_nested():
+                league = self._sync.upsert_league(
+                    provider=self._provider_id,
+                    external_id=league_dto.external_id,
+                    name=league_dto.name,
+                    league_metadata=dict(league_dto.metadata),
+                    provider_config_ref="env:default",
+                ).row
+                membership = self._create_membership(user.user_id, league.id)
+                self._memberships.set_credentials(
+                    user.user_id,
+                    league.id,
+                    espn_s2_encrypted=encrypted.espn_s2_encrypted,
+                    espn_swid_encrypted=encrypted.espn_swid_encrypted,
+                )
+                summary = self._sync_season(provider, external_id, requested_season)
+        except LeagueServiceError:
+            raise
+        except Exception:
+            raise LeagueSyncError("league data could not be synced") from None
+
+        return AddLeagueResult(
+            membership=self._view(membership),
+            season=requested_season,
+            weeks_synced=summary.weeks_synced,
+        )
+
+    def set_owner(
+        self,
+        user: LeagueUser,
+        league_id: int,
+        owner_id: int | None,
+    ) -> MembershipView:
+        """Set or clear the owner association on the caller's own membership.
+
+        The owner must belong to the same league. No other user's membership can be addressed.
+        """
+        self.require_membership(user, league_id)
+        if owner_id is not None:
+            owner = self._session.scalar(
+                select(Owner).where(Owner.id == owner_id, Owner.league_id == league_id)
+            )
+            if owner is None:
+                raise OwnerNotFoundError("owner does not belong to this league")
+        membership = self._memberships.set_owner(user.user_id, league_id, owner_id)
+        return self._view(membership)
+
+    def refresh(self, user: LeagueUser, league_id: int) -> RefreshResult:
+        """Refresh the league's most recent stored season with the membership's credentials.
+
+        The caller must be a member whose membership holds both encrypted tokens. The provider is
+        built from ciphertext (decryption stays behind the provider factory) and the sync runs
+        inside a SAVEPOINT so a failure does not leave a partial refresh. Rate limits are checked
+        per league and per user before the provider call; a denied request raises
+        :class:`RefreshRateLimitedError` with the retry-after seconds.
+        """
+        membership = self.require_membership(user, league_id)
+        espn_s2_encrypted = membership.espn_s2_encrypted
+        espn_swid_encrypted = membership.espn_swid_encrypted
+        if not espn_s2_encrypted or not espn_swid_encrypted:
+            raise CredentialsRequiredError("membership holds no league credentials")
+
+        decision = self._refresh_limiter.check(league_id=league_id, user_id=user.user_id)
+        if not decision.allowed:
+            raise RefreshRateLimitedError(decision.retry_after)
+
+        encrypted = EncryptedCredentials(
+            espn_s2_encrypted=espn_s2_encrypted,
+            espn_swid_encrypted=espn_swid_encrypted,
+        )
+        provider = self._build_provider(encrypted)
+        season = self._current_season(league_id)
+        external_id = membership.league.external_id
+        with self._session.begin_nested():
+            summary = self._sync_season(provider, external_id, season)
+
+        return RefreshResult(
+            league_id=league_id,
+            season=season,
+            weeks_synced=summary.weeks_synced,
+            weeks_with_vp_recomputed=summary.weeks_with_vp_recomputed,
+        )
+
+    # ------------------------------------------------------------------
+    # Membership-scoped reads
+    # ------------------------------------------------------------------
+
+    def require_membership(self, user: LeagueUser, league_id: int) -> UserLeague:
+        """Return the caller's membership or raise :class:`NotAMemberError`.
+
+        Routers map this error to 404 (a non-member learns nothing about the league) and rely on
+        the auth dependency for the 401 case.
+        """
+        membership = self._memberships.get(user.user_id, league_id)
+        if membership is None:
+            raise NotAMemberError("caller is not a member of this league")
+        return membership
+
+    def list_memberships(self, user: LeagueUser) -> list[MembershipView]:
+        """Return every league the caller belongs to, without credential values."""
+        memberships = self._memberships.list_for_user(user.user_id)
+        return [self._view(membership) for membership in memberships]
+
+    def list_seasons(self, user: LeagueUser, league_id: int) -> list[int]:
+        """Return the stored seasons for a league the caller belongs to, ascending."""
+        self.require_membership(user, league_id)
+        return [row.season for row in self._sync.list_league_seasons(league_id)]
+
+    def list_owners(self, user: LeagueUser, league_id: int) -> list[OwnerView]:
+        """Return the league's owners for a member to choose from."""
+        self.require_membership(user, league_id)
+        owners = self._session.scalars(
+            select(Owner).where(Owner.league_id == league_id).order_by(Owner.id)
+        )
+        return [
+            OwnerView(id=owner.id, external_id=owner.external_id, display_name=owner.display_name)
+            for owner in owners
+        ]
+
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
+
+    def _create_membership(self, user_id: int, league_id: int) -> UserLeague:
+        """Create a membership and translate a duplicate constraint into a typed error."""
+        try:
+            return self._memberships.create(user_id, league_id)
+        except DatabaseDuplicateMembershipError:
+            raise AlreadyMemberError("user already belongs to this league") from None
+
+    def _encrypt_credentials(self, credentials: EspnCredentials) -> EncryptedCredentials:
+        """Encrypt the supplied cookies; plaintext never reaches storage or the provider factory."""
+        if not credentials.espn_s2.strip() or not credentials.espn_swid.strip():
+            raise IncompleteCredentialsError("both ESPN cookies are required")
+        try:
+            return EncryptedCredentials(
+                espn_s2_encrypted=encrypt(credentials.espn_s2),
+                espn_swid_encrypted=encrypt(credentials.espn_swid),
+            )
+        except CredentialCryptoError:
+            raise LeagueProviderError("league credentials could not be secured") from None
+
+    def _build_provider(self, credentials: EncryptedCredentials) -> LeagueProvider:
+        """Build a provider from ciphertext, hiding every failure detail from the caller."""
+        try:
+            return self._provider_factory(
+                espn_s2_encrypted=credentials.espn_s2_encrypted,
+                espn_swid_encrypted=credentials.espn_swid_encrypted,
+            )
+        except Exception:
+            raise LeagueProviderError(
+                "league credentials could not be used to reach the provider"
+            ) from None
+
+    def _fetch_league(self, provider: LeagueProvider, external_id: str, season: int) -> LeagueDTO:
+        """Validate the credentials by fetching league metadata before any write."""
+        try:
+            return provider.fetch_league(LeagueRef(external_id=external_id), season)
+        except Exception:
+            raise LeagueProviderError(
+                "league could not be validated with the supplied credentials"
+            ) from None
+
+    def _sync_season(self, provider: LeagueProvider, external_id: str, season: int) -> SyncSummary:
+        """Run one provider-backed sync and translate every failure into a typed sync error."""
+        try:
+            return SyncService(provider, self._session).sync_league(
+                LeagueRef(external_id=external_id),
+                self._provider_id,
+                season,
+            )
+        except SyncError:
+            raise LeagueSyncError("league data could not be synced") from None
+        except Exception:
+            raise LeagueSyncError("league data could not be synced") from None
+
+    def _current_season(self, league_id: int) -> int:
+        """Return the most recent stored season, falling back to the clock's year."""
+        seasons = self._sync.list_league_seasons(league_id)
+        if not seasons:
+            return self._clock().year
+        return max(row.season for row in seasons)
+
+    def _view(self, membership: UserLeague) -> MembershipView:
+        """Project a membership and its league into a credential-free view."""
+        league: League = membership.league
+        return MembershipView(
+            league_id=league.id,
+            provider=league.provider,
+            external_id=league.external_id,
+            name=league.name,
+            owner_id=membership.owner_id,
+            has_credentials=bool(membership.espn_s2_encrypted and membership.espn_swid_encrypted),
+        )
