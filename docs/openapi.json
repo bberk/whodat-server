@@ -1,0 +1,1158 @@
+{
+  "components": {
+    "schemas": {
+      "AddLeagueRequest": {
+        "additionalProperties": false,
+        "description": "Add a league with admin credentials or join an existing league without them.",
+        "properties": {
+          "espn_league_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Espn League Id",
+            "type": "string"
+          },
+          "espn_s2": {
+            "anyOf": [
+              {
+                "format": "password",
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Espn S2"
+          },
+          "espn_swid": {
+            "anyOf": [
+              {
+                "format": "password",
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Espn Swid"
+          },
+          "season": {
+            "anyOf": [
+              {
+                "maximum": 2100.0,
+                "minimum": 2000.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Season"
+          }
+        },
+        "required": [
+          "espn_league_id"
+        ],
+        "title": "AddLeagueRequest",
+        "type": "object"
+      },
+      "AddLeagueResponse": {
+        "description": "Result of adding or joining a league.",
+        "properties": {
+          "league": {
+            "$ref": "#/components/schemas/LeagueSummary"
+          },
+          "season": {
+            "title": "Season",
+            "type": "integer"
+          },
+          "weeks_synced": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Weeks Synced",
+            "type": "array"
+          }
+        },
+        "required": [
+          "league",
+          "season",
+          "weeks_synced"
+        ],
+        "title": "AddLeagueResponse",
+        "type": "object"
+      },
+      "DivisionStandings": {
+        "description": "A division's rows in overall-rank order; each row keeps its overall league rank.",
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "standings": {
+            "items": {
+              "$ref": "#/components/schemas/StandingsRow"
+            },
+            "title": "Standings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "standings"
+        ],
+        "title": "DivisionStandings",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "LeagueSummary": {
+        "description": "A membership's league, with no credential material.",
+        "properties": {
+          "external_id": {
+            "title": "External Id",
+            "type": "string"
+          },
+          "has_credentials": {
+            "title": "Has Credentials",
+            "type": "boolean"
+          },
+          "league_id": {
+            "title": "League Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "owner_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Id"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "league_id",
+          "provider",
+          "external_id",
+          "name",
+          "owner_id",
+          "has_credentials"
+        ],
+        "title": "LeagueSummary",
+        "type": "object"
+      },
+      "LoginRequest": {
+        "description": "Log in with an existing account's email and password.",
+        "properties": {
+          "email": {
+            "maxLength": 320,
+            "minLength": 3,
+            "title": "Email",
+            "type": "string"
+          },
+          "password": {
+            "format": "password",
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Password",
+            "type": "string",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginRequest",
+        "type": "object"
+      },
+      "LogoutResponse": {
+        "description": "Confirmation that the session cookie was cleared.",
+        "properties": {
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "LogoutResponse",
+        "type": "object"
+      },
+      "OwnerSummary": {
+        "description": "A league owner the caller may associate with their membership.",
+        "properties": {
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "external_id": {
+            "title": "External Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "external_id",
+          "display_name"
+        ],
+        "title": "OwnerSummary",
+        "type": "object"
+      },
+      "OwnerUpdateRequest": {
+        "additionalProperties": false,
+        "description": "Set or clear the caller's own owner association.",
+        "properties": {
+          "owner_id": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Id"
+          }
+        },
+        "title": "OwnerUpdateRequest",
+        "type": "object"
+      },
+      "OwnerUpdateResponse": {
+        "description": "The caller's membership after the owner association changed.",
+        "properties": {
+          "league": {
+            "$ref": "#/components/schemas/LeagueSummary"
+          }
+        },
+        "required": [
+          "league"
+        ],
+        "title": "OwnerUpdateResponse",
+        "type": "object"
+      },
+      "OwnersResponse": {
+        "description": "Owners available for the caller's owner association.",
+        "properties": {
+          "owners": {
+            "items": {
+              "$ref": "#/components/schemas/OwnerSummary"
+            },
+            "title": "Owners",
+            "type": "array"
+          }
+        },
+        "required": [
+          "owners"
+        ],
+        "title": "OwnersResponse",
+        "type": "object"
+      },
+      "PublicUser": {
+        "description": "The account fields safe to return to a browser.",
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "role"
+        ],
+        "title": "PublicUser",
+        "type": "object"
+      },
+      "RefreshResponse": {
+        "description": "Summary of one league-wide refresh.",
+        "properties": {
+          "league_id": {
+            "title": "League Id",
+            "type": "integer"
+          },
+          "season": {
+            "title": "Season",
+            "type": "integer"
+          },
+          "weeks_synced": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Weeks Synced",
+            "type": "array"
+          },
+          "weeks_with_vp_recomputed": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Weeks With Vp Recomputed",
+            "type": "array"
+          }
+        },
+        "required": [
+          "league_id",
+          "season",
+          "weeks_synced",
+          "weeks_with_vp_recomputed"
+        ],
+        "title": "RefreshResponse",
+        "type": "object"
+      },
+      "SeasonsResponse": {
+        "description": "Stored seasons for one league.",
+        "properties": {
+          "seasons": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Seasons",
+            "type": "array"
+          }
+        },
+        "required": [
+          "seasons"
+        ],
+        "title": "SeasonsResponse",
+        "type": "object"
+      },
+      "SignupRequest": {
+        "description": "Create an account from an invite code.",
+        "properties": {
+          "email": {
+            "maxLength": 320,
+            "minLength": 3,
+            "title": "Email",
+            "type": "string"
+          },
+          "invite_code": {
+            "format": "password",
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Invite Code",
+            "type": "string",
+            "writeOnly": true
+          },
+          "password": {
+            "format": "password",
+            "maxLength": 1024,
+            "minLength": 8,
+            "title": "Password",
+            "type": "string",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "email",
+          "password",
+          "invite_code"
+        ],
+        "title": "SignupRequest",
+        "type": "object"
+      },
+      "StandingsResponse": {
+        "description": "Overall standings plus division groupings for one league season.",
+        "properties": {
+          "completed_weeks": {
+            "title": "Completed Weeks",
+            "type": "integer"
+          },
+          "divisions": {
+            "items": {
+              "$ref": "#/components/schemas/DivisionStandings"
+            },
+            "title": "Divisions",
+            "type": "array"
+          },
+          "league_id": {
+            "title": "League Id",
+            "type": "integer"
+          },
+          "overall": {
+            "items": {
+              "$ref": "#/components/schemas/StandingsRow"
+            },
+            "title": "Overall",
+            "type": "array"
+          },
+          "season": {
+            "title": "Season",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "league_id",
+          "season",
+          "completed_weeks",
+          "overall",
+          "divisions"
+        ],
+        "title": "StandingsResponse",
+        "type": "object"
+      },
+      "StandingsRow": {
+        "description": "One team's overall standing as returned by the standings endpoint.",
+        "properties": {
+          "division": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Division"
+          },
+          "losses": {
+            "title": "Losses",
+            "type": "integer"
+          },
+          "owner_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Name"
+          },
+          "points_for": {
+            "title": "Points For",
+            "type": "string"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          },
+          "team_id": {
+            "title": "Team Id",
+            "type": "integer"
+          },
+          "team_name": {
+            "title": "Team Name",
+            "type": "string"
+          },
+          "ties": {
+            "title": "Ties",
+            "type": "integer"
+          },
+          "victory_points": {
+            "title": "Victory Points",
+            "type": "string"
+          },
+          "weekly_vp": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Weekly Vp",
+            "type": "array"
+          },
+          "wins": {
+            "title": "Wins",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rank",
+          "team_id",
+          "team_name",
+          "owner_name",
+          "division",
+          "victory_points",
+          "wins",
+          "losses",
+          "ties",
+          "points_for",
+          "weekly_vp"
+        ],
+        "title": "StandingsRow",
+        "type": "object"
+      },
+      "TeamVpHistory": {
+        "description": "One team's weekly VP and cumulative VP through each included week.",
+        "properties": {
+          "cumulative": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Cumulative",
+            "type": "array"
+          },
+          "team_id": {
+            "title": "Team Id",
+            "type": "integer"
+          },
+          "team_name": {
+            "title": "Team Name",
+            "type": "string"
+          },
+          "weekly": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Weekly",
+            "type": "array"
+          }
+        },
+        "required": [
+          "team_id",
+          "team_name",
+          "weekly",
+          "cumulative"
+        ],
+        "title": "TeamVpHistory",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "VpHistoryResponse": {
+        "description": "Completed weeks and the per-team series used by the cumulative VP chart.",
+        "properties": {
+          "teams": {
+            "items": {
+              "$ref": "#/components/schemas/TeamVpHistory"
+            },
+            "title": "Teams",
+            "type": "array"
+          },
+          "weeks": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Weeks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "weeks",
+          "teams"
+        ],
+        "title": "VpHistoryResponse",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Victory Points API",
+    "version": "0.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/auth/login": {
+      "post": {
+        "description": "Verify credentials, set the session cookie, and return the public user.\n\nAn unknown email and a wrong password return the same 401 body, so the endpoint cannot be used\nto enumerate accounts.",
+        "operationId": "login_api_v1_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicUser"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Login",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "description": "Clear the session cookie.\n\nLogout is idempotent: it succeeds even when the caller has no valid session, so a browser can\nalways discard a stale or tampered cookie.",
+        "operationId": "logout_api_v1_auth_logout_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogoutResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Logout",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/signup": {
+      "post": {
+        "description": "Create an account from a valid invite, set the session cookie, and return the public user.\n\nUnknown and expired invite codes share one 400 response so the endpoint does not help a caller\ndistinguish which part failed. A taken email returns 409.",
+        "operationId": "signup_api_v1_auth_signup_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicUser"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Signup",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/leagues": {
+      "post": {
+        "description": "Add a league with admin credentials or join an already-stored league as a member.",
+        "operationId": "add_league_api_v1_leagues_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddLeagueRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddLeagueResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add League",
+        "tags": [
+          "leagues"
+        ]
+      }
+    },
+    "/api/v1/leagues/{league_id}/owners": {
+      "get": {
+        "description": "Return the owners a member may associate with their own membership.",
+        "operationId": "list_league_owners_api_v1_leagues__league_id__owners_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "league_id",
+            "required": true,
+            "schema": {
+              "title": "League Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnersResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List League Owners",
+        "tags": [
+          "leagues"
+        ]
+      }
+    },
+    "/api/v1/leagues/{league_id}/refresh": {
+      "post": {
+        "description": "Refresh a league using the caller's stored credentials, subject to rate limits.",
+        "operationId": "refresh_league_api_v1_leagues__league_id__refresh_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "league_id",
+            "required": true,
+            "schema": {
+              "title": "League Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefreshResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Refresh League",
+        "tags": [
+          "leagues"
+        ]
+      }
+    },
+    "/api/v1/leagues/{league_id}/seasons": {
+      "get": {
+        "description": "Return the seasons stored for a league the caller belongs to.",
+        "operationId": "list_league_seasons_api_v1_leagues__league_id__seasons_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "league_id",
+            "required": true,
+            "schema": {
+              "title": "League Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeasonsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List League Seasons",
+        "tags": [
+          "leagues"
+        ]
+      }
+    },
+    "/api/v1/leagues/{league_id}/seasons/{season}/standings": {
+      "get": {
+        "description": "Return overall standings plus divisions that keep each team's overall league rank.",
+        "operationId": "get_standings_api_v1_leagues__league_id__seasons__season__standings_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "league_id",
+            "required": true,
+            "schema": {
+              "title": "League Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "season",
+            "required": true,
+            "schema": {
+              "title": "Season",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandingsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Standings",
+        "tags": [
+          "standings"
+        ]
+      }
+    },
+    "/api/v1/leagues/{league_id}/seasons/{season}/vp-history": {
+      "get": {
+        "description": "Return counted weeks and each team's weekly and cumulative VP series.\n\nAn optional ``week`` truncates every series at that week. A week beyond the completed data is\na structured 400 rather than an empty or partial chart.",
+        "operationId": "get_vp_history_api_v1_leagues__league_id__seasons__season__vp_history_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "league_id",
+            "required": true,
+            "schema": {
+              "title": "League Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "season",
+            "required": true,
+            "schema": {
+              "title": "Season",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Limit the series to counted weeks up to this week.",
+            "in": "query",
+            "name": "week",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Limit the series to counted weeks up to this week.",
+              "title": "Week"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VpHistoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Vp History",
+        "tags": [
+          "standings"
+        ]
+      }
+    },
+    "/api/v1/me": {
+      "get": {
+        "description": "Return the account tied to the session cookie, or 401 when unauthenticated.",
+        "operationId": "me_api_v1_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicUser"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Me",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/me/leagues": {
+      "get": {
+        "description": "Return the leagues the signed-in user belongs to.",
+        "operationId": "list_my_leagues_api_v1_me_leagues_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LeagueSummary"
+                  },
+                  "title": "Response List My Leagues Api V1 Me Leagues Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List My Leagues",
+        "tags": [
+          "leagues"
+        ]
+      }
+    },
+    "/api/v1/me/leagues/{league_id}/owner": {
+      "put": {
+        "description": "Set or clear the caller's own owner association within a league they belong to.",
+        "operationId": "set_my_owner_api_v1_me_leagues__league_id__owner_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "league_id",
+            "required": true,
+            "schema": {
+              "title": "League Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OwnerUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnerUpdateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set My Owner",
+        "tags": [
+          "leagues"
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "description": "Liveness probe used by CI, Docker Compose, and deployment checks.",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Health Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health",
+        "tags": [
+          "health"
+        ]
+      }
+    }
+  }
+}
