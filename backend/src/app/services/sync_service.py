@@ -31,6 +31,29 @@ class SyncSummary:
     teams_changed: int
 
 
+@dataclass(frozen=True)
+class RecomputeSummary:
+    """Report the weeks a provider-free recompute_league call touched and skipped."""
+
+    league_id: int
+    season: int
+    regular_season_length: int
+    weeks_recomputed: tuple[int, ...]
+    weeks_skipped: tuple[int, ...]
+
+
+class SyncError(Exception):
+    """Base class for recoverable sync and recompute failures reported by the CLI."""
+
+
+class LeagueNotFoundError(SyncError):
+    """Raised when a league is unknown to the provider or is not stored locally."""
+
+
+class MissingRegularSeasonLengthError(SyncError):
+    """Raised when stored league metadata has no usable regular-season length."""
+
+
 # Quantization policy: NUMERIC(10,6) schema requires six decimal places.
 # ROUND_HALF_EVEN is deterministic and matches IEEE 754 default rounding.
 _VP_QUANT = Decimal("0.000001")
@@ -49,19 +72,41 @@ def _fraction_to_decimal(value: Fraction) -> Decimal:
     )
 
 
+def _regular_season_length(metadata: Mapping[str, object]) -> int | None:
+    """Return the stored regular-season length, or None when it is absent or unusable.
+
+    The length is persisted by every provider in the league metadata (the ESPN adapter writes
+    ``regular_season_length`` from ``settings.reg_season_count``). Booleans are rejected even
+    though ``bool`` is an ``int`` subclass, and non-positive values are treated as missing.
+    """
+    value = metadata.get("regular_season_length")
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return None
+    return value
+
+
 class SyncService:
     """Orchestrate provider data ingestion, matchup/score upsert, and weekly VP recomputation.
 
     The service uses a caller-owned session and never commits or rolls back. Transaction
     ownership belongs to the caller, allowing the service to be embedded in larger workflows
     or tested with explicit commit/rollback control.
+
+    A provider is required for :meth:`sync_league` and unused by :meth:`recompute_league`, which
+    works entirely from persisted rows. Pass ``None`` to build a service that can only recompute.
     """
 
-    def __init__(self, provider: LeagueProvider, session: Session) -> None:
-        """Bind the service to a provider and a caller-owned session."""
+    def __init__(self, provider: LeagueProvider | None, session: Session) -> None:
+        """Bind the service to an optional provider and a caller-owned session."""
         self._provider = provider
         self._session = session
         self._repository = SyncRepository(session)
+
+    def _require_provider(self) -> LeagueProvider:
+        """Return the bound provider, raising SyncError when the service has none."""
+        if self._provider is None:
+            raise SyncError("sync requires a provider; this service only supports recompute")
+        return self._provider
 
     def sync_league(
         self,
@@ -85,9 +130,19 @@ class SyncService:
 
         For any week whose matchup/score data changed or is newly completed, VP is recomputed
         for every team in that week and persisted in the same transaction.
+
+        Raises LeagueNotFoundError when the provider does not know the league season.
         """
+        provider = self._require_provider()
+
         # Fetch and upsert league metadata.
-        league_dto = self._provider.fetch_league(league_ref, season)
+        try:
+            league_dto = provider.fetch_league(league_ref, season)
+        except KeyError as exc:
+            raise LeagueNotFoundError(
+                f"provider {provider_id!r} has no league {league_ref.external_id!r} "
+                f"for season {season}"
+            ) from exc
         league_result = self._repository.upsert_league(
             provider=provider_id,
             external_id=league_dto.external_id,
@@ -99,7 +154,7 @@ class SyncService:
         league_changed = league_result.changed
 
         # Fetch and upsert owners, tracking their external_id → id mapping.
-        owners_dto = self._provider.fetch_owners(league_ref, season)
+        owners_dto = provider.fetch_owners(league_ref, season)
         owner_external_to_id: dict[str, int] = {}
         owners_changed = 0
         for owner_dto in owners_dto:
@@ -111,7 +166,7 @@ class SyncService:
                 owners_changed += 1
 
         # Fetch and upsert teams, building external_id → id mapping.
-        teams_dto = self._provider.fetch_teams(league_ref, season)
+        teams_dto = provider.fetch_teams(league_ref, season)
         team_external_to_id: dict[str, int] = {}
         teams_changed = 0
         for team_dto in teams_dto:
@@ -133,7 +188,7 @@ class SyncService:
                 teams_changed += 1
 
         # Determine which weeks to sync.
-        week_status = self._provider.current_week(league_ref, season)
+        week_status = provider.current_week(league_ref, season)
         if weeks is None:
             if week_status.last_completed_week is None:
                 # No completed weeks and no explicit request: only metadata, no matchups/scores.
@@ -154,7 +209,7 @@ class SyncService:
         weeks_synced: list[int] = []
         weeks_needing_recompute: list[int] = []
         for week in weeks_to_sync:
-            matchups_dto = self._provider.fetch_matchups(league_ref, season, week)
+            matchups_dto = provider.fetch_matchups(league_ref, season, week)
             week_changed = self._sync_week(
                 league_id, season, week, matchups_dto, team_external_to_id
             )
@@ -185,6 +240,62 @@ class SyncService:
             league_changed=league_changed,
             owners_changed=owners_changed,
             teams_changed=teams_changed,
+        )
+
+    def recompute_league(
+        self,
+        league_ref: LeagueRef,
+        provider_id: str,
+        season: int,
+    ) -> RecomputeSummary:
+        """Recompute VP for a stored league season using only persisted data.
+
+        This operation never calls the provider: it locates the league by its stored natural key
+        (provider_id, external id) and reads the season's regular-season length from the stored
+        league metadata, which every provider writes on sync. It then recomputes VP for every
+        stored, complete, non-playoff week in that range with the pure engine and the existing
+        repository. Weeks with no stored matchups, incomplete weeks, and playoff weeks are
+        skipped and keep whatever VP sync stored for them (normally zero).
+
+        Because sync only writes VP for weeks whose data changed, this is the operation to run
+        after a scoring-rule change or to rebuild VP for every stored week in one pass.
+
+        Raises LeagueNotFoundError when no league is stored for the natural key, and
+        MissingRegularSeasonLengthError when the stored metadata has no usable length.
+        """
+        league = self._repository.get_league(provider_id, league_ref.external_id)
+        if league is None:
+            raise LeagueNotFoundError(
+                f"league {league_ref.external_id!r} for provider {provider_id!r} is not stored"
+            )
+
+        regular_season_length = _regular_season_length(league.league_metadata)
+        if regular_season_length is None:
+            raise MissingRegularSeasonLengthError(
+                f"league {league_ref.external_id!r} season {season} has no usable "
+                "regular_season_length in its stored metadata"
+            )
+
+        weeks_recomputed: list[int] = []
+        weeks_skipped: list[int] = []
+        for week in range(1, regular_season_length + 1):
+            matchups = self._repository.get_week_matchups(league.id, season, week)
+            if not matchups:
+                weeks_skipped.append(week)
+                continue
+            if matchups[0].is_playoff or not matchups[0].is_complete:
+                # Playoff and incomplete weeks earn no VP; leave their stored values untouched.
+                weeks_skipped.append(week)
+                continue
+            self._recompute_week_vp(league.id, season, week)
+            weeks_recomputed.append(week)
+
+        return RecomputeSummary(
+            league_id=league.id,
+            season=season,
+            regular_season_length=regular_season_length,
+            weeks_recomputed=tuple(weeks_recomputed),
+            weeks_skipped=tuple(weeks_skipped),
         )
 
     def _sync_week(
