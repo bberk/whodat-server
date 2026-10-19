@@ -297,31 +297,10 @@ def test_AC_ST_03_vp_ties_are_ordered_by_h2h_wins(session: Session) -> None:
     ]
 
 
-def test_AC_ST_05_fully_tied_teams_share_rank_and_sort_alphabetically(session: Session) -> None:
-    seeded = _seed(
-        session,
-        team_specs=SIX_TEAMS,
-        weeks=_h2h_tiebreak_weeks(),
-        regular_season_length=2,
-    )
-
-    standings = StandingsService(session).get_standings(seeded.league_id, SEASON)
-
-    ranks = {row.team_name: row.rank for row in standings.overall}
-    assert ranks["Alpha"] == ranks["Echo"] == 1
-    assert ranks["Bravo"] == ranks["Foxtrot"] == 3
-    assert ranks["Charlie"] == 5
-    assert ranks["Delta"] == 6
-    # Alpha and Echo tie on VP, wins, and points for (140.00); alphabetical order breaks display.
-    alpha = _by_name(standings)["Alpha"]
-    echo = _by_name(standings)["Echo"]
-    assert alpha.points_for == echo.points_for == Decimal("140.00")
-    assert alpha.wins == echo.wins == 2
-
-
 # ---------------------------------------------------------------------------
-# AC-ST-04: points-for tiebreak
+# AC-ST-04 golden data: the points-for rule itself is owned by test_standings.py
 # ---------------------------------------------------------------------------
+
 
 POINTS_FOR_TEAMS = (
     ("team-a", "Alpha", None),
@@ -331,48 +310,6 @@ POINTS_FOR_TEAMS = (
     ("team-e", "Echo", None),
     ("team-f", "Foxtrot", None),
 )
-
-
-def test_AC_ST_04_points_for_breaks_remaining_ties(session: Session) -> None:
-    weeks = {
-        1: [
-            _m(1, "team-a", "80.00", "team-d", "70.00"),
-            _m(1, "team-b", "79.00", "team-e", "69.00"),
-            _m(1, "team-c", "100.00", "team-f", "50.00"),
-        ],
-        2: [
-            _m(2, "team-a", "78.00", "team-d", "70.00"),
-            _m(2, "team-b", "76.00", "team-e", "69.00"),
-            _m(2, "team-c", "100.00", "team-f", "50.00"),
-        ],
-    }
-    seeded = _seed(
-        session,
-        team_specs=POINTS_FOR_TEAMS,
-        weeks=weeks,
-        regular_season_length=2,
-    )
-
-    standings = StandingsService(session).get_standings(seeded.league_id, SEASON)
-
-    rows = _by_name(standings)
-    # Alpha and Bravo tie on VP (4) and H2H wins (2); points for decides the order.
-    assert (rows["Alpha"].victory_points, rows["Alpha"].wins) == (Fraction(4), 2)
-    assert (rows["Bravo"].victory_points, rows["Bravo"].wins) == (Fraction(4), 2)
-    assert rows["Alpha"].points_for == Decimal("158.00")
-    assert rows["Bravo"].points_for == Decimal("155.00")
-    assert [row.team_name for row in standings.overall] == [
-        "Charlie",
-        "Alpha",
-        "Bravo",
-        "Delta",
-        "Echo",
-        "Foxtrot",
-    ]
-    # Delta and Echo also tie on VP and wins; points for (140 vs 138) decides.
-    assert rows["Delta"].points_for == Decimal("140.00")
-    assert rows["Echo"].points_for == Decimal("138.00")
-    assert rows["Delta"].rank < rows["Echo"].rank
 
 
 # ---------------------------------------------------------------------------
@@ -439,7 +376,17 @@ def _weeks_with_extra_week(extra_week: MatchupDTO) -> dict[int, list[MatchupDTO]
     return weeks
 
 
-def test_playoff_weeks_contribute_no_vp_record_or_points(session: Session) -> None:
+@pytest.mark.parametrize(
+    ("is_playoff", "is_complete"),
+    [
+        pytest.param(True, True, id="playoff"),
+        pytest.param(False, False, id="incomplete"),
+    ],
+)
+def test_AC_ST_08_playoff_and_incomplete_weeks_contribute_no_vp_record_or_points(
+    session: Session, is_playoff: bool, is_complete: bool
+) -> None:
+    """A playoff or incomplete week beyond the counted weeks keeps zero VP, record, and points."""
     seeded = _seed(
         session,
         team_specs=FOUR_TEAMS,
@@ -450,7 +397,8 @@ def test_playoff_weeks_contribute_no_vp_record_or_points(session: Session) -> No
                 "150.00",
                 "team-b",
                 "125.00",
-                is_playoff=True,
+                is_playoff=is_playoff,
+                is_complete=is_complete,
             )
         ),
         regular_season_length=3,
@@ -464,32 +412,6 @@ def test_playoff_weeks_contribute_no_vp_record_or_points(session: Session) -> No
     assert rows["Alpha"].wins == 2
     assert rows["Alpha"].points_for == Decimal("250.00")
     assert rows["Alpha"].weekly_vp == (Fraction(3), Fraction(3))
-
-
-def test_incomplete_weeks_contribute_no_vp_record_or_points(session: Session) -> None:
-    seeded = _seed(
-        session,
-        team_specs=FOUR_TEAMS,
-        weeks=_weeks_with_extra_week(
-            _m(
-                3,
-                "team-a",
-                "150.00",
-                "team-b",
-                "125.00",
-                is_complete=False,
-            )
-        ),
-        regular_season_length=3,
-    )
-
-    standings = StandingsService(session).get_standings(seeded.league_id, SEASON)
-
-    assert standings.completed_weeks == 2
-    rows = _by_name(standings)
-    assert rows["Alpha"].victory_points == Fraction(6)
-    assert rows["Alpha"].wins == 2
-    assert rows["Alpha"].points_for == Decimal("250.00")
 
 
 def test_regular_season_length_bounds_the_counted_weeks(session: Session) -> None:

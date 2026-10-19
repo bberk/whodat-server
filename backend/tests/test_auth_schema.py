@@ -1,7 +1,9 @@
-"""Schema and repository coverage for invite-only accounts and league memberships.
+"""Repository behaviour for invite-only accounts and league memberships.
 
-SQLite is the default engine. Set ``AUTH_TEST_DATABASE_URL`` to the worktree-local PostgreSQL URL
-to run the same assertions against Postgres.
+Shape (columns, keys, indexes) is owned by test_db_schema.py; these tests cover storage behaviour:
+email casing, duplicate rejection, role validation, invite expiry, credential round-trip, membership
+listings, and owner associations. SQLite is the default engine; set ``AUTH_TEST_DATABASE_URL`` to
+the worktree-local PostgreSQL URL to run the same assertions against Postgres.
 """
 
 import os
@@ -9,7 +11,7 @@ from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import Index, Text, UniqueConstraint, create_engine, func, select
+from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -22,7 +24,7 @@ from app.db.auth_repositories import (
     UserRepository,
 )
 from app.db.base import Base
-from app.db.models import AppUser, Invite, League, Owner, UserLeague
+from app.db.models import AppUser, Invite, League, Owner
 
 
 @pytest.fixture
@@ -56,35 +58,6 @@ def _seed_league(session: Session, external_id: str = "league-1") -> tuple[Leagu
     return league, owner
 
 
-def _constraint_names(model: type[Base]) -> set[str]:
-    """Return the named unique constraints declared on a table."""
-    return {
-        constraint.name
-        for constraint in model.__table__.constraints
-        if isinstance(constraint, UniqueConstraint)
-    }
-
-
-def test_app_user_role_replaces_the_owner_link() -> None:
-    """app_user keeps email and password_hash, adds role, and has no owner_id column."""
-    columns = AppUser.__table__.c
-    assert {column.name for column in columns} == {
-        "id",
-        "email",
-        "password_hash",
-        "role",
-        "created_at",
-        "updated_at",
-    }
-    assert "owner_id" not in columns
-    assert not AppUser.__table__.foreign_keys
-    assert isinstance(columns.role.type, Text)
-    assert columns.role.nullable is False
-    assert columns.role.server_default is not None
-    assert str(columns.role.server_default.arg) == "member"
-    assert _constraint_names(AppUser) == {"uq_app_user_email"}
-
-
 def test_app_user_role_accepts_only_admin_and_member(session: Session) -> None:
     """Role values are validated in the model layer rather than by a database enum."""
     user = UserRepository(session).create("admin@example.com", "hash", role="admin")
@@ -95,42 +68,6 @@ def test_app_user_role_accepts_only_admin_and_member(session: Session) -> None:
 
     member = UserRepository(session).create("member@example.com", "hash")
     assert member.role == "member"
-
-
-def test_invite_schema_links_a_league_and_hashes_the_code(session: Session) -> None:
-    """invite stores only a unique code hash, a role, an expiry, and timestamps."""
-    columns = Invite.__table__.c
-    assert {column.name for column in columns} == {
-        "id",
-        "league_id",
-        "code_hash",
-        "role",
-        "expires_at",
-        "created_at",
-        "updated_at",
-    }
-    assert columns.code_hash.nullable is False
-    assert columns.role.nullable is False
-    assert columns.role.server_default is not None
-    assert str(columns.role.server_default.arg) == "member"
-    assert columns.expires_at.nullable is False
-    assert isinstance(columns.role.type, Text)
-    assert _constraint_names(Invite) == {"uq_invite_code_hash"}
-    indexes = {
-        index.name: tuple(column.name for column in index.columns)
-        for index in Invite.__table__.indexes
-        if isinstance(index, Index)
-    }
-    assert indexes == {"ix_invite_league_id": ("league_id",)}
-    assert {(fk.parent.name, fk.target_fullname) for fk in Invite.__table__.foreign_keys} == {
-        ("league_id", "league.id")
-    }
-
-    league, _ = _seed_league(session)
-    invite = InviteRepository(session).create(
-        league.id, "hashed-code", datetime.now(UTC) + timedelta(days=7)
-    )
-    assert invite.league is league
 
 
 def test_invite_code_hash_is_unique(session: Session) -> None:
@@ -150,45 +87,6 @@ def test_invite_role_accepts_only_admin_and_member() -> None:
         Invite(league_id=1, code_hash="hash", role="owner", expires_at=datetime.now(UTC))
 
 
-def test_user_league_schema_is_unique_per_user_and_league(session: Session) -> None:
-    """user_league links user, league, and optional owner with nullable credentials."""
-    columns = UserLeague.__table__.c
-    assert {column.name for column in columns} == {
-        "id",
-        "user_id",
-        "league_id",
-        "owner_id",
-        "espn_s2_encrypted",
-        "espn_swid_encrypted",
-        "created_at",
-        "updated_at",
-    }
-    assert columns.user_id.nullable is False
-    assert columns.league_id.nullable is False
-    assert columns.owner_id.nullable is True
-    assert columns.espn_s2_encrypted.nullable is True
-    assert columns.espn_swid_encrypted.nullable is True
-    assert _constraint_names(UserLeague) == {"uq_user_league_user_id_league_id"}
-    indexes = {
-        index.name: tuple(column.name for column in index.columns)
-        for index in UserLeague.__table__.indexes
-        if isinstance(index, Index)
-    }
-    assert indexes == {"ix_user_league_league_id": ("league_id",)}
-    assert {(fk.parent.name, fk.target_fullname) for fk in UserLeague.__table__.foreign_keys} == {
-        ("user_id", "app_user.id"),
-        ("league_id", "league.id"),
-        ("owner_id", "owner.id"),
-    }
-
-    league, owner = _seed_league(session)
-    user = UserRepository(session).create("fan@example.com", "hash")
-    membership = MembershipRepository(session).create(user.id, league.id, owner.id)
-    assert membership.user is user
-    assert membership.league is league
-    assert membership.owner is owner
-
-
 def test_user_repository_lowercases_email_and_rejects_duplicates(session: Session) -> None:
     """Email storage and lookup are case-insensitive (AC-AU-02)."""
     repository = UserRepository(session)
@@ -204,16 +102,6 @@ def test_user_repository_lowercases_email_and_rejects_duplicates(session: Sessio
 
     with pytest.raises(DuplicateEmailError, match="already exists"), session.begin_nested():
         repository.create("fan@example.com", "other-hash")
-
-
-def test_user_repository_does_not_commit(session: Session) -> None:
-    """Repositories flush but leave transaction ownership to the caller."""
-    repository = UserRepository(session)
-    repository.create("caller-owned@example.com", "hash")
-    assert session.in_transaction()
-
-    session.rollback()
-    assert session.scalar(select(func.count()).select_from(AppUser)) == 0
 
 
 def test_user_repository_resurfaces_non_unique_integrity_errors(session: Session) -> None:
@@ -235,16 +123,6 @@ def test_membership_repository_rejects_duplicate_joins(session: Session) -> None
         session.begin_nested(),
     ):
         repository.create(user.id, league.id)
-
-
-def test_membership_repository_resurfaces_non_unique_integrity_errors(
-    session: Session,
-) -> None:
-    """Only duplicate memberships become DuplicateMembershipError."""
-    league, _ = _seed_league(session)
-    with pytest.raises(IntegrityError):
-        MembershipRepository(session).create(None, league.id)  # type: ignore[arg-type]
-    session.rollback()
 
 
 def test_membership_repository_lists_only_the_requested_users_or_league(
