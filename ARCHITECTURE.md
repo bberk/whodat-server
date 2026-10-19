@@ -127,9 +127,13 @@ default `member`; set from the invite at signup), `created_at`.
 There is no owner association on `app_user`; the optional association lives on the membership.
 
 ### `invite`
-`league_id` → league, `code` (text, shared across the league), `role` (text: `admin` or `member`),
-`expires_at` (timestamp, default 7 days after creation), `created_at`/`updated_at`.
-Unique: (`code`). Index: (`league_id`).
+`league_id` → league, `code_hash` (text, unique; a one-way hash of the raw invite code, never the raw
+code), `role` (text: `admin` or `member`), `expires_at` (timestamp, default 7 days after creation),
+`created_at`/`updated_at`.
+Unique: (`code_hash`). Index: (`league_id`).
+
+The raw invite code is shown only once by the admin CLI that creates it and is never retrievable
+afterwards; only its hash is stored. Regenerating an invite means creating a new one.
 
 ### `user_league`
 Membership linking a user to a league: `user_id` → app_user, `league_id` → league, `owner_id` →
@@ -247,6 +251,11 @@ All endpoints are under `/api/v1`, JSON, cookie-session or bearer-token auth (ba
 from non-members return 403 or 404, and unauthenticated requests return 401. Only admins may add
 league credentials; a member supplying credentials is rejected. A refresh requires a membership
 that holds credentials.
+
+Invite creation is an admin CLI operation, not a public endpoint:
+`python -m app.cli create-invite --league <id> --role admin|member --expires 7d`.
+The command prints the raw invite code once at creation; only its hash is stored, and the raw code
+is never retrievable afterwards.
 
 ### Standings response (shape)
 
