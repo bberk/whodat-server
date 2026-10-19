@@ -204,8 +204,12 @@ def test_AC_ST_07_overall_ranking_across_all_rows() -> None:
     assert _ranks(overall) == [1, 2, 3, 4, 5]
 
 
-def test_AC_ST_01_season_vp_is_exact_sum_of_weekly_fractions() -> None:
-    """A VP sum built from weekly thirds must compare exactly (no float drift)."""
+def test_season_vp_summed_from_weekly_fractions_compares_exactly() -> None:
+    """A VP sum built from weekly thirds must compare exactly (no float drift).
+
+    The weekly-to-season aggregation (AC-ST-01) happens in the caller; this test
+    shows the resulting exact value is what rank_teams compares.
+    """
     third = Fraction(1, 3)
     weekly_vp = [third, third, third]  # three weeks, each 1/3
     season_vp = sum(weekly_vp, Fraction(0))

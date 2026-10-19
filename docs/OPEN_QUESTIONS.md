@@ -8,6 +8,24 @@ Follow the format used below. Newest entries at the top.
 
 ---
 
+## OQ-0010 — Shared-rank gap semantics for the M4 standings engine
+
+- **Found:** `SPEC.md` §3.2 and AC-ST-05 say teams tied on all three keys "share the same rank
+  number", but they do not say whether the ranks after a tied group skip the tied positions. The
+  amended AC-ST-06/AC-FE-02 fix the division display (each row shows the overall league rank, with
+  no division-local re-ranking) but still do not name the rank-gap convention.
+- **Options:** (1) standard competition ranking, with gaps after a tied group (1, 2, 2, 4);
+  (2) dense ranking, with no gaps (1, 2, 2, 3); (3) some other convention chosen by the owner.
+- **Recommendation:** option 1. It is the conventional fantasy-standings reading of "share the same
+  rank number" and matches the M4 engine.
+- **In the meantime:** `backend/src/app/domain/standings.py::rank_teams` implements standard
+  competition ranking and the tests pin it (`test_AC_ST_05_rank_gap_follows_tied_group`). The
+  function stays generic over any subset of rows, but production division tables pass the overall
+  rows and only group them by division, so the displayed rank is the overall league rank per
+  amended AC-ST-06.
+
+---
+
 ## OQ-0009 — Agents open PRs with `gh` as the App identity, not the GitHub MCP server
 
 - **Found:** the GitHub MCP server fails with `401` (OQ-0006), and agents now commit, push, and act

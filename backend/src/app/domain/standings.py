@@ -53,18 +53,21 @@ class RankedRow:
 def rank_teams(rows: Sequence[SeasonRow]) -> list[RankedRow]:
     """Rank teams by VP, H2H wins, and points for with shared ranks for ties.
 
-    Implements ranking and tiebreak logic:
+    Implements the ranking and tiebreak logic:
     - Sort by season VP descending (AC-ST-02)
-    - Tie-break by H2H wins descending, ties not counted (AC-ST-03)
-    - Tie-break by points for descending (AC-ST-04)
-    - Equal keys share rank number (AC-ST-05)
-    - Display order alphabetical when all keys equal (AC-ST-05)
-    - Callable on any subset (AC-ST-06, AC-ST-07)
-    - Uses exact Fraction arithmetic (AC-ST-09)
+    - Order VP ties by H2H wins descending (AC-ST-03 ordering clause; whether a tied
+      matchup counts as a win is decided upstream)
+    - Order remaining ties by points for descending (AC-ST-04)
+    - Equal keys share the same rank number (AC-ST-05)
+    - Order fully tied teams alphabetically by team name (SPEC 3.2 display rule)
+    - Rank any sequence of rows, including the full league (AC-ST-07)
+    - Compare with exact Fraction arithmetic, no floats (AC-ST-09)
 
-    Note: AC-ST-01 (season VP aggregation from weekly values) and AC-ST-08
-    (week filtering for playoffs/incomplete weeks) are upstream concerns handled
-    by the caller before invoking this function.
+    Note: AC-ST-01 (season VP aggregation from weekly values), AC-ST-06 (grouping
+    overall-ranked rows by division for display), and AC-ST-08 (week filtering for
+    playoffs/incomplete weeks) are upstream concerns handled by the caller before
+    invoking this function. Production division tables call this once on all rows
+    and filter the result by division; they never rank a division subset.
 
     Returns empty list for empty input. Deterministic and input-order independent.
     """
