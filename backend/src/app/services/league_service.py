@@ -79,9 +79,14 @@ class EncryptedCredentials:
 
 
 class ProviderFactory(Protocol):
-    """Build a provider from stored ciphertext, decrypting only behind the provider layer."""
+    """Build a provider, decrypting only behind the provider layer when tokens are supplied."""
 
-    def __call__(self, *, espn_s2_encrypted: str, espn_swid_encrypted: str) -> LeagueProvider: ...
+    def __call__(
+        self,
+        *,
+        espn_s2_encrypted: str | None = None,
+        espn_swid_encrypted: str | None = None,
+    ) -> LeagueProvider: ...
 
 
 @dataclass(frozen=True)
@@ -162,6 +167,10 @@ class IncompleteCredentialsError(InvalidLeagueRequestError):
 
 class LeagueProviderError(LeagueServiceError):
     """The provider could not be configured or did not recognize the league season."""
+
+
+class LeagueAccessError(LeagueProviderError):
+    """The provider could not reach the league, as with a private league and no credentials."""
 
 
 class LeagueSyncError(LeagueServiceError):
@@ -306,15 +315,17 @@ class LeagueService:
         season: int | None = None,
         credentials: EspnCredentials | None = None,
     ) -> AddLeagueResult:
-        """Add a league as an admin with credentials, or join an existing league as a member.
+        """Add a league as an admin, or join an existing league as a member.
 
         A credentialed add requires an admin account. The credentials are encrypted before use,
         the provider is constructed and the requested season is fetched, and only after that
         validation succeeds are the league, membership, encrypted tokens, and initial sync written
         inside one SAVEPOINT. A duplicate membership is rejected before any provider call.
 
-        Without credentials the league must already be stored; the caller is joined without
-        credentials and no provider is contacted. The caller commits.
+        Without credentials, an admin may add a brand-new public league: the provider is built with
+        explicit empty cookies, the league season is fetched before any write, and the membership is
+        stored without credentials. A member without credentials may only join an already-stored
+        league and no provider is contacted. The caller commits.
         """
         external_id = espn_league_id.strip()
         if not external_id:
@@ -331,45 +342,30 @@ class LeagueService:
             raise AlreadyMemberError("user already belongs to this league")
 
         if credentials is None:
-            if existing is None:
+            if existing is not None:
+                membership = self._create_membership(user.user_id, existing.id)
+                return AddLeagueResult(
+                    membership=self._view(membership),
+                    season=requested_season,
+                    weeks_synced=(),
+                )
+            if user.role != ROLE_ADMIN:
                 raise LeagueNotFoundError("league is not stored and no credentials were supplied")
-            membership = self._create_membership(user.user_id, existing.id)
-            return AddLeagueResult(
-                membership=self._view(membership),
-                season=requested_season,
-                weeks_synced=(),
+            provider = self._build_provider(None)
+            league_dto = self._fetch_league(
+                provider, external_id, requested_season, using_credentials=False
+            )
+            return self._persist_new_league(
+                user, external_id, requested_season, provider, league_dto, None
             )
 
         encrypted = self._encrypt_credentials(credentials)
         provider = self._build_provider(encrypted)
-        league_dto = self._fetch_league(provider, external_id, requested_season)
-
-        try:
-            with self._session.begin_nested():
-                league = self._sync.upsert_league(
-                    provider=self._provider_id,
-                    external_id=league_dto.external_id,
-                    name=league_dto.name,
-                    league_metadata=dict(league_dto.metadata),
-                    provider_config_ref="env:default",
-                ).row
-                membership = self._create_membership(user.user_id, league.id)
-                self._memberships.set_credentials(
-                    user.user_id,
-                    league.id,
-                    espn_s2_encrypted=encrypted.espn_s2_encrypted,
-                    espn_swid_encrypted=encrypted.espn_swid_encrypted,
-                )
-                summary = self._sync_season(provider, external_id, requested_season)
-        except LeagueServiceError:
-            raise
-        except Exception:
-            raise LeagueSyncError("league data could not be synced") from None
-
-        return AddLeagueResult(
-            membership=self._view(membership),
-            season=requested_season,
-            weeks_synced=summary.weeks_synced,
+        league_dto = self._fetch_league(
+            provider, external_id, requested_season, using_credentials=True
+        )
+        return self._persist_new_league(
+            user, external_id, requested_season, provider, league_dto, encrypted
         )
 
     def set_owner(
@@ -475,6 +471,49 @@ class LeagueService:
         except DatabaseDuplicateMembershipError:
             raise AlreadyMemberError("user already belongs to this league") from None
 
+    def _persist_new_league(
+        self,
+        user: LeagueUser,
+        external_id: str,
+        season: int,
+        provider: LeagueProvider,
+        league_dto: LeagueDTO,
+        encrypted: EncryptedCredentials | None,
+    ) -> AddLeagueResult:
+        """Write a new league, its membership, optional credentials, and initial sync atomically.
+
+        The SAVEPOINT guarantees that a failed sync or unexpected write error leaves no league or
+        membership row, whether or not the caller commits after catching the error.
+        """
+        try:
+            with self._session.begin_nested():
+                league = self._sync.upsert_league(
+                    provider=self._provider_id,
+                    external_id=league_dto.external_id,
+                    name=league_dto.name,
+                    league_metadata=dict(league_dto.metadata),
+                    provider_config_ref="env:default",
+                ).row
+                membership = self._create_membership(user.user_id, league.id)
+                if encrypted is not None:
+                    self._memberships.set_credentials(
+                        user.user_id,
+                        league.id,
+                        espn_s2_encrypted=encrypted.espn_s2_encrypted,
+                        espn_swid_encrypted=encrypted.espn_swid_encrypted,
+                    )
+                summary = self._sync_season(provider, external_id, season)
+        except LeagueServiceError:
+            raise
+        except Exception:
+            raise LeagueSyncError("league data could not be synced") from None
+
+        return AddLeagueResult(
+            membership=self._view(membership),
+            season=season,
+            weeks_synced=summary.weeks_synced,
+        )
+
     def _encrypt_credentials(self, credentials: EspnCredentials) -> EncryptedCredentials:
         """Encrypt the supplied cookies; plaintext never reaches storage or the provider factory."""
         if not credentials.espn_s2.strip() or not credentials.espn_swid.strip():
@@ -487,25 +526,44 @@ class LeagueService:
         except CredentialCryptoError:
             raise LeagueProviderError("league credentials could not be secured") from None
 
-    def _build_provider(self, credentials: EncryptedCredentials) -> LeagueProvider:
-        """Build a provider from ciphertext, hiding every failure detail from the caller."""
+    def _build_provider(self, credentials: EncryptedCredentials | None) -> LeagueProvider:
+        """Build a provider, hiding every failure detail from the caller.
+
+        ``None`` asks the factory for a no-credential (public) provider. Stored ciphertext is
+        passed through unchanged; decryption stays inside the provider factory.
+        """
         try:
+            if credentials is None:
+                return self._provider_factory()
             return self._provider_factory(
                 espn_s2_encrypted=credentials.espn_s2_encrypted,
                 espn_swid_encrypted=credentials.espn_swid_encrypted,
             )
         except Exception:
-            raise LeagueProviderError(
-                "league credentials could not be used to reach the provider"
-            ) from None
+            raise LeagueProviderError("league provider could not be configured") from None
 
-    def _fetch_league(self, provider: LeagueProvider, external_id: str, season: int) -> LeagueDTO:
-        """Validate the credentials by fetching league metadata before any write."""
+    def _fetch_league(
+        self,
+        provider: LeagueProvider,
+        external_id: str,
+        season: int,
+        *,
+        using_credentials: bool,
+    ) -> LeagueDTO:
+        """Validate the league season before any write.
+
+        A no-credential admin add combines this check with the provider's access rules: a private
+        league (or any unreachable league) fails with a typed access error and no rows are written.
+        """
         try:
             return provider.fetch_league(LeagueRef(external_id=external_id), season)
         except Exception:
-            raise LeagueProviderError(
-                "league could not be validated with the supplied credentials"
+            if using_credentials:
+                raise LeagueProviderError(
+                    "league could not be validated with the supplied credentials"
+                ) from None
+            raise LeagueAccessError(
+                "league could not be reached; private leagues require ESPN credentials"
             ) from None
 
     def _sync_season(self, provider: LeagueProvider, external_id: str, season: int) -> SyncSummary:
