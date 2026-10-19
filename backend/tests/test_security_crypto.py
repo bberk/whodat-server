@@ -72,6 +72,9 @@ def test_token_layout_is_version_nonce_ciphertext(monkeypatch: pytest.MonkeyPatc
     raw = _raw_token(encrypt(plaintext))
 
     assert raw[0] == crypto._VERSION
+    assert len(raw[1 : 1 + crypto._NONCE_BYTES]) == 12
+    assert len(raw[1 + crypto._NONCE_BYTES : -crypto._TAG_BYTES]) == len(plaintext.encode())
+    assert len(raw[-crypto._TAG_BYTES :]) == 16
     assert len(raw) == 1 + crypto._NONCE_BYTES + len(plaintext) + crypto._TAG_BYTES
 
 
