@@ -2,13 +2,19 @@
 
 Limits are counted per key, where a key is the client IP plus the request route. The defaults are
 10 requests per 60-second window for both ``POST /api/v1/auth/signup`` and
-``POST /api/v1/auth/login``. A rejected request leaves the count untouched; callers answer with
-HTTP 429 and the decision's ``Retry-After`` value in seconds.
+``POST /api/v1/auth/login``. Every attempt increments the window counter, so a rejected request
+stays denied until the window resets; callers answer with HTTP 429 and the decision's
+``Retry-After`` value in seconds.
 
 The clock is injectable so tests can advance time deterministically. State lives in this process
 only: it is neither shared between workers nor persisted, so a multi-instance deployment needs a
 shared store (for example Redis) instead of this limiter. The same limitation applies to several
 Uvicorn workers behind one process supervisor.
+
+Keys use the direct peer address (``request.client.host``), never ``X-Forwarded-For`` on its own.
+Behind a reverse proxy or load balancer, configure the proxy and the ASGI server (for example
+Uvicorn ``--proxy-headers`` with trusted hosts, or an equivalent middleware) to present the real
+client address; otherwise every client shares the proxy's address and therefore one bucket.
 """
 
 from __future__ import annotations
@@ -103,7 +109,7 @@ class RateLimiter:
         return RateLimitDecision(allowed=allowed, retry_after=retry_after, remaining=remaining)
 
     def reset(self) -> None:
-        """Forget every counter (used by tests and by a fresh application lifespan)."""
+        """Forget every counter (used by tests and administrative resets)."""
         with self._lock:
             self._entries.clear()
 
@@ -124,8 +130,8 @@ def request_rate_limit_key(request: Request, *, route: str | None = None) -> str
     """Return ``"<client ip>|<route>"`` for the request.
 
     ``route`` defaults to the request path. The client address is the direct peer address;
-    ``X-Forwarded-For`` is deliberately not trusted unless a reverse proxy is configured to
-    overwrite it.
+    ``X-Forwarded-For`` is deliberately not trusted here. A deployment behind a proxy must
+    configure the proxy and ASGI server to expose the real client address.
     """
     client = request.client
     host = client.host if client is not None else "unknown"

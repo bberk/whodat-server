@@ -16,18 +16,19 @@ from pathlib import Path
 import pytest
 from fastapi import Response
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 from sqlalchemy import Engine, create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api import deps
 from app.api.main import create_app
 from app.api.rate_limit import RateLimiter
+from app.api.schemas_auth import LoginRequest, SignupRequest
 from app.api.session import SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS, set_session
-from app.config import get_settings
-from app.db import session as db_session_module
 from app.db.auth_repositories import InviteRepository
 from app.db.base import Base
 from app.db.models import AppUser, League, UserLeague
+from app.db.session import get_session as db_get_session
 from app.security.invite_codes import hash_invite_code
 from app.security.passwords import verify_password
 
@@ -77,7 +78,7 @@ def api_factory(tmp_path: Path) -> Iterator[Callable[..., Api]]:
             with factory() as session:
                 yield session
 
-        app.dependency_overrides[deps.get_db_session] = override_session
+        app.dependency_overrides[db_get_session] = override_session
         app.dependency_overrides[deps.get_rate_limiter] = lambda: limiter
         return Api(
             client=TestClient(app),
@@ -226,6 +227,99 @@ def test_signup_validation_errors_are_structured_4xx(api_factory: Callable[..., 
     for response in (missing, bad_email, empty_local, short_password):
         assert 400 <= response.status_code < 500
         assert isinstance(response.json()["detail"], list)
+
+
+@pytest.mark.parametrize(
+    "email",
+    [
+        "fan\x00@example.com",
+        "fan\x01@example.com",
+        "fan\n@example.com",
+        "fan\t@example.com",
+        "fan\x7f@example.com",
+        "fan\u200b@example.com",
+    ],
+)
+def test_auth_schemas_reject_control_characters_in_email(email: str) -> None:
+    """Validation rejects NUL and other controls before any database lookup (both engines)."""
+    with pytest.raises(ValidationError):
+        SignupRequest(email=email, password=PASSWORD, invite_code="valid-invite-code")
+    with pytest.raises(ValidationError):
+        LoginRequest(email=email, password=PASSWORD)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("password", "valid-password\x00suffix"),
+        ("invite_code", "valid-code\x00suffix"),
+    ],
+)
+def test_signup_schema_rejects_control_characters_in_other_text(
+    field: str,
+    value: str,
+) -> None:
+    payload = {"email": "fan@example.com", "password": PASSWORD, "invite_code": "valid-code"}
+    payload[field] = value
+
+    with pytest.raises(ValidationError):
+        SignupRequest(**payload)
+
+
+def test_nul_in_email_returns_structured_422_not_500(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+
+    response = api.client.post(
+        "/api/v1/auth/signup",
+        json={
+            "email": "fan\x00@example.com",
+            "password": PASSWORD,
+            "invite_code": "valid-invite-code",
+        },
+    )
+
+    assert response.status_code == 422
+    assert isinstance(response.json()["detail"], list)
+    assert "Traceback" not in response.text
+    assert _count(api.factory, AppUser) == 0
+
+    login = api.client.post(
+        "/api/v1/auth/login",
+        json={"email": "fan\x00@example.com", "password": PASSWORD},
+    )
+    assert login.status_code == 422
+    assert "Traceback" not in login.text
+
+
+def test_validation_errors_do_not_echo_password_or_invite_code(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    secret_password = "Sup3rSecretPassword"
+    secret_code = "SuperSecretInviteCode"
+
+    bad_email = api.client.post(
+        "/api/v1/auth/signup",
+        json={"email": "not-an-email", "password": secret_password, "invite_code": secret_code},
+    )
+    short_password = api.client.post(
+        "/api/v1/auth/signup",
+        json={
+            "email": "fan@example.com",
+            "password": "zqxjk",
+            "invite_code": secret_code,
+        },
+    )
+
+    for response in (bad_email, short_password):
+        assert response.status_code == 422
+        assert secret_password not in response.text
+        assert secret_code not in response.text
+        assert "zqxjk" not in response.text
+        assert all("input" not in error for error in response.json()["detail"])
+        assert all("ctx" not in error for error in response.json()["detail"])
 
 
 def test_AC_AU_04_login_sets_a_session_cookie(api_factory: Callable[..., Api]) -> None:
@@ -401,24 +495,5 @@ def test_me_rejects_a_valid_cookie_for_a_missing_account(
     assert me.json()["detail"]["code"] == "not_authenticated"
 
 
-def test_default_dependencies_bind_the_configured_database(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'default-dependencies.db'}")
-    get_settings.cache_clear()
-    db_session_module.get_engine.cache_clear()
-    db_session_module.get_session_factory.cache_clear()
-    try:
-        engine = db_session_module.get_engine()
-        Base.metadata.create_all(engine)
-        factory = deps.get_db_session_factory()
-        sessions = deps.get_db_session(factory)
-        session = next(sessions)
-        assert isinstance(session, Session)
-        sessions.close()
-        assert deps.get_rate_limiter() is deps.get_rate_limiter()
-    finally:
-        db_session_module.get_engine.cache_clear()
-        db_session_module.get_session_factory.cache_clear()
-        get_settings.cache_clear()
+def test_default_rate_limiter_is_a_process_singleton() -> None:
+    assert deps.get_rate_limiter() is deps.get_rate_limiter()

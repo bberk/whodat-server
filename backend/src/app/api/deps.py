@@ -10,16 +10,15 @@ The rate limiter is a process-wide singleton for the application; tests override
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session
 
 from app.api.rate_limit import RateLimiter, request_rate_limit_key
 from app.api.schemas_auth import PublicUser, error_detail
 from app.api.session import read_session_user_id
-from app.db.session import get_session_factory as _default_session_factory
+from app.db.session import get_session
 from app.services.auth_service import AuthService, UserNotFoundError
 
 _NOT_AUTHENTICATED = error_detail("not_authenticated", "Authentication required")
@@ -27,23 +26,14 @@ _NOT_AUTHENTICATED = error_detail("not_authenticated", "Authentication required"
 _auth_rate_limiter = RateLimiter()
 
 
-def get_db_session_factory() -> sessionmaker[Session]:
-    """Return the application's session factory; override this to point tests at SQLite."""
-    return _default_session_factory()
-
-
-def get_db_session(
-    factory: Annotated[sessionmaker[Session], Depends(get_db_session_factory)],
-) -> Iterator[Session]:
-    """Yield a request-scoped session and close it (rolling back uncommitted work) at the end."""
-    with factory() as session:
-        yield session
-
-
 def get_auth_service(
-    session: Annotated[Session, Depends(get_db_session)],
+    session: Annotated[Session, Depends(get_session)],
 ) -> AuthService:
-    """Build the auth service for this request."""
+    """Build the auth service for this request.
+
+    ``app.db.session.get_session`` is the single session dependency; tests override that one
+    function with a temporary SQLite session factory.
+    """
     return AuthService(session)
 
 
@@ -76,8 +66,8 @@ def get_current_user(
 ) -> PublicUser:
     """Return the signed-in user, or raise 401 for a missing, invalid, or stale session.
 
-    A cookie can outlive its account, so ``UserNotFoundError`` (including its inactive-account
-    subclass) is treated as unauthenticated rather than as a server error.
+    A cookie can outlive its account, so ``UserNotFoundError`` is treated as unauthenticated
+    rather than as a server error.
     """
     user_id = read_session_user_id(request)
     if user_id is None:

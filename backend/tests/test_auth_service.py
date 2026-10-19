@@ -20,7 +20,6 @@ from app.services.auth_service import (
     AuthService,
     EmailAlreadyRegisteredError,
     ExpiredInviteError,
-    InactiveUserError,
     InvalidCredentialsError,
     InviteError,
     UserNotFoundError,
@@ -280,10 +279,6 @@ def test_get_active_user_rejects_a_missing_account(session: Session) -> None:
         AuthService(session).get_active_user(999_999)
 
     assert error.value.user_id == 999_999
-
-
-def test_inactive_user_error_is_an_unauthenticated_user_error() -> None:
-    assert issubclass(InactiveUserError, UserNotFoundError)
 
 
 def test_auth_errors_never_echo_passwords_or_invite_codes(session: Session) -> None:
