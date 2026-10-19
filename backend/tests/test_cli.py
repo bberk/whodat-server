@@ -337,9 +337,14 @@ def test_parse_week_range_returns_inclusive_positive_weeks() -> None:
     assert parse_week_range("1-5") == [1, 2, 3, 4, 5]
     assert parse_week_range("2-2") == [2]
     assert parse_week_range(" 4-5 ") == [4, 5]
+    # The supported ceiling is inclusive: week 30 is allowed, anything past it is rejected.
+    assert parse_week_range("30") == [30]
+    assert parse_week_range("29-30") == [29, 30]
 
 
-@pytest.mark.parametrize("value", ["0", "-1", "5-1", "1-", "1-2-3", "abc", "1.5", "", "1-0"])
+@pytest.mark.parametrize(
+    "value", ["0", "-1", "5-1", "1-", "1-2-3", "abc", "1.5", "", "1-0", "31", "1-31"]
+)
 def test_invalid_week_ranges_are_structured_argparse_errors(
     value: str, session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -360,7 +365,7 @@ def test_invalid_week_ranges_are_structured_argparse_errors(
     assert "--weeks" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("value", ["0", "5-1", "abc", ""])
+@pytest.mark.parametrize("value", ["0", "5-1", "abc", "", "31", "1-31"])
 def test_parse_week_range_rejects_invalid_values(value: str) -> None:
     """parse_week_range raises argparse.ArgumentTypeError so argparse reports a usage error."""
     with pytest.raises(argparse.ArgumentTypeError):

@@ -29,13 +29,18 @@ DEFAULT_PROVIDER_ID = "espn"
 
 _WEEK_RANGE = re.compile(r"^(?P<start>[1-9][0-9]*)(?:-(?P<end>[1-9][0-9]*))?$")
 
+# Defensive ceiling for a fantasy football season (regular season plus playoffs). No provider
+# reports anything close to this, so it only rejects absurd ranges without silently truncating.
+_MAX_WEEK = 30
+
 
 def parse_week_range(value: str) -> list[int]:
     """Parse a 1-based week or inclusive week range such as ``"3"`` or ``"1-5"``.
 
-    The result is always a non-empty ascending list of positive week numbers. Anything else
-    (zero, a reversed range, or stray characters) raises ``argparse.ArgumentTypeError``, which
-    argparse turns into a structured usage error on exit code 2.
+    The result is always a non-empty ascending list of positive week numbers no greater than
+    ``_MAX_WEEK``. Anything else (zero, a reversed or over-long range, or stray characters) raises
+    ``argparse.ArgumentTypeError``, which argparse turns into a structured usage error on exit code
+    2. Bounding the end keeps a typo such as ``--weeks 1-1000000`` from materializing a huge list.
     """
     match = _WEEK_RANGE.match(value.strip())
     if match is None:
@@ -46,15 +51,19 @@ def parse_week_range(value: str) -> list[int]:
     end = int(match.group("end")) if match.group("end") else start
     if start > end:
         raise argparse.ArgumentTypeError(f"week range start must not exceed its end, got {value!r}")
+    if end > _MAX_WEEK:
+        raise argparse.ArgumentTypeError(
+            f"week {end} is beyond the supported maximum of {_MAX_WEEK}, got {value!r}"
+        )
     return list(range(start, end + 1))
 
 
 def build_provider_registry() -> ProviderRegistry:
     """Return the production provider registry with the ESPN adapter registered.
 
-    Building the registry only constructs the adapter; it makes no network calls. Credentials are
-    read lazily from the provider-local environment settings on first use and are never stored in
-    DTOs or the database.
+    Constructing the adapter reads the provider-local ESPN settings from the environment (or
+    ``.env``); that read happens here, is cached, and makes no network call. Cookies are used only
+    inside the ESPN provider and are never stored in DTOs or the database.
     """
     registry = ProviderRegistry()
     registry.register(ESPNLeagueProvider())
