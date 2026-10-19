@@ -24,6 +24,7 @@ from app.cli import (
 )
 from app.db.base import Base
 from app.db.models import League, Score
+from app.db.repositories import SyncRepository
 from app.providers.base import (
     LeagueDTO,
     MatchupDTO,
@@ -324,6 +325,34 @@ def test_cli_recompute_missing_league_reports_a_structured_error(
     err = capsys.readouterr().err
     assert err.startswith("error:")
     assert "not stored" in err
+
+
+def test_cli_recompute_season_without_a_league_season_row_exits_nonzero(
+    session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A stored league with no league_season row for the season is a structured exit-1 error."""
+    # Store only the league row (as a schema change or manual insert could), no season row.
+    with session_factory() as session:
+        SyncRepository(session).upsert_league(
+            provider="fake",
+            external_id=LEAGUE_EXTERNAL_ID,
+            name="CLI League",
+            league_metadata={},
+            provider_config_ref="env:default",
+        )
+        session.commit()
+
+    code = main(
+        ["recompute", "--league", LEAGUE_EXTERNAL_ID, "--season", str(SEASON)],
+        session_factory=session_factory,
+        provider_id="fake",
+    )
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error:")
+    assert "league_season" in err
+    assert str(SEASON) in err
 
 
 # ---------------------------------------------------------------------------
