@@ -20,9 +20,12 @@ const headCell =
 const numCell = "whitespace-nowrap px-3 py-2 text-right tabular-nums";
 
 /**
- * The standings table, reused for the overall table and for each division (ranks are whatever the
- * rows carry). Wide content scrolls inside its own region with the rank and team columns pinned;
- * the team cell is a button so selecting a team is keyboard operable.
+ * The standings table, reused for the overall table and for each division. The rank cell renders
+ * `row.rank` exactly as the data layer supplies it: this component never ranks, re-ranks, or
+ * derives a division-local rank, so a division table displays whatever ranks the API sends (the
+ * owner has signalled those will be overall league ranks). Wide content scrolls inside its own
+ * region with the rank and team columns pinned; the team cell is a button so selecting a team is
+ * keyboard operable.
  */
 export function StandingsTable({
   caption,

@@ -179,7 +179,7 @@ export function StandingsPage({ source = defaultStandingsSource }: StandingsPage
             Division standings
           </h2>
           <p className="mt-1 text-[13px] text-gray-500">
-            Same ranking rules, applied within each division; ranks are division-local.
+            Same ranking rules, applied within each division; ranks come from the API rows as-is.
           </p>
           {bundle === null ? (
             <DataState
