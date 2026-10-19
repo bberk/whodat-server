@@ -2,11 +2,10 @@
 
 Revision ``0004_auth_memberships`` creates ``invite`` and ``user_league`` and rewrites ``app_user``
 in a batch so SQLite can drop ``owner_id``. These tests round-trip upgrade, downgrade, and upgrade
-on SQLite by default, and on a worktree-local Postgres when ``AUTH_MIGRATION_POSTGRES_URL`` is set
-(for example from ``scripts/dev-postgres.sh url``).
+on SQLite, and additionally on Postgres whenever the configured ``DATABASE_URL`` is a Postgres URL
+(CI and worktree-local Postgres); that same URL is the admin connection for a throwaway database.
 """
 
-import os
 import uuid
 from pathlib import Path
 
@@ -15,7 +14,9 @@ from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.engine import make_url
+from sqlalchemy.engine import URL, make_url
+
+from app.config import get_settings
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 PREVIOUS_REVISION = "0003_league_season"
@@ -183,14 +184,20 @@ def test_auth_migration_is_the_single_head_after_league_season() -> None:
     assert script.get_revision(PREVIOUS_REVISION).down_revision == "0002_initial_schema"
 
 
-@pytest.mark.skipif(
-    not os.environ.get("AUTH_MIGRATION_POSTGRES_URL"),
-    reason="set AUTH_MIGRATION_POSTGRES_URL to a worktree-local Postgres URL",
-)
+def _configured_postgres_admin_url() -> URL | None:
+    """Return the configured Postgres URL, or None when the configured database is SQLite."""
+    configured = make_url(get_settings().database_url)
+    if configured.get_backend_name() != "postgresql":
+        return None
+    return configured
+
+
 def test_AC_DB_06_auth_migration_round_trips_on_postgres() -> None:
-    """The same round trip holds on a throwaway database in worktree-local Postgres."""
-    configured_url = os.environ["AUTH_MIGRATION_POSTGRES_URL"]
-    admin_url = make_url(configured_url)
+    """The same round trip holds on a throwaway database in the configured Postgres instance."""
+    admin_url = _configured_postgres_admin_url()
+    if admin_url is None:
+        pytest.skip("configured DATABASE_URL is not Postgres")
+
     database_name = f"whodat_auth_{uuid.uuid4().hex[:12]}"
     admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
     try:
