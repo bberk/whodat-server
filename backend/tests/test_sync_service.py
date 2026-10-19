@@ -606,6 +606,76 @@ def test_tied_high_score_persists_quantized_thirds(session: Session) -> None:
         assert scores[ext_to_id[team_ext]].vp_high == Decimal("0.333333")
 
 
+def test_split_low_score_penalty_persists_negative_thirds(session: Session) -> None:
+    """A three-way low-score tie persists each -1/3 penalty with its sign and 6dp quantization.
+
+    The engine's exact -1/3 arithmetic is owned by test_vp_engine.py; this asserts that the
+    persistence boundary keeps the negative sign and the six-place scale instead of storing zero.
+    """
+    league = LeagueDTO(external_id="low-tie", name="Low Tie", metadata={})
+    owners = [OwnerDTO(external_id=f"owner-{i}", display_name=f"Owner {i}") for i in range(1, 5)]
+    teams = [
+        TeamDTO(
+            external_id=f"team-{i}",
+            name=f"Team {i}",
+            division="East",
+            owner_external_id=f"owner-{i}",
+        )
+        for i in range(1, 5)
+    ]
+    # One high scorer at 100.00; the other three tie for the lowest score at 10.00.
+    matchups = {
+        1: [
+            MatchupDTO(
+                week=1,
+                home=MatchupSideDTO(team_external_id="team-1", points=Decimal("100.00")),
+                away=MatchupSideDTO(team_external_id="team-2", points=Decimal("10.00")),
+                is_playoff=False,
+                is_complete=True,
+            ),
+            MatchupDTO(
+                week=1,
+                home=MatchupSideDTO(team_external_id="team-3", points=Decimal("10.00")),
+                away=MatchupSideDTO(team_external_id="team-4", points=Decimal("10.00")),
+                is_playoff=False,
+                is_complete=True,
+            ),
+        ]
+    }
+    week_status = WeekStatus(last_completed_week=1)
+    provider = FakeProvider({("low-tie", 2026): (league, owners, teams, matchups, week_status)})
+    SyncService(provider, session).sync_league(_league_ref("low-tie"), "fake", 2026)
+    session.commit()
+
+    repo = SyncRepository(session)
+    low_tie_league = repo.get_league("fake", "low-tie")
+    assert low_tie_league is not None
+    ext_to_id = {t.external_id: t.id for t in repo.get_teams(low_tie_league.id, 2026)}
+    scores = {s.team_id: s for s in repo.get_week_scores(low_tie_league.id, 2026, 1)}
+
+    # Fraction(-1, 3) → Decimal("-0.333333"): the sign survives and the scale is exactly six.
+    for team_ext in ("team-2", "team-3", "team-4"):
+        low = scores[ext_to_id[team_ext]].vp_low
+        assert low == Decimal("-0.333333")
+        assert low < 0
+        assert low.as_tuple().exponent == -6
+
+
+# ---------------------------------------------------------------------------
+# Transaction ownership: the caller commits or rolls back
+# ---------------------------------------------------------------------------
+
+
+def test_sync_leaves_the_transaction_to_the_caller(session: Session) -> None:
+    """SyncService never commits, so a caller rollback discards every row the sync wrote."""
+    provider = _build_provider(_basic_seed())
+    SyncService(provider, session).sync_league(_league_ref(), "fake", 2026)
+
+    assert session.scalar(select(func.count()).select_from(Score)) == 8
+    session.rollback()
+    assert session.scalar(select(func.count()).select_from(Score)) == 0
+
+
 # ---------------------------------------------------------------------------
 # AC-DB-07: Sync tests use fixtures only, never call live ESPN
 # ---------------------------------------------------------------------------
