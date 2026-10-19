@@ -11,7 +11,7 @@ from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -102,6 +102,16 @@ def test_user_repository_lowercases_email_and_rejects_duplicates(session: Sessio
 
     with pytest.raises(DuplicateEmailError, match="already exists"), session.begin_nested():
         repository.create("fan@example.com", "other-hash")
+
+
+def test_user_repository_does_not_commit(session: Session) -> None:
+    """The repository flushes but leaves transaction ownership to the caller."""
+    repository = UserRepository(session)
+    repository.create("caller-owned@example.com", "hash")
+    assert session.in_transaction()
+
+    session.rollback()
+    assert session.scalar(select(func.count()).select_from(AppUser)) == 0
 
 
 def _create_user_without_a_password(session: Session) -> object:
