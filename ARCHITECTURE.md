@@ -134,15 +134,15 @@ Unique: (`code`). Index: (`league_id`).
 ### `user_league`
 Membership linking a user to a league: `user_id` → app_user, `league_id` → league, `owner_id` →
 owner (nullable; the user's optional owner/team association within that league),
-`espn_s2_ciphertext` (bytea, nullable), `espn_s2_nonce` (bytea, nullable),
-`espn_swid_ciphertext` (bytea, nullable), `espn_swid_nonce` (bytea, nullable). `bytea` is BLOB on
-SQLite.
+`espn_s2_encrypted` (text, nullable), `espn_swid_encrypted` (text, nullable).
 Unique: (`user_id`, `league_id`). Index: (`league_id`).
 
-`user_league` is the only place league credentials are stored. Each ciphertext is encrypted with
-AES-256-GCM under `LEAGUE_CREDENTIALS_KEY`, with its authentication tag stored alongside it and its
-nonce in the matching `*_nonce` column. An `owner_id` must belong to the membership's league
-(enforced by the service).
+`user_league` is the only place league credentials are stored. Each column holds the
+self-describing versioned token produced by `app.security.crypto.encrypt`
+(`base64url(version byte || 12-byte nonce || AES-256-GCM ciphertext+tag)`), encrypted with
+AES-256-GCM under `LEAGUE_CREDENTIALS_KEY`; the nonce and authentication tag are part of that
+token, not separate columns. An `owner_id` must belong to the membership's league (enforced by the
+service).
 
 ### Numeric rules
 
