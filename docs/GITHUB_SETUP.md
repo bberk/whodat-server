@@ -39,8 +39,11 @@ Run `scripts/setup-github.sh` (optionally pass `owner/repo`). It:
 - makes the default Actions token read-only;
 - creates a ruleset on `main` requiring a pull request and the CI checks `pre-commit`,
   `backend`, and `frontend`, with linear history and no force-push or deletion. It does **not**
-  require an approval, because a human approves and merges every PR (see step 3). (If your plan
-  does not allow a ruleset, the script says so and continues.)
+  require an approval, because a human approves and merges every PR (see step 3). Branches do
+  **not** need to be up to date before merging: PRs are small and file-disjoint, GitHub still
+  blocks a merge that conflicts, and requiring an up-to-date branch forced a rebase plus a fresh
+  approval for every merge. (If your plan does not allow a ruleset, the script says so and
+  continues.)
 
 Re-running it is safe.
 
