@@ -105,13 +105,19 @@ Three tied teams each get exactly 1/3 high-score VP (tests must use exact fracti
 
 | ID | Criterion |
 |---|---|
-| AC-AU-01 | A visitor can sign up with an email and password; duplicate emails are rejected (case-insensitively). |
-| AC-AU-02 | Passwords are stored only as salted hashes (argon2id or bcrypt); no plaintext in the database or logs. |
-| AC-AU-03 | A user can log in with valid credentials and is rejected with a generic error for invalid ones (no user enumeration). |
-| AC-AU-04 | After signup, a user can be linked to an owner of a league (mechanism per SPEC **[OPEN]** Q3). |
-| AC-AU-05 | A user can fetch standings only for leagues their owner belongs to; requests for other leagues return 403 or 404. |
-| AC-AU-06 | Unauthenticated requests to league data endpoints return 401. |
-| AC-AU-07 | Auth endpoints are rate limited (a test demonstrates throttling after repeated failures). |
+| AC-AU-01 | A visitor can sign up only with a valid, unexpired shared invite code. An invite belongs to a league, defaults to a 7-day expiry, carries the role (`admin` or `member`) assigned to the new account, and can be used by multiple invitees while unexpired; missing, unknown, or expired codes are rejected. |
+| AC-AU-02 | Duplicate emails are rejected case-insensitively (emails are stored lowercase). |
+| AC-AU-03 | Passwords are stored only as salted argon2id hashes; no plaintext password appears in the database or logs. |
+| AC-AU-04 | Valid credentials log the user in; invalid credentials return the same generic error for an unknown email and a wrong password (no user enumeration). |
+| AC-AU-05 | Users and leagues are many-to-many: a user can hold memberships in multiple leagues, a membership is unique per (user, league), and a duplicate join is rejected. |
+| AC-AU-06 | Only an admin can add a league with credentials. The admin supplies `espn_league_id`, an optional season, and optional ESPN_S2/ESPN_SWID; the backend validates by constructing an ESPN league object before storing anything. On success it stores the league, the membership, the encrypted credentials, and syncs the requested season; on validation failure it stores nothing. |
+| AC-AU-07 | League credentials are encrypted at rest with AES-256-GCM under a key from `LEAGUE_CREDENTIALS_KEY`; they are decrypted only on the provider call path and are never returned by the API or written to logs or error messages. |
+| AC-AU-08 | A member can add an existing league with only `espn_league_id` and is associated without credentials. A non-admin attempt to supply credentials is rejected and stores nothing. |
+| AC-AU-09 | A member whose membership holds credentials can trigger a league-wide refresh; refresh is rate limited per league and per user, and a member without credentials cannot refresh. |
+| AC-AU-10 | Every league-scoped endpoint enforces membership server-side: unauthenticated requests return 401, and a non-member requesting another league's data gets 403 or 404, never data. |
+| AC-AU-11 | Auth endpoints (signup and login) are rate limited; a test demonstrates throttling after repeated requests or failures. |
+| AC-AU-12 | After joining, a user can set the owner association only on their own membership, choosing from that league's owners; another user's membership cannot be changed. |
+| AC-AU-13 | The environment `ESPN_S2`/`ESPN_SWID` path is available only to CLI and bootstrap code; API request handling never reads those environment credentials. |
 
 ## 6. API
 
@@ -177,7 +183,9 @@ Three tied teams each get exactly 1/3 high-score VP (tests must use exact fracti
 
 ## 10. End-to-end smoke test
 
-A single Playwright test using the `FakeProvider` and a seeded league must: sign up → link to an owner → view overall standings → view division standings → see the cumulative VP chart, with every number matching the golden fixture.
+A single Playwright test using the `FakeProvider` and a seeded league must: sign up with an invite code
+→ join the league → set the owner association → view overall standings → view division standings →
+see the cumulative VP chart, with every number matching the golden fixture.
 
 ## 11. Definition of done for the whole project
 

@@ -6,7 +6,7 @@
 
 A website that shows fantasy football standings under a custom scoring system called **Victory Points (VP)**. ESPN's built-in standings only rank by win/loss record, so this site pulls league data from ESPN, computes VP, and displays standings and trends.
 
-Members of a league sign up, are linked to their team owner in the league, and can view that league's standings.
+Members join a league with an invite code, may associate themselves with one of the league's owners, and can view that league's standings.
 
 ## 2. Goals
 
@@ -60,8 +60,16 @@ If all three are equal, teams share the same rank (display order is then alphabe
 - Fetch league data from ESPN: league metadata, owners, teams (per season, including division), weekly matchups, and weekly scores.
 - Sync is **idempotent**: re-running it never creates duplicates and updates any changed values (ESPN scores can be corrected after the fact). After a sync, VP is recomputed for any affected weeks.
 - Sync is runnable on demand via a CLI command, and schedulable via cron or equivalent.
-- Private ESPN leagues require ESPN auth cookies (`espn_s2`, `SWID`). These are supplied via configuration, never committed, never logged, and never returned by the API.
+- Private ESPN leagues require ESPN auth cookies (`espn_s2`, `SWID`). A league admin supplies them
+  when adding the league; they are stored encrypted at rest on that user's membership and decrypted
+  only on the provider call path. They are never committed, never logged, and never returned by the
+  API.
+- Adding a league validates the credentials by constructing an ESPN league object before anything is
+  stored; a failed validation stores nothing.
+- A league-wide refresh can be triggered from the UI by a member whose membership holds credentials.
+  Refresh is rate limited per league and per user; members without credentials cannot refresh.
 - Historical seasons can be backfilled by specifying a season.
+- The environment-level `ESPN_S2`/`ESPN_SWID` path remains available for CLI and bootstrap use only.
 
 ### 4.2 Data storage
 
@@ -72,7 +80,9 @@ Persisted entities (see ARCHITECTURE.md for the schema):
 - **Team** (per season; includes division and owner)
 - **Matchup** (season, week, home team, away team)
 - **Score** (team, season, week, points, victory points and its component breakdown)
-- **User** (email, password hash, linked owner)
+- **User** (email, password hash, role)
+- **Invite** (league, shared code, role, expiry)
+- **Membership** (user, league, optional owner association, encrypted ESPN credentials)
 
 The database engine must be swappable between SQLite and Postgres with no application code changes (config only).
 
@@ -82,16 +92,29 @@ All ESPN-specific code lives behind a provider interface that returns normalized
 
 ### 4.4 Accounts and access
 
-- Sign up and log in with email and password.
-- After signing up, a user is linked to one **owner** in a league (see **[OPEN]** Q3 for how).
-- A user can only see data for leagues their owner belongs to.
-- Not in v1: email verification, password reset, social login, multi-owner accounts **[OPEN]** Q4.
+- Accounts are invite-only: signing up requires a valid, unexpired shared invite code. Invites belong
+  to a league, default to a 7-day expiry, and carry either the **admin** or **member** role.
+- Users and leagues are many-to-many. A membership row links a user to a league, optionally records
+  that user's owner (team) association, and stores that user's ESPN credentials, encrypted at rest.
+- An admin can add a league by providing `espn_league_id`, an optional season, and optional
+  ESPN_S2/ESPN_SWID. The backend validates by constructing an ESPN league object before storing
+  anything; on success it stores the league, the membership, the encrypted credentials, and syncs
+  the requested season. A member can add only an existing league by `espn_league_id` and joins
+  without credentials; a member supplying credentials is rejected.
+- Credentials are encrypted at rest with AES-256-GCM under `LEAGUE_CREDENTIALS_KEY`, decrypted only
+  on the provider call path, and never logged or returned by the API. The environment
+  ESPN_S2/ESPN_SWID path remains for CLI and bootstrap use only.
+- A member whose membership holds credentials can trigger a league-wide refresh from the UI; refresh
+  is rate limited per league and per user. Members without credentials cannot refresh.
+- After joining, a user may associate their membership with one of that league's owners.
+- Not in v1: email verification, password reset, social login, claiming more than one owner in a
+  league.
 
 ### 4.5 Frontend
 
 Pages and views:
 
-1. **Sign up / Log in**
+1. **Sign up (invite code) / Log in**
 2. **Standings**
    - Season selector (default: current season).
    - **Overall standings table**: rank, team, owner, season VP, H2H record (W-L-T), points for, and one column per week showing that week's VP.
@@ -146,7 +169,8 @@ The owner has no hard requirements and limited frontend experience, so this favo
 2. **M1 VP engine**: pure module plus the full unit test suite from ACCEPTANCE.md (no I/O).
 3. **M2 Data layer + provider interface**: schema, repositories, `LeagueProvider` interface, a fake in-memory provider for tests.
 4. **M3 ESPN adapter + sync**: real ESPN adapter, sync CLI, idempotency tests (using recorded fixtures, not live calls).
-5. **M4 API + auth**: standings endpoints, signup/login, owner linking, authorization tests.
+5. **M4 API + auth**: standings endpoints, invite signup, memberships, league credentials, owner
+   association, authorization tests.
 6. **M5 Frontend**: login, standings tables, chart, responsive polish (can start on stubbed API data once the API contract exists).
 7. **M6 Hardening**: end-to-end tests, docs, Docker Compose, deployment notes.
 
@@ -156,8 +180,11 @@ Agents must not guess on these. Record any new ones in `docs/OPEN_QUESTIONS.md`.
 
 1. **Top-half ties across the cutoff**: confirm the proposed splitting rule in 3.1.
 2. **Odd number of teams**: is top half `floor(N/2)` (proposed) or something else?
-3. **Owner linking**: how should a new user be linked to an owner? Options: (a) user picks their owner from a list after entering a league invite code (proposed for simplicity); (b) an admin approves each link; (c) match by ESPN-registered email. Option (a) lets someone claim another owner's identity, which is fine for a trusted friends' league but not for a public one.
-4. **Account features**: is password reset needed in v1? (Proposed: no, add soon after.) Can one user belong to multiple leagues?
+3. **Owner linking** *(resolved)*: a user joins a league with an invite code, then may associate their
+   membership with one of that league's owners; the association is optional and limited to the
+   caller's own membership.
+4. **Account features** *(resolved)*: one user can belong to multiple leagues through memberships.
+   Password reset remains out of scope for v1.
 5. **Do H2H ties count toward the "wins" tiebreaker?** (Proposed: no.)
 6. **Playoff weeks**: confirm no VP is awarded in the playoffs.
 7. **Hosting target**: affects scheduling (cron vs in-process scheduler) and the Postgres choice.

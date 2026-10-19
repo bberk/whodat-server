@@ -76,21 +76,25 @@ Key principle: **dependencies point inward**. The VP engine knows nothing about 
 |---|---|---|---|
 | `domain/` | VP computation, standings ranking, tie splitting | stdlib only (`decimal`, `fractions`, `dataclasses`) | db, api, providers, any I/O |
 | `providers/base.py` | `LeagueProvider` protocol and normalized DTOs | stdlib, pydantic | db, api, domain internals |
-| `providers/espn/` | ESPN → DTO translation | `espn_api`, `providers.base` | db, api, domain |
+| `providers/espn/` | ESPN → DTO translation and credential decryption for provider calls | `espn_api`, `providers.base`, credential-encryption helper | db, api, domain |
 | `providers/fake.py` | In-memory provider for tests/dev | `providers.base` | everything else |
 | `db/` | Models, session handling, repositories | sqlalchemy, `domain.types` | api, providers |
 | `services/` | Orchestrates the other layers | domain, db, providers.base | `espn_api`, fastapi |
-| `api/` | HTTP routes, request/response schemas, auth dependencies | services, fastapi | `espn_api`, db models directly (go through services) |
+| `api/` | HTTP routes, request/response schemas, auth dependencies | services, fastapi | `espn_api`, db models directly (go through services), credential decryption |
 | `frontend/` | UI | generated API types | nothing in `backend/` |
 
 These boundaries are enforced by an automated import test (AC-VP-14, AC-PR-03).
+
+Credential decryption uses `LEAGUE_CREDENTIALS_KEY` and lives behind the provider layer
+(`providers/espn/`); routers, request schemas, and response schemas never handle plaintext
+credentials.
 
 ## 4. Data model
 
 All tables have `id` (integer PK) and `created_at`/`updated_at`. Natural keys are enforced with unique constraints so that sync can upsert safely.
 
 ### `league`
-`provider` (text, e.g. `espn`), `external_id` (text), `name`, `metadata` (JSON: provider-level settings; defaults to `{}`), `provider_config_ref` (text; a pointer to credentials in config, **not** the credentials themselves).
+`provider` (text, e.g. `espn`), `external_id` (text), `name`, `metadata` (JSON: provider-level settings; defaults to `{}`), `provider_config_ref` (text; a pointer to environment-level bootstrap credentials, **not** the credentials themselves; per-membership credentials live in `user_league`).
 Unique: (`provider`, `external_id`).
 
 ### `league_season`
@@ -117,7 +121,28 @@ Unique: (`league_id`, `season`, `week`, `home_team_id`).
 Unique: (`team_id`, `season`, `week`).
 
 ### `app_user`
-`email` (unique, stored lowercase), `password_hash`, `owner_id` → owner (nullable until linked), `created_at`.
+`email` (unique, stored lowercase), `password_hash` (argon2id), `role` (text: `admin` or `member`,
+default `member`; set from the invite at signup), `created_at`.
+
+There is no owner association on `app_user`; the optional association lives on the membership.
+
+### `invite`
+`league_id` → league, `code` (text, shared across the league), `role` (text: `admin` or `member`),
+`expires_at` (timestamp, default 7 days after creation), `created_at`/`updated_at`.
+Unique: (`code`). Index: (`league_id`).
+
+### `user_league`
+Membership linking a user to a league: `user_id` → app_user, `league_id` → league, `owner_id` →
+owner (nullable; the user's optional owner/team association within that league),
+`espn_s2_ciphertext` (bytea, nullable), `espn_s2_nonce` (bytea, nullable),
+`espn_swid_ciphertext` (bytea, nullable), `espn_swid_nonce` (bytea, nullable). `bytea` is BLOB on
+SQLite.
+Unique: (`user_id`, `league_id`). Index: (`league_id`).
+
+`user_league` is the only place league credentials are stored. Each ciphertext is encrypted with
+AES-256-GCM under `LEAGUE_CREDENTIALS_KEY`, with its authentication tag stored alongside it and its
+nonce in the matching `*_nonce` column. An `owner_id` must belong to the membership's league
+(enforced by the service).
 
 ### Numeric rules
 
@@ -205,17 +230,23 @@ All endpoints are under `/api/v1`, JSON, cookie-session or bearer-token auth (ba
 
 | Method & path | Auth | Purpose |
 |---|---|---|
-| `POST /auth/signup` | none | Create account (email, password) |
+| `POST /auth/signup` | none | Create account (email, password, `invite_code`) |
 | `POST /auth/login` | none | Log in |
 | `POST /auth/logout` | user | Log out |
-| `GET /me` | user | Current user, linked owner and league |
-| `GET /leagues/{league_id}/owners` | user (during linking) | Owners available to claim (see SPEC **[OPEN]** Q3) |
-| `POST /me/link-owner` | user | Link the current user to an owner |
+| `GET /me` | user | Current user (email, role) and memberships |
+| `GET /me/leagues` | user | Leagues the current user is a member of |
+| `POST /leagues` | user | Add a league: an admin may include credentials; a member joins an existing league by `espn_league_id` only |
+| `GET /leagues/{league_id}/owners` | member | Owners available for the caller's owner association |
+| `PUT /me/leagues/{league_id}/owner` | member | Set the caller's own owner association within that league |
 | `GET /leagues/{league_id}/seasons` | member | Seasons with data |
+| `POST /leagues/{league_id}/refresh` | member with credentials | Refresh the league (rate limited per league and per user) |
 | `GET /leagues/{league_id}/seasons/{season}/standings` | member | Overall standings + divisions (shape below) |
 | `GET /leagues/{league_id}/seasons/{season}/vp-history` | member | Weekly and cumulative VP per team (for the chart) |
 
-"member" = authenticated user whose owner belongs to the league.
+"member" = authenticated user with a `user_league` membership in the league. League-scoped requests
+from non-members return 403 or 404, and unauthenticated requests return 401. Only admins may add
+league credentials; a member supplying credentials is rejected. A refresh requires a membership
+that holds credentials.
 
 ### Standings response (shape)
 
@@ -250,7 +281,7 @@ VP and points are serialized as **strings** (decimal), so the frontend never rel
 
 ## 9. Frontend architecture
 
-- **Routing**: `/login`, `/signup`, `/link-owner`, `/` (standings for the user's league and current season).
+- **Routing**: `/login`, `/signup`, `/leagues/:leagueId/owner`, `/` (standings for the selected league and current season).
 - **State**: server state via TanStack Query; local UI state (selected team, hidden chart series) in component state or a small store. No global state library needed.
 - **Components**: `StandingsTable` (reused for overall and per-division), `WeeklyVPCells`, `VPChart`, `TeamSelector`/legend, `SeasonPicker`, layout/nav, and states (`Loading`, `Empty`, `ErrorState`).
 - **Responsive strategy**: mobile-first. Tables scroll horizontally in a container with a sticky first column. The chart supports tap-to-highlight, legend toggles, and a reduced default of highlighted lines on small screens.
@@ -261,9 +292,13 @@ VP and points are serialized as **strings** (decimal), so the frontend never rel
 
 All via environment variables, documented in `.env.example`:
 
-`DATABASE_URL` (default `sqlite:///./dev.db`), `SECRET_KEY`, `ESPN_S2`, `ESPN_SWID` (or per-league references), `CORS_ORIGINS`, `ENV`.
+`DATABASE_URL` (default `sqlite:///./dev.db`), `SECRET_KEY`, `LEAGUE_CREDENTIALS_KEY` (32-byte key
+for AES-256-GCM), `ESPN_S2`, `ESPN_SWID` (CLI/bootstrap only), `CORS_ORIGINS`, `ENV`.
 
-ESPN cookies are read only inside `providers/espn/` and must be redacted from all logs.
+League credentials supplied by an admin are stored encrypted at rest with AES-256-GCM under
+`LEAGUE_CREDENTIALS_KEY`, decrypted only on the provider call path, never logged, and never returned
+by the API. The environment `ESPN_S2`/`ESPN_SWID` path remains available for CLI and bootstrap use
+only and is never read during API request handling.
 
 ## 11. Testing strategy
 
