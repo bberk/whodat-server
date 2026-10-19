@@ -105,7 +105,7 @@ Three tied teams each get exactly 1/3 high-score VP (tests must use exact fracti
 
 | ID | Criterion |
 |---|---|
-| AC-AU-01 | A visitor can sign up only with a valid, unexpired shared invite code. An invite belongs to a league, defaults to a 7-day expiry, carries the role (`admin` or `member`) assigned to the new account, and can be used by multiple invitees while unexpired; missing, unknown, or expired codes are rejected. |
+| AC-AU-01 | A visitor can sign up only with a valid, unexpired shared invite code. Signup validates the submitted code against the invite's stored hash (the raw code is never stored); an invite belongs to a league, defaults to a 7-day expiry, carries the role (`admin` or `member`) assigned to the new account, and can be used by multiple invitees while unexpired. The raw code is shown only once when an admin creates the invite and is never retrievable afterwards; regenerating means creating a new invite. Missing, unknown, or expired codes are rejected. |
 | AC-AU-02 | Duplicate emails are rejected case-insensitively (emails are stored lowercase). |
 | AC-AU-03 | Passwords are stored only as salted argon2id hashes; no plaintext password appears in the database or logs. |
 | AC-AU-04 | Valid credentials log the user in; invalid credentials return the same generic error for an unknown email and a wrong password (no user enumeration). |
