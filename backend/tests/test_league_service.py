@@ -43,6 +43,7 @@ from app.services.league_service import (
     EspnCredentials,
     IncompleteCredentialsError,
     InvalidLeagueRequestError,
+    LeagueAccessError,
     LeagueNotFoundError,
     LeagueProviderError,
     LeagueService,
@@ -149,8 +150,19 @@ class RecordingFactory:
         self.seed = seed
         self.calls: list[tuple[str, str]] = []
         self.decrypted: list[tuple[str, str]] = []
+        self.public_calls = 0
 
-    def __call__(self, *, espn_s2_encrypted: str, espn_swid_encrypted: str) -> FakeProvider:
+    def __call__(
+        self,
+        *,
+        espn_s2_encrypted: str | None = None,
+        espn_swid_encrypted: str | None = None,
+    ) -> FakeProvider:
+        if espn_s2_encrypted is None and espn_swid_encrypted is None:
+            self.public_calls += 1
+            return FakeProvider(self.seed)
+        if espn_s2_encrypted is None or espn_swid_encrypted is None:
+            raise ValueError("both credential tokens are required")
         self.calls.append((espn_s2_encrypted, espn_swid_encrypted))
         self.decrypted.append((decrypt(espn_s2_encrypted), decrypt(espn_swid_encrypted)))
         return FakeProvider(self.seed)
@@ -261,6 +273,48 @@ def test_AC_AU_06_admin_add_with_credentials_encrypts_tokens_and_syncs(
     assert _count(session, Score) == 2
 
 
+def test_AC_AU_06_admin_adds_new_public_league_without_credentials(
+    session: Session,
+) -> None:
+    admin = _create_user(session, "admin@example.com", "admin")
+    factory = RecordingFactory(_seed())
+    service = LeagueService(session, factory, provider_id="fake")
+
+    result = service.add_league(_actor(admin), LEAGUE_EXTERNAL, SEASON)
+    service.commit()
+
+    assert result.membership.external_id == LEAGUE_EXTERNAL
+    assert result.membership.has_credentials is False
+    assert result.weeks_synced == (1,)
+    assert factory.public_calls == 1
+    assert factory.calls == []
+
+    membership = session.scalar(select(UserLeague))
+    assert membership is not None
+    assert membership.espn_s2_encrypted is None
+    assert membership.espn_swid_encrypted is None
+    assert _count(session, League) == 1
+    assert _count(session, Owner) == 2
+    assert _count(session, Score) == 2
+
+
+def test_AC_AU_06_admin_no_credential_private_league_fails_without_writes(
+    session: Session,
+) -> None:
+    admin = _create_user(session, "admin@example.com", "admin")
+    factory = RecordingFactory({})
+    service = LeagueService(session, factory, provider_id="fake")
+
+    with pytest.raises(LeagueAccessError) as error:
+        service.add_league(_actor(admin), LEAGUE_EXTERNAL, SEASON)
+
+    assert "private leagues require ESPN credentials" in str(error.value)
+    assert factory.public_calls == 1
+    session.commit()
+    assert _count(session, League) == 0
+    assert _count(session, UserLeague) == 0
+
+
 def test_AC_AU_06_member_supplying_credentials_is_rejected_without_writes(
     session: Session,
 ) -> None:
@@ -295,10 +349,14 @@ def test_AC_AU_06_initial_sync_failure_leaves_no_partial_rows(session: Session) 
 
     class FailingFactory(RecordingFactory):
         def __call__(
-            self, *, espn_s2_encrypted: str, espn_swid_encrypted: str
+            self,
+            *,
+            espn_s2_encrypted: str | None = None,
+            espn_swid_encrypted: str | None = None,
         ) -> FailAfterValidationProvider:
-            decrypt(espn_s2_encrypted)
-            decrypt(espn_swid_encrypted)
+            if espn_s2_encrypted is not None and espn_swid_encrypted is not None:
+                decrypt(espn_s2_encrypted)
+                decrypt(espn_swid_encrypted)
             return FailAfterValidationProvider(self.seed)
 
     service = LeagueService(session, FailingFactory(_seed()), provider_id="fake")
@@ -361,11 +419,14 @@ def test_AC_AU_08_member_join_missing_league_fails_without_writes(
     session: Session,
 ) -> None:
     member = _create_user(session, "member@example.com", "member")
-    service = LeagueService(session, RecordingFactory(_seed()), provider_id="fake")
+    factory = RecordingFactory(_seed())
+    service = LeagueService(session, factory, provider_id="fake")
 
     with pytest.raises(LeagueNotFoundError):
         service.add_league(_actor(member), "not-stored")
 
+    assert factory.public_calls == 0
+    assert factory.calls == []
     session.commit()
     assert _count(session, UserLeague) == 0
 
@@ -738,6 +799,38 @@ def test_espn_provider_factory_decrypts_only_at_the_provider_boundary(
 
     assert isinstance(provider, StubProvider)
     assert captured == {"league_factory": None, "espn_s2": S2, "swid": SWID}
+
+
+def test_espn_provider_factory_without_tokens_uses_explicit_empty_cookies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class StubProvider:
+        provider_id = "espn"
+
+        def __init__(
+            self,
+            *,
+            league_factory: object = None,
+            espn_s2: str | None = None,
+            swid: str | None = None,
+        ) -> None:
+            captured["league_factory"] = league_factory
+            captured["espn_s2"] = espn_s2
+            captured["swid"] = swid
+
+    monkeypatch.setattr(espn_credentials, "ESPNLeagueProvider", StubProvider)
+
+    provider = create_espn_provider()
+
+    assert isinstance(provider, StubProvider)
+    assert captured == {"league_factory": None, "espn_s2": "", "swid": ""}
+
+
+def test_espn_provider_factory_rejects_half_a_credential_pair() -> None:
+    with pytest.raises(ValueError, match="together"):
+        create_espn_provider(espn_s2_encrypted=encrypt(S2))
 
 
 def test_AC_AU_06_unexpected_write_failure_rolls_back_and_is_typed(

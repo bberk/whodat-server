@@ -36,6 +36,7 @@ from app.services.league_service import (
     EspnCredentials,
     IncompleteCredentialsError,
     InvalidLeagueRequestError,
+    LeagueAccessError,
     LeagueNotFoundError,
     LeagueProviderError,
     LeagueService,
@@ -134,6 +135,14 @@ def _http_error(error: LeagueServiceError) -> HTTPException:
         return HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=error_detail("invalid_request", "The league request is not valid"),
+        )
+    if isinstance(error, LeagueAccessError):
+        return HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_detail(
+                "league_unavailable",
+                "The league could not be reached; private leagues require ESPN credentials",
+            ),
         )
     if isinstance(error, LeagueProviderError):
         return HTTPException(

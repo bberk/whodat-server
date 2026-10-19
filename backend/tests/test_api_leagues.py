@@ -49,6 +49,7 @@ from app.services.league_service import (
     CredentialsRequiredError,
     IncompleteCredentialsError,
     InvalidLeagueRequestError,
+    LeagueAccessError,
     LeagueNotFoundError,
     LeagueProviderError,
     LeagueService,
@@ -142,8 +143,19 @@ class RecordingFactory:
         self.seed = seed
         self.calls: list[tuple[str, str]] = []
         self.decrypted: list[tuple[str, str]] = []
+        self.public_calls = 0
 
-    def __call__(self, *, espn_s2_encrypted: str, espn_swid_encrypted: str) -> FakeProvider:
+    def __call__(
+        self,
+        *,
+        espn_s2_encrypted: str | None = None,
+        espn_swid_encrypted: str | None = None,
+    ) -> FakeProvider:
+        if espn_s2_encrypted is None and espn_swid_encrypted is None:
+            self.public_calls += 1
+            return FakeProvider(self.seed)
+        if espn_s2_encrypted is None or espn_swid_encrypted is None:
+            raise ValueError("both credential tokens are required")
         self.calls.append((espn_s2_encrypted, espn_swid_encrypted))
         self.decrypted.append((decrypt(espn_s2_encrypted), decrypt(espn_swid_encrypted)))
         return FakeProvider(self.seed)
@@ -160,10 +172,14 @@ class FailingFactory(RecordingFactory):
     """Build a provider that validates but fails its first sync."""
 
     def __call__(
-        self, *, espn_s2_encrypted: str, espn_swid_encrypted: str
+        self,
+        *,
+        espn_s2_encrypted: str | None = None,
+        espn_swid_encrypted: str | None = None,
     ) -> FailAfterValidationProvider:
-        decrypt(espn_s2_encrypted)
-        decrypt(espn_swid_encrypted)
+        if espn_s2_encrypted is not None and espn_swid_encrypted is not None:
+            decrypt(espn_s2_encrypted)
+            decrypt(espn_swid_encrypted)
         return FailAfterValidationProvider(self.seed)
 
 
@@ -368,6 +384,51 @@ def test_AC_AU_06_admin_add_returns_201_and_never_echoes_credentials(
         assert membership.espn_swid_encrypted != SWID
         assert decrypt(membership.espn_s2_encrypted or "") == S2
         assert decrypt(membership.espn_swid_encrypted or "") == SWID
+
+
+def test_AC_AU_06_admin_adds_new_public_league_without_credentials(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    _login(api, admin_id)
+
+    response = api.client.post(
+        "/api/v1/leagues", json={"espn_league_id": LEAGUE_EXTERNAL, "season": SEASON}
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["league"]["has_credentials"] is False
+    assert body["weeks_synced"] == [1]
+    assert api.provider_factory.public_calls == 1
+    assert api.provider_factory.calls == []
+
+    with api.factory() as session:
+        membership = session.scalar(select(UserLeague))
+        assert membership is not None
+        assert membership.espn_s2_encrypted is None
+        assert membership.espn_swid_encrypted is None
+
+
+def test_AC_AU_06_admin_no_credential_private_league_returns_400_and_stores_nothing(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory(seed={})
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    _login(api, admin_id)
+
+    response = api.client.post(
+        "/api/v1/leagues", json={"espn_league_id": LEAGUE_EXTERNAL, "season": SEASON}
+    )
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["code"] == "league_unavailable"
+    assert "private leagues require ESPN credentials" in detail["message"]
+    assert api.provider_factory.public_calls == 1
+    assert _count(api, League) == 0
+    assert _count(api, UserLeague) == 0
 
 
 def test_AC_AU_06_member_supplying_credentials_returns_403_and_stores_nothing(
@@ -726,6 +787,7 @@ def test_production_league_service_dependency_builds(api_factory: Callable[..., 
         (AlreadyMemberError("x"), 409, "already_member"),
         (IncompleteCredentialsError("x"), 400, "invalid_credentials"),
         (InvalidLeagueRequestError("x"), 400, "invalid_request"),
+        (LeagueAccessError("x"), 400, "league_unavailable"),
         (LeagueProviderError("x"), 400, "league_unavailable"),
         (LeagueSyncError("x"), 400, "sync_failed"),
         (LeagueServiceError("x"), 400, "request_failed"),
