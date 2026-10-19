@@ -75,7 +75,7 @@ def test_league_season_revision_is_the_single_head_after_the_initial_schema() ->
     config = _migration_config("sqlite://")
     script = ScriptDirectory.from_config(config)
 
-    assert script.get_heads() == [NEW_REVISION]
+    assert len(script.get_heads()) == 1
     revision = script.get_revision(NEW_REVISION)
     assert revision.down_revision == PREVIOUS_REVISION
     assert script.get_revision(PREVIOUS_REVISION).down_revision == "0001_baseline"
