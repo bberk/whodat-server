@@ -37,6 +37,10 @@ DEFAULT_PROVIDER_ID = "espn"
 # The documented default invite lifetime (AC-AU-01).
 DEFAULT_INVITE_LIFETIME = timedelta(days=7)
 
+# A decade is far beyond any real invite lifetime and keeps expiry arithmetic away from the
+# timedelta/datetime range limits, so an absurd argument becomes a usage error, not a traceback.
+_MAX_INVITE_LIFETIME_DAYS = 3650
+
 _WEEK_RANGE = re.compile(r"^(?P<start>[1-9][0-9]*)(?:-(?P<end>[1-9][0-9]*))?$")
 _DURATION = re.compile(r"^(?P<amount>[0-9]+)(?P<unit>[dh])?$")
 
@@ -72,11 +76,12 @@ def parse_week_range(value: str) -> list[int]:
 def parse_expiry_duration(value: str) -> timedelta:
     """Parse an invite lifetime such as ``7d``, ``24h``, or a bare integer meaning days.
 
-    A duration must be a positive whole number of days or hours. A bare integer is read as days,
-    which matches the documented ``--expires 7`` shorthand. Anything else (zero, a negative or
-    fractional number, an unsupported unit, or stray characters) raises
-    ``argparse.ArgumentTypeError``, which argparse reports as a usage error on exit code 2 instead
-    of letting a traceback escape.
+    A duration must be a positive whole number of days or hours, no longer than 3650 days. A bare
+    integer is read as days, which matches the documented ``--expires 7`` shorthand. Anything else
+    (zero, a negative or fractional number, an unsupported unit, an out-of-range value, or stray
+    characters) raises ``argparse.ArgumentTypeError``, which argparse reports as a usage error on
+    exit code 2 instead of letting a traceback escape. The range check happens before constructing
+    the timedelta so even an enormous value cannot raise ``OverflowError``.
     """
     match = _DURATION.match(value.strip())
     if match is None:
@@ -86,7 +91,13 @@ def parse_expiry_duration(value: str) -> timedelta:
     amount = int(match.group("amount"))
     if amount <= 0:
         raise argparse.ArgumentTypeError(f"duration must be positive, got {value!r}")
-    if match.group("unit") == "h":
+    unit = match.group("unit") or "d"
+    max_amount = _MAX_INVITE_LIFETIME_DAYS * 24 if unit == "h" else _MAX_INVITE_LIFETIME_DAYS
+    if amount > max_amount:
+        raise argparse.ArgumentTypeError(
+            f"duration must not exceed {_MAX_INVITE_LIFETIME_DAYS} days, got {value!r}"
+        )
+    if unit == "h":
         return timedelta(hours=amount)
     return timedelta(days=amount)
 

@@ -148,17 +148,19 @@ def _seed_league(
     *,
     provider: str = DEFAULT_PROVIDER_ID,
     external_id: str = LEAGUE_EXTERNAL_ID,
-) -> None:
-    """Store the league row that create-invite resolves by natural key."""
+) -> int:
+    """Store the league row create-invite resolves by natural key and return its id."""
     with session_factory() as session:
-        SyncRepository(session).upsert_league(
+        result = SyncRepository(session).upsert_league(
             provider=provider,
             external_id=external_id,
             name="CLI League",
             league_metadata={},
             provider_config_ref="env:default",
         )
+        league_id = result.row.id
         session.commit()
+    return league_id
 
 
 def _invite_count(session: Session) -> int:
@@ -436,7 +438,7 @@ def test_cli_create_invite_stores_only_the_hash_and_prints_the_raw_code_once(
     session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
 ) -> None:
     """AC-AU-01: creation stores the hash plus role/expiry and prints the raw code exactly once."""
-    _seed_league(session_factory)
+    league_id = _seed_league(session_factory)
 
     code = main(
         ["create-invite", "--league", LEAGUE_EXTERNAL_ID, "--role", "admin"],
@@ -452,6 +454,7 @@ def test_cli_create_invite_stores_only_the_hash_and_prints_the_raw_code_once(
     with session_factory() as session:
         invite = session.scalar(select(Invite))
         assert invite is not None
+        assert invite.league_id == league_id
         assert invite.code_hash == hash_invite_code(raw_code)
         assert invite.role == "admin"
         assert _as_utc(invite.expires_at) == INVITE_NOW + timedelta(days=7)
@@ -465,6 +468,8 @@ def test_cli_create_invite_stores_only_the_hash_and_prints_the_raw_code_once(
         ("7d", timedelta(days=7)),
         ("24h", timedelta(hours=24)),
         ("2", timedelta(days=2)),
+        ("3650d", timedelta(days=3650)),
+        ("87600h", timedelta(days=3650)),
     ],
 )
 def test_cli_create_invite_duration_accepts_days_hours_and_bare_integers(
@@ -606,6 +611,40 @@ def test_cli_create_invite_invalid_duration_is_a_usage_error(
 
     assert excinfo.value.code == 2
     assert "--expires" in capsys.readouterr().err
+    with session_factory() as session:
+        assert _invite_count(session) == 0
+
+
+@pytest.mark.parametrize(
+    "expires", ["3651d", "87601h", "1000000000d", "1000000000h", "999999999999999999999d"]
+)
+def test_cli_create_invite_oversized_duration_is_a_usage_error(
+    expires: str, session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A duration beyond 3650 days exits 2 with a usage message, never an OverflowError."""
+    _seed_league(session_factory)
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(
+            [
+                "create-invite",
+                "--league",
+                LEAGUE_EXTERNAL_ID,
+                "--role",
+                "admin",
+                "--expires",
+                expires,
+            ],
+            session_factory=session_factory,
+            clock=_fixed_clock,
+        )
+
+    assert excinfo.value.code == 2
+    err = capsys.readouterr().err
+    assert "--expires" in err
+    assert "3650" in err
+    assert "Traceback" not in err
+    assert "OverflowError" not in err
     with session_factory() as session:
         assert _invite_count(session) == 0
 
