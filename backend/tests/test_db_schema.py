@@ -50,6 +50,16 @@ def test_AC_DB_01_schema_defines_normalized_league_entities() -> None:
         "points",
         "victory_points",
     }
+    assert {column.name for column in AppUser.__table__.columns} >= {
+        "email",
+        "password_hash",
+        "role",
+        "created_at",
+        "updated_at",
+    }
+    # Owner associations moved to user_league; accounts carry no owner link.
+    assert "owner_id" not in {column.name for column in AppUser.__table__.columns}
+    assert not AppUser.__table__.foreign_keys
     assert {column.name for column in LeagueSeason.__table__.columns} >= {
         "league_id",
         "season",

@@ -1,8 +1,9 @@
 """Migration coverage for the per-season league settings table (AC-DB-06).
 
-The table is added by revision ``0003_league_season`` on top of ``0002_initial_schema``. These
-tests exercise the SQLite dialect (the local and pre-push default); CI runs the rest of the suite
-against Postgres. ``alembic check`` fails if the model and the migration drift apart.
+The table is added by revision ``0003_league_season`` on top of ``0002_initial_schema``. Revision
+``0004_auth_memberships`` follows it as the single head. These tests exercise the SQLite dialect
+(the local and pre-push default); CI runs the rest of the suite against Postgres. ``alembic check``
+fails if the model and the migration drift apart.
 """
 
 from pathlib import Path
@@ -15,6 +16,7 @@ from sqlalchemy import create_engine, inspect
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 PREVIOUS_REVISION = "0002_initial_schema"
 NEW_REVISION = "0003_league_season"
+LATEST_REVISION = "0004_auth_memberships"
 LEAGUE_SEASON_COLUMNS = {"id", "league_id", "season", "metadata", "created_at", "updated_at"}
 
 
@@ -71,11 +73,15 @@ def test_AC_DB_06_league_season_migration_upgrade_and_downgrade_round_trip(tmp_p
 
 
 def test_league_season_revision_is_the_single_head_after_the_initial_schema() -> None:
-    """Exactly one new migration adds the table, directly after the existing head."""
+    """The exact migration chain ends at 0004, with 0003 directly after 0002."""
     config = _migration_config("sqlite://")
     script = ScriptDirectory.from_config(config)
 
-    assert len(script.get_heads()) == 1
+    assert script.get_heads() == [LATEST_REVISION]
     revision = script.get_revision(NEW_REVISION)
+    assert revision is not None
     assert revision.down_revision == PREVIOUS_REVISION
     assert script.get_revision(PREVIOUS_REVISION).down_revision == "0001_baseline"
+    latest = script.get_revision(LATEST_REVISION)
+    assert latest is not None
+    assert latest.down_revision == NEW_REVISION
