@@ -30,7 +30,13 @@ from app.providers.base import (
     WeekStatus,
 )
 from app.providers.fake import FakeProvider
-from app.services.sync_service import SyncService, _fraction_to_decimal
+from app.services.sync_service import (
+    LeagueNotFoundError,
+    MissingRegularSeasonLengthError,
+    SyncError,
+    SyncService,
+    _fraction_to_decimal,
+)
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -66,15 +72,23 @@ def _basic_seed(
     include_bye: bool = False,
     playoff_week: int | None = None,
     incomplete_week: int | None = None,
+    regular_season_length: int | None = 2,
 ) -> dict[
     tuple[str, int],
     tuple[LeagueDTO, list[OwnerDTO], list[TeamDTO], dict[int, list[MatchupDTO]], WeekStatus],
 ]:
-    """Build a FakeProvider seed for a 4-team league with configurable week states."""
+    """Build a FakeProvider seed for a 4-team league with configurable week states.
+
+    ``regular_season_length`` is written into the league metadata the way a real provider does;
+    pass None to build a league whose stored metadata omits it.
+    """
+    metadata: dict[str, object] = {"teams": 4, "season": 2026}
+    if regular_season_length is not None:
+        metadata["regular_season_length"] = regular_season_length
     league = LeagueDTO(
         external_id="league-1",
         name="VP League",
-        metadata={"teams": 4, "season": 2026},
+        metadata=metadata,
     )
     owners = [
         OwnerDTO(external_id="owner-1", display_name="Alice"),
@@ -804,3 +818,227 @@ def test_newly_completed_week_triggers_vp_recompute(session: Session) -> None:
     # After recompute, the week-2 VP values differ from the prior zeros (the fixture scores
     # produce non-zero VP for some teams).
     assert week2_after != week2_before
+
+
+# ---------------------------------------------------------------------------
+# Provider-free recompute (CLI `recompute`): stored rows + the VP engine only
+# ---------------------------------------------------------------------------
+
+
+class _ExplodingProvider:
+    """A provider that fails loudly if any of its methods is called.
+
+    Binding it to a SyncService proves that recompute_league never reaches for the provider.
+    """
+
+    provider_id = "fake"
+
+    def fetch_league(self, *args: object, **kwargs: object) -> object:
+        raise AssertionError("recompute must not call the provider")
+
+    fetch_owners = fetch_league
+    fetch_teams = fetch_league
+    fetch_matchups = fetch_league
+    current_week = fetch_league
+
+
+def _vp_rows(session: Session, season: int = 2026) -> dict[tuple[int, int], tuple[Decimal, ...]]:
+    """Snapshot (week, team_id) → points and VP columns for before/after comparisons."""
+    return {
+        (score.week, score.team_id): (
+            score.points,
+            score.victory_points,
+            score.vp_h2h,
+            score.vp_top_half,
+            score.vp_high,
+            score.vp_low,
+        )
+        for score in session.scalars(select(Score).where(Score.season == season)).all()
+    }
+
+
+def _zero_vp(session: Session) -> None:
+    """Clear every stored VP value so a recompute has visible work to do."""
+    for score in session.scalars(select(Score)).all():
+        score.victory_points = Decimal("0")
+        score.vp_h2h = Decimal("0")
+        score.vp_top_half = Decimal("0")
+        score.vp_high = Decimal("0")
+        score.vp_low = Decimal("0")
+    session.commit()
+
+
+def test_recompute_rebuilds_vp_without_calling_the_provider(session: Session) -> None:
+    """Recompute rebuilds each stored week's VP with an exploding provider bound but unused."""
+    provider = _build_provider(_basic_seed(regular_season_length=2))
+    SyncService(provider, session).sync_league(_league_ref(), "fake", 2026)
+    session.commit()
+    after_sync = _vp_rows(session)
+
+    # Corrupt every VP value, then prove recompute reconstructs it exactly.
+    _zero_vp(session)
+
+    summary = SyncService(_ExplodingProvider(), session).recompute_league(
+        _league_ref(), "fake", 2026
+    )
+    session.commit()
+
+    assert summary.regular_season_length == 2
+    assert summary.weeks_recomputed == (1, 2)
+    assert summary.weeks_skipped == ()
+    assert _vp_rows(session) == after_sync
+
+
+def test_recompute_works_with_no_provider_bound_at_all(session: Session) -> None:
+    """A service constructed with provider=None still recomputes from stored rows."""
+    provider = _build_provider(_basic_seed())
+    SyncService(provider, session).sync_league(_league_ref(), "fake", 2026)
+    session.commit()
+
+    summary = SyncService(None, session).recompute_league(_league_ref(), "fake", 2026)
+
+    assert summary.weeks_recomputed == (1, 2)
+    assert summary.weeks_skipped == ()
+
+
+def test_sync_without_a_provider_raises_sync_error(session: Session) -> None:
+    """The provider-free service refuses to sync instead of raising AttributeError."""
+    with pytest.raises(SyncError, match="requires a provider"):
+        SyncService(None, session).sync_league(_league_ref(), "fake", 2026)
+
+
+def test_recompute_unknown_league_raises_league_not_found(session: Session) -> None:
+    """Recompute against a league that was never synced reports a structured error."""
+    with pytest.raises(LeagueNotFoundError, match="not stored"):
+        SyncService(None, session).recompute_league(_league_ref("ghost"), "fake", 2026)
+
+
+def test_sync_unknown_league_raises_league_not_found(session: Session) -> None:
+    """A provider that does not know the league season is translated into LeagueNotFoundError."""
+    provider = _build_provider(_basic_seed())
+    with pytest.raises(LeagueNotFoundError, match="no league"):
+        SyncService(provider, session).sync_league(_league_ref("missing"), "fake", 2026)
+
+
+def test_recompute_without_stored_regular_season_length_raises(session: Session) -> None:
+    """Recompute refuses to guess the season shape when metadata has no regular-season length."""
+    provider = _build_provider(_basic_seed(regular_season_length=None))
+    SyncService(provider, session).sync_league(_league_ref(), "fake", 2026)
+    session.commit()
+
+    with pytest.raises(MissingRegularSeasonLengthError, match="regular_season_length"):
+        SyncService(None, session).recompute_league(_league_ref(), "fake", 2026)
+
+
+def test_recompute_skips_incomplete_and_playoff_weeks(session: Session) -> None:
+    """Stored incomplete/playoff weeks are skipped and keep zero VP (AC-ST-08)."""
+    seed = _basic_seed(
+        last_completed_week=2,
+        incomplete_week=3,
+        playoff_week=4,
+        regular_season_length=4,
+    )
+    provider = _build_provider(seed)
+    SyncService(provider, session).sync_league(_league_ref(), "fake", 2026, weeks=[1, 2, 3, 4])
+    session.commit()
+
+    summary = SyncService(None, session).recompute_league(_league_ref(), "fake", 2026)
+    session.commit()
+
+    assert summary.weeks_recomputed == (1, 2)
+    assert summary.weeks_skipped == (3, 4)
+
+    repo = SyncRepository(session)
+    league = repo.get_league("fake", "league-1")
+    assert league is not None
+    for week in (3, 4):
+        for score in repo.get_week_scores(league.id, 2026, week):
+            assert score.victory_points == Decimal("0.000000")
+            assert score.vp_h2h == Decimal("0.000000")
+            assert score.vp_top_half == Decimal("0.000000")
+            assert score.vp_high == Decimal("0.000000")
+            assert score.vp_low == Decimal("0.000000")
+
+
+def test_recompute_honors_the_stored_regular_season_length(session: Session) -> None:
+    """Weeks stored beyond the regular season are never touched, even when complete."""
+    seed = _basic_seed(regular_season_length=2)
+    matchups = seed[("league-1", 2026)][3]
+    for week in (3, 4):
+        matchups[week] = [
+            MatchupDTO(
+                week=week,
+                home=MatchupSideDTO(team_external_id="team-1", points=Decimal("120.00")),
+                away=MatchupSideDTO(team_external_id="team-2", points=Decimal("100.00")),
+                is_playoff=False,
+                is_complete=True,
+            ),
+            MatchupDTO(
+                week=week,
+                home=MatchupSideDTO(team_external_id="team-3", points=Decimal("90.00")),
+                away=MatchupSideDTO(team_external_id="team-4", points=Decimal("80.00")),
+                is_playoff=False,
+                is_complete=True,
+            ),
+        ]
+    provider = _build_provider(seed)
+    SyncService(provider, session).sync_league(_league_ref(), "fake", 2026, weeks=[1, 2, 3, 4])
+    session.commit()
+
+    repo = SyncRepository(session)
+    league = repo.get_league("fake", "league-1")
+    assert league is not None
+    # Sentinel VP on the two weeks outside the stored regular season.
+    for week in (3, 4):
+        for score in repo.get_week_scores(league.id, 2026, week):
+            score.victory_points = Decimal("42.000000")
+    session.commit()
+
+    summary = SyncService(None, session).recompute_league(_league_ref(), "fake", 2026)
+    session.commit()
+
+    assert summary.regular_season_length == 2
+    assert summary.weeks_recomputed == (1, 2)
+    for week in (3, 4):
+        for score in repo.get_week_scores(league.id, 2026, week):
+            assert score.victory_points == Decimal("42.000000")
+
+
+def test_recompute_skips_weeks_without_stored_matchups(session: Session) -> None:
+    """Weeks in the regular season with no stored matchups are reported as skipped."""
+    seed = _basic_seed(last_completed_week=1, regular_season_length=3)
+    provider = _build_provider(seed)
+    SyncService(provider, session).sync_league(_league_ref(), "fake", 2026, weeks=[1])
+    session.commit()
+
+    summary = SyncService(None, session).recompute_league(_league_ref(), "fake", 2026)
+
+    assert summary.weeks_recomputed == (1,)
+    assert summary.weeks_skipped == (2, 3)
+
+
+def test_recompute_preserves_bye_week_results(session: Session) -> None:
+    """A bye week rebuilt by recompute matches what sync produced: no H2H, rank VP kept."""
+    seed = _basic_seed(last_completed_week=3, include_bye=True, regular_season_length=3)
+    provider = _build_provider(seed)
+    SyncService(provider, session).sync_league(_league_ref(), "fake", 2026)
+    session.commit()
+    after_sync = _vp_rows(session)
+
+    _zero_vp(session)
+    summary = SyncService(None, session).recompute_league(_league_ref(), "fake", 2026)
+    session.commit()
+
+    assert summary.weeks_recomputed == (1, 2, 3)
+    assert _vp_rows(session) == after_sync
+
+    repo = SyncRepository(session)
+    league = repo.get_league("fake", "league-1")
+    assert league is not None
+    teams = {t.external_id: t.id for t in repo.get_teams(league.id, 2026)}
+    week3 = {s.team_id: s for s in repo.get_week_scores(league.id, 2026, 3)}
+    # team-1 and team-4 had byes: no H2H, but the bye team keeps its high/low/top-half VP.
+    assert week3[teams["team-1"]].vp_h2h == Decimal("0.000000")
+    assert week3[teams["team-1"]].vp_high == Decimal("1.000000")
+    assert week3[teams["team-4"]].vp_h2h == Decimal("0.000000")
+    assert week3[teams["team-4"]].vp_low == Decimal("-1.000000")
