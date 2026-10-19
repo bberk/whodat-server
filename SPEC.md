@@ -95,7 +95,7 @@ Pages and views:
 2. **Standings**
    - Season selector (default: current season).
    - **Overall standings table**: rank, team, owner, season VP, H2H record (W-L-T), points for, and one column per week showing that week's VP.
-   - **Division standings**: the same ranking logic, one table per division.
+   - **Division standings**: one table per division; the division only filters and groups the rows, and the rank displayed for each team is its overall league rank.
    - Tapping/clicking a team highlights it in the chart.
 3. **VP chart**: a line chart of cumulative VP over time, x-axis = week, one line per team. Users can highlight a team and toggle teams on and off. Must be legible on a phone.
 

@@ -74,7 +74,7 @@ Three tied teams each get exactly 1/3 high-score VP (tests must use exact fracti
 | AC-ST-03 | **[DECISION]** Teams tied on VP are ordered by H2H wins descending; H2H ties do not count as wins. |
 | AC-ST-04 | Teams still tied are ordered by total points for descending. |
 | AC-ST-05 | Teams tied on all three keys share the same rank number. |
-| AC-ST-06 | Division standings apply the same ranking rules, restricted to the division's teams; ranks are within the division. |
+| AC-ST-06 | Division standings group the same overall-ranked rows by division; the rank shown for each team is its overall league rank; no separate division-local ranking is computed. |
 | AC-ST-07 | Overall rank is computed across all teams in the league for the season. |
 | AC-ST-08 | **[DECISION]** Playoff weeks and incomplete weeks contribute no VP. |
 | AC-ST-09 | Season totals that should be equal compare as equal even when built from fractional parts (e.g. 1/3 + 1/3 + 1/3 equals 1). |
@@ -128,7 +128,7 @@ Three tied teams each get exactly 1/3 high-score VP (tests must use exact fracti
 | ID | Criterion |
 |---|---|
 | AC-FE-01 | A logged-in user sees the overall standings table with rank, team, owner, season VP, W-L-T, points for, and a VP column per week. |
-| AC-FE-02 | Division standings render as one table per division with ranks within the division. |
+| AC-FE-02 | Division standings render as one table per division; each row shows the team's overall league rank. |
 | AC-FE-03 | The cumulative VP chart shows one line per team with week on the x-axis and cumulative VP on the y-axis; values match the API. |
 | AC-FE-04 | Selecting a team highlights it in both the chart and the table; teams can be toggled in the chart. |
 | AC-FE-05 | The layout is usable at 360px, 768px, and 1280px widths: no horizontal scrolling of the page body, wide tables scroll within their container with the team column pinned (Playwright screenshot tests at those widths). |
