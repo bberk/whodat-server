@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     secret_key: str = "dev-insecure-change-me"
     env: str = "local"
     cors_origins: str = "http://localhost:5173"
+    league_credentials_key: str | None = None
 
 
 @lru_cache

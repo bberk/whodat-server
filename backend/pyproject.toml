@@ -12,6 +12,8 @@ dependencies = [
     "pydantic-settings>=2.6",
     "psycopg[binary]>=3.2",
     "espn-api>=0.34.0",  # ESPN fantasy sports API client for M3 provider adapter
+    "cryptography>=46",  # AES-256-GCM for league-credential encryption
+    "argon2-cffi>=25.1",  # Argon2id password hashing (AC-AU-02)
 ]
 
 [dependency-groups]
