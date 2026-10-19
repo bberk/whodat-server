@@ -13,7 +13,7 @@ from typing import TypeVar
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import League, Matchup, Owner, Score, Team
+from app.db.models import League, LeagueSeason, Matchup, Owner, Score, Team
 
 RowT = TypeVar("RowT")
 
@@ -67,6 +67,31 @@ class SyncRepository:
         )
         if row is None:
             row = League(provider=provider, external_id=external_id, **values)
+            self._session.add(row)
+            self._session.flush()
+            return UpsertResult(row, True)
+
+        changed = self._assign_changed(row, values)
+        if changed:
+            self._session.flush()
+        return UpsertResult(row, changed)
+
+    def upsert_league_season(
+        self, league_id: int, season: int, metadata: Mapping[str, object]
+    ) -> UpsertResult[LeagueSeason]:
+        """Insert or update one league season's settings by its league id and season.
+
+        Settings are scoped to the single season, so refreshing one season leaves every other
+        season's stored settings untouched.
+        """
+        values = {"league_season_metadata": dict(metadata)}
+        row = self._session.scalar(
+            select(LeagueSeason).where(
+                LeagueSeason.league_id == league_id, LeagueSeason.season == season
+            )
+        )
+        if row is None:
+            row = LeagueSeason(league_id=league_id, season=season, **values)
             self._session.add(row)
             self._session.flush()
             return UpsertResult(row, True)
@@ -220,6 +245,24 @@ class SyncRepository:
         """Return a league by its natural key, or None if it is not stored."""
         return self._session.scalar(
             select(League).where(League.provider == provider, League.external_id == external_id)
+        )
+
+    def get_league_season(self, league_id: int, season: int) -> LeagueSeason | None:
+        """Return one league season's settings, or None if that season is not stored."""
+        return self._session.scalar(
+            select(LeagueSeason).where(
+                LeagueSeason.league_id == league_id, LeagueSeason.season == season
+            )
+        )
+
+    def list_league_seasons(self, league_id: int) -> list[LeagueSeason]:
+        """Return every stored season for a league in ascending season order."""
+        return list(
+            self._session.scalars(
+                select(LeagueSeason)
+                .where(LeagueSeason.league_id == league_id)
+                .order_by(LeagueSeason.season)
+            ).all()
         )
 
     def get_owner(self, league_id: int, external_id: str) -> Owner | None:
