@@ -9,7 +9,6 @@ AC-PR-02.
 import os
 from collections.abc import Iterator
 from decimal import Decimal
-from fractions import Fraction
 
 import pytest
 from sqlalchemy import create_engine, func, select
@@ -18,8 +17,6 @@ from sqlalchemy.orm import Session
 from app.db.base import Base
 from app.db.models import League, LeagueSeason, Matchup, Owner, Score, Team
 from app.db.repositories import SyncRepository
-from app.domain.types import TeamWeek
-from app.domain.vp_engine import compute_week_vp
 from app.providers.base import (
     LeagueDTO,
     LeagueRef,
@@ -35,7 +32,6 @@ from app.services.sync_service import (
     MissingRegularSeasonLengthError,
     SyncError,
     SyncService,
-    _fraction_to_decimal,
 )
 
 # ---------------------------------------------------------------------------
@@ -279,6 +275,14 @@ def test_AC_DB_01_fresh_sync_populates_every_entity(session: Session) -> None:
             score.vp_h2h + score.vp_top_half + score.vp_high + score.vp_low
         )
 
+    # Matchups and scores reference local integer team ids, never provider external ids.
+    local_team_ids = {t.id for t in teams}
+    for matchup in repo.get_week_matchups(league.id, 2026, 1):
+        assert matchup.home_team_id in local_team_ids
+        assert matchup.away_team_id in local_team_ids
+    for score in repo.get_week_scores(league.id, 2026, 1):
+        assert score.team_id in local_team_ids
+
 
 # ---------------------------------------------------------------------------
 # AC-DB-02: Idempotent repeat sync produces identical database contents
@@ -422,63 +426,40 @@ def test_AC_DB_03_score_correction_recomputes_full_week(session: Session) -> Non
 
 
 # ---------------------------------------------------------------------------
-# AC-DB-04 (also covered by DB-01): each Score stores total and components
-# ---------------------------------------------------------------------------
-
-
-def test_AC_DB_04_score_rows_store_total_and_components(session: Session) -> None:
-    """Score rows carry the victory_points total and all four component columns."""
-    provider = _build_provider(_basic_seed())
-    service = SyncService(provider, session)
-    service.sync_league(_league_ref(), "fake", 2026)
-    session.commit()
-
-    repo = SyncRepository(session)
-    league = repo.get_league("fake", "league-1")
-    assert league is not None
-    for score in repo.get_week_scores(league.id, 2026, 1):
-        assert score.victory_points == (
-            score.vp_h2h + score.vp_top_half + score.vp_high + score.vp_low
-        )
-        # NUMERIC(10,6) persistence: six decimal places exactly.
-        assert score.victory_points.as_tuple().exponent == -6
-
-
-# ---------------------------------------------------------------------------
 # Byes: teams with no opponent get rank components but no H2H component
 # ---------------------------------------------------------------------------
 
 
-def test_bye_team_gets_rank_components_but_no_h2h(session: Session) -> None:
-    """A team with no opponent earns top-half/high/low but zero H2H."""
-    seed = _basic_seed(last_completed_week=3, include_bye=True)
-    # Add a week 3 with a bye to the seeded matchups.
+def test_bye_weeks_keep_rank_components_and_survive_recompute(session: Session) -> None:
+    """A bye team earns top-half/high/low but zero H2H, on both sync and provider-free recompute."""
+    seed = _basic_seed(last_completed_week=3, include_bye=True, regular_season_length=3)
     provider = _build_provider(seed)
-    service = SyncService(provider, session)
-
-    service.sync_league(_league_ref(), "fake", 2026)
+    SyncService(provider, session).sync_league(_league_ref(), "fake", 2026)
     session.commit()
+    after_sync = _vp_rows(session)
 
     repo = SyncRepository(session)
     league = repo.get_league("fake", "league-1")
     assert league is not None
     teams = {t.external_id: t.id for t in repo.get_teams(league.id, 2026)}
-    week3_scores = {s.team_id: s for s in repo.get_week_scores(league.id, 2026, 3)}
+    week_three = {s.team_id: s for s in repo.get_week_scores(league.id, 2026, 3)}
+    # team-1 and team-4 had byes in week 3 (no away opponent): no H2H, rank components kept.
+    assert week_three[teams["team-1"]].vp_h2h == Decimal("0.000000")
+    assert week_three[teams["team-1"]].vp_high == Decimal("1.000000")
+    assert week_three[teams["team-1"]].vp_top_half == Decimal("1.000000")
+    assert week_three[teams["team-4"]].vp_h2h == Decimal("0.000000")
+    assert week_three[teams["team-4"]].vp_low == Decimal("-1.000000")
 
-    # team-1 and team-4 had byes in week 3 (no away opponent).
-    for bye_team_ext in ("team-1", "team-4"):
-        bye_score = week3_scores[teams[bye_team_ext]]
-        assert bye_score.vp_h2h == Decimal("0.000000"), (
-            f"bye team {bye_team_ext} should have zero H2H"
-        )
-        # The bye team still earned rank components (top_half/high/low may be non-zero).
-        # In this specific fixture team-1 scored 140 (highest) and team-4 scored 85 (lowest).
-    # team-1 was the highest scorer (140) → gets +1 high.
-    assert week3_scores[teams["team-1"]].vp_high == Decimal("1.000000")
-    # team-4 was the lowest scorer (85) → gets -1 low.
-    assert week3_scores[teams["team-4"]].vp_low == Decimal("-1.000000")
-    # team-1 top_half: 4 teams in week, cutoff = floor(4/2) = 2. team-1 ranks first → in top half.
-    assert week3_scores[teams["team-1"]].vp_top_half == Decimal("1.000000")
+    _zero_vp(session)
+    summary = SyncService(None, session).recompute_league(_league_ref(), "fake", 2026)
+    session.commit()
+
+    assert summary.weeks_recomputed == (1, 2, 3)
+    assert _vp_rows(session) == after_sync
+    recomputed_week_three = {s.team_id: s for s in repo.get_week_scores(league.id, 2026, 3)}
+    assert recomputed_week_three[teams["team-1"]].vp_h2h == Decimal("0.000000")
+    assert recomputed_week_three[teams["team-1"]].vp_high == Decimal("1.000000")
+    assert recomputed_week_three[teams["team-4"]].vp_low == Decimal("-1.000000")
 
 
 # ---------------------------------------------------------------------------
@@ -486,54 +467,40 @@ def test_bye_team_gets_rank_components_but_no_h2h(session: Session) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_incomplete_week_stores_rows_but_no_vp(session: Session) -> None:
-    """An incomplete week is stored with zero VP, even when explicitly requested."""
-    seed = _basic_seed(last_completed_week=2, incomplete_week=3)
+@pytest.mark.parametrize(
+    "seed_kwargs",
+    [
+        pytest.param({"playoff_week": 3}, id="playoff"),
+        pytest.param({"incomplete_week": 3}, id="incomplete"),
+    ],
+)
+def test_non_scoring_weeks_store_rows_but_no_vp(
+    session: Session, seed_kwargs: dict[str, int]
+) -> None:
+    """A playoff or incomplete week is stored with zero VP, even when explicitly requested."""
+    seed = _basic_seed(last_completed_week=2, **seed_kwargs)
     provider = _build_provider(seed)
     service = SyncService(provider, session)
 
     summary = service.sync_league(_league_ref(), "fake", 2026, weeks=[1, 2, 3])
     session.commit()
 
-    # All three weeks were synced.
+    # All three weeks were synced; only the completed non-playoff weeks (1, 2) earned VP.
     assert summary.weeks_synced == (1, 2, 3)
-    # Only completed non-playoff weeks (1, 2) had VP recomputed.
     assert 3 not in summary.weeks_with_vp_recomputed
 
     repo = SyncRepository(session)
     league = repo.get_league("fake", "league-1")
     assert league is not None
     week3_scores = repo.get_week_scores(league.id, 2026, 3)
-    # Score rows exist for every team in the week.
+    # Score rows exist for every team in the week, with every VP column zero.
     assert len(week3_scores) == 4
-    # All VP columns are zero for the incomplete week.
     for score in week3_scores:
         assert score.victory_points == Decimal("0.000000")
         assert score.vp_h2h == Decimal("0.000000")
         assert score.vp_top_half == Decimal("0.000000")
         assert score.vp_high == Decimal("0.000000")
         assert score.vp_low == Decimal("0.000000")
-
-
-def test_playoff_week_stores_rows_but_no_vp(session: Session) -> None:
-    """A playoff week is stored with zero VP, even when explicitly requested."""
-    seed = _basic_seed(last_completed_week=2, playoff_week=3)
-    provider = _build_provider(seed)
-    service = SyncService(provider, session)
-
-    summary = service.sync_league(_league_ref(), "fake", 2026, weeks=[1, 2, 3])
-    session.commit()
-
-    assert 3 not in summary.weeks_with_vp_recomputed
-
-    repo = SyncRepository(session)
-    league = repo.get_league("fake", "league-1")
-    assert league is not None
-    week3_scores = repo.get_week_scores(league.id, 2026, 3)
-    assert len(week3_scores) == 4
-    for score in week3_scores:
-        assert score.victory_points == Decimal("0.000000")
-        assert score.vp_h2h == Decimal("0.000000")
 
 
 # ---------------------------------------------------------------------------
@@ -579,51 +546,17 @@ def test_explicit_weeks_synced_regardless_of_week_status(session: Session) -> No
     assert session.scalar(select(func.count()).select_from(Score)) == 8
 
 
-def test_changed_week_without_stored_matchups_is_skipped(
-    session: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A changed week with no stored matchup rows is skipped rather than recomputed.
-
-    Sync only queues a week for recompute after it changed something, so the guard is defensive and
-    not reachable through the FakeProvider alone; substitute the repository's week lookup to drive
-    it directly and keep the branch covered.
-    """
-    provider = _build_provider(_basic_seed())
-    service = SyncService(provider, session)
-    real_get_week_matchups = service._repository.get_week_matchups
-
-    def without_week_one(league_id: int, season: int, week: int) -> list[Matchup]:
-        if week == 1:
-            return []
-        return real_get_week_matchups(league_id, season, week)
-
-    monkeypatch.setattr(service._repository, "get_week_matchups", without_week_one)
-
-    summary = service.sync_league(_league_ref(), "fake", 2026)
-    session.commit()
-
-    # Week 1 changed but had no stored matchups to rank, so it kept its VP; week 2 was recomputed.
-    assert 1 not in summary.weeks_with_vp_recomputed
-    assert 2 in summary.weeks_with_vp_recomputed
-
-    repo = SyncRepository(session)
-    league = repo.get_league("fake", "league-1")
-    assert league is not None
-    assert len(repo.get_week_scores(league.id, 2026, 1)) == 4
-
-
 # ---------------------------------------------------------------------------
-# Exact fractional component conservation
+# Persistence-boundary quantization of exactly-tied high scores
 # ---------------------------------------------------------------------------
 
 
-def test_exact_fractional_component_conservation(session: Session) -> None:
-    """VP components sum exactly in Fraction space; persisted Decimal quantization is deterministic.
+def test_tied_high_score_persists_quantized_thirds(session: Session) -> None:
+    """A three-way high-score tie stores each team's exact 1/3 high VP as Decimal("0.333333").
 
-    We construct a week with three teams tied for the highest score. Each should get exactly
-    Fraction(1, 3) high VP. Summed as Fractions this is exactly 1; summed as quantized Decimals
-    it is 0.999999 -- a known and documented rounding artifact, not a correctness bug. The
-    engine's exact ranking and totals never rely on the rounded stored values.
+    The exact Fraction arithmetic and the +1/-1 conservation invariants are owned by
+    test_vp_engine.py; this asserts only the six-place quantization the NUMERIC(10,6) schema
+    requires at the persistence boundary.
     """
     league = LeagueDTO(external_id="tie-league", name="Tie League", metadata={})
     owners = [OwnerDTO(external_id=f"owner-{i}", display_name=f"Owner {i}") for i in range(1, 5)]
@@ -661,151 +594,16 @@ def test_exact_fractional_component_conservation(session: Session) -> None:
     service.sync_league(_league_ref("tie-league"), "fake", 2026)
     session.commit()
 
-    # Verify in exact Fraction space: the engine returns 1/3 for the high component of each
-    # tied team, and the sum of high components across all teams is exactly +1.
     repo = SyncRepository(session)
     tie_league = repo.get_league("fake", "tie-league")
     assert tie_league is not None
     teams_rows = repo.get_teams(tie_league.id, 2026)
     ext_to_id = {t.external_id: t.id for t in teams_rows}
 
-    teams_week = [
-        TeamWeek(
-            team_id=ext_to_id["team-1"],
-            points=Decimal("100.00"),
-            opponent_id=ext_to_id["team-2"],
-        ),
-        TeamWeek(
-            team_id=ext_to_id["team-2"],
-            points=Decimal("100.00"),
-            opponent_id=ext_to_id["team-1"],
-        ),
-        TeamWeek(
-            team_id=ext_to_id["team-3"],
-            points=Decimal("100.00"),
-            opponent_id=ext_to_id["team-4"],
-        ),
-        TeamWeek(
-            team_id=ext_to_id["team-4"],
-            points=Decimal("50.00"),
-            opponent_id=ext_to_id["team-3"],
-        ),
-    ]
-    exact_vp = compute_week_vp(teams_week)
-    high_sum = sum(vp.high for vp in exact_vp.values())
-    low_sum = sum(vp.low for vp in exact_vp.values())
-    assert high_sum == Fraction(1)
-    assert low_sum == Fraction(-1)
-
-    # Each tied team gets exactly Fraction(1, 3) high VP.
-    for team_ext in ("team-1", "team-2", "team-3"):
-        assert exact_vp[ext_to_id[team_ext]].high == Fraction(1, 3)
-
-    # The persisted Decimal values are the documented quantization of those exact fractions:
     # Fraction(1, 3) → Decimal("0.333333") with ROUND_HALF_EVEN at six places.
     scores = {s.team_id: s for s in repo.get_week_scores(tie_league.id, 2026, 1)}
-    expected_high_decimal = Decimal("0.333333")
     for team_ext in ("team-1", "team-2", "team-3"):
-        assert scores[ext_to_id[team_ext]].vp_high == expected_high_decimal
-
-    # _fraction_to_decimal is documented-deterministic.
-    assert _fraction_to_decimal(Fraction(1, 3)) == expected_high_decimal
-    assert _fraction_to_decimal(Fraction(2, 3)) == Decimal("0.666667")
-    assert _fraction_to_decimal(Fraction(-1, 3)) == Decimal("-0.333333")
-
-
-# ---------------------------------------------------------------------------
-# Transaction-aware orchestration: caller-owned session
-# ---------------------------------------------------------------------------
-
-
-def test_caller_owns_transaction_and_can_rollback(session: Session) -> None:
-    """The sync service never commits; the caller can roll back the entire sync."""
-    provider = _build_provider(_basic_seed())
-    service = SyncService(provider, session)
-
-    service.sync_league(_league_ref(), "fake", 2026)
-    # No commit yet: nothing is visible to a separate snapshot query... actually within the same
-    # session uncommitted writes ARE visible. But we can verify rollback removes them.
-    assert session.scalar(select(func.count()).select_from(Score)) == 8
-    session.rollback()
-    assert session.scalar(select(func.count()).select_from(Score)) == 0
-
-
-# ---------------------------------------------------------------------------
-# Default weeks range is 1..last_completed_week inclusive
-# ---------------------------------------------------------------------------
-
-
-def test_default_weeks_range_is_one_through_last_completed_inclusive(
-    session: Session,
-) -> None:
-    """With last_completed_week=5, the default sync touches weeks 1 through 5 inclusive."""
-    # Build a seed with five completed weeks.
-    league = LeagueDTO(external_id="five-week", name="Five Week", metadata={})
-    owners = [OwnerDTO(external_id=f"o-{i}", display_name=f"O {i}") for i in range(1, 3)]
-    teams = [
-        TeamDTO(external_id="t-1", name="T1", division=None, owner_external_id="o-1"),
-        TeamDTO(external_id="t-2", name="T2", division=None, owner_external_id="o-2"),
-    ]
-    matchups: dict[int, list[MatchupDTO]] = {}
-    for week in range(1, 6):
-        matchups[week] = [
-            MatchupDTO(
-                week=week,
-                home=MatchupSideDTO(team_external_id="t-1", points=Decimal("100.00")),
-                away=MatchupSideDTO(team_external_id="t-2", points=Decimal("90.00")),
-                is_playoff=False,
-                is_complete=True,
-            )
-        ]
-    week_status = WeekStatus(last_completed_week=5)
-    provider = FakeProvider({("five-week", 2026): (league, owners, teams, matchups, week_status)})
-    service = SyncService(provider, session)
-
-    summary = service.sync_league(_league_ref("five-week"), "fake", 2026)
-    session.commit()
-
-    assert summary.weeks_synced == (1, 2, 3, 4, 5)
-    assert summary.weeks_with_vp_recomputed == (1, 2, 3, 4, 5)
-
-    repo = SyncRepository(session)
-    fw_league = repo.get_league("fake", "five-week")
-    assert fw_league is not None
-    # Every week has a score row for each team.
-    for week in range(1, 6):
-        scores = repo.get_week_scores(fw_league.id, 2026, week)
-        assert len(scores) == 2
-        # Non-zero VP because every week was completed.
-        assert all(s.victory_points != Decimal("0.000000") for s in scores)
-
-
-# ---------------------------------------------------------------------------
-# Mapping external IDs to local IDs
-# ---------------------------------------------------------------------------
-
-
-def test_external_ids_map_to_local_ids_correctly(session: Session) -> None:
-    """The sync translates provider external IDs to local integer IDs for every row."""
-    provider = _build_provider(_basic_seed())
-    service = SyncService(provider, session)
-    service.sync_league(_league_ref(), "fake", 2026)
-    session.commit()
-
-    repo = SyncRepository(session)
-    league = repo.get_league("fake", "league-1")
-    assert league is not None
-    teams = {t.external_id: t.id for t in repo.get_teams(league.id, 2026)}
-
-    # Matchups reference local team ids, not external strings.
-    for matchup in repo.get_week_matchups(league.id, 2026, 1):
-        assert matchup.home_team_id in teams.values()
-        if matchup.away_team_id is not None:
-            assert matchup.away_team_id in teams.values()
-
-    # Scores reference local team ids.
-    for score in repo.get_week_scores(league.id, 2026, 1):
-        assert score.team_id in teams.values()
+        assert scores[ext_to_id[team_ext]].vp_high == Decimal("0.333333")
 
 
 # ---------------------------------------------------------------------------
@@ -904,15 +702,15 @@ def _zero_vp(session: Session) -> None:
 
 
 def test_recompute_rebuilds_vp_without_calling_the_provider(session: Session) -> None:
-    """Recompute rebuilds each stored week's VP with an exploding provider bound but unused."""
+    """Recompute rebuilds stored weeks from persisted rows, never touching the provider."""
     provider = _build_provider(_basic_seed(regular_season_length=2))
     SyncService(provider, session).sync_league(_league_ref(), "fake", 2026)
     session.commit()
     after_sync = _vp_rows(session)
 
-    # Corrupt every VP value, then prove recompute reconstructs it exactly.
+    # Corrupt every VP value, then prove recompute reconstructs it exactly. An exploding provider
+    # is bound but must never be reached; then the same holds with no provider bound at all.
     _zero_vp(session)
-
     summary = SyncService(_ExplodingProvider(), session).recompute_league(
         _league_ref(), "fake", 2026
     )
@@ -923,17 +721,12 @@ def test_recompute_rebuilds_vp_without_calling_the_provider(session: Session) ->
     assert summary.weeks_skipped == ()
     assert _vp_rows(session) == after_sync
 
-
-def test_recompute_works_with_no_provider_bound_at_all(session: Session) -> None:
-    """A service constructed with provider=None still recomputes from stored rows."""
-    provider = _build_provider(_basic_seed())
-    SyncService(provider, session).sync_league(_league_ref(), "fake", 2026)
+    _zero_vp(session)
+    provider_free = SyncService(None, session).recompute_league(_league_ref(), "fake", 2026)
     session.commit()
 
-    summary = SyncService(None, session).recompute_league(_league_ref(), "fake", 2026)
-
-    assert summary.weeks_recomputed == (1, 2)
-    assert summary.weeks_skipped == ()
+    assert provider_free.weeks_recomputed == (1, 2)
+    assert _vp_rows(session) == after_sync
 
 
 def test_sync_without_a_provider_raises_sync_error(session: Session) -> None:

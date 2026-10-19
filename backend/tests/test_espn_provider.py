@@ -12,6 +12,7 @@ import pytest
 
 from app.providers.base import LeagueRef
 from app.providers.espn import ESPNLeagueProvider
+from app.providers.espn.settings import ESPNSettings
 from tests.espn_fixtures import create_fake_league
 
 
@@ -76,8 +77,8 @@ class TestESPNLeagueProviderTeams:
 class TestESPNLeagueProviderMatchups:
     """Test fetch_matchups returns correct matchup data with exact Decimal points."""
 
-    def test_AC_PR_01_matchup_points_are_exact_decimals(self) -> None:
-        """Matchup points are Decimal with 2 decimal places, not floats."""
+    def test_AC_PR_01_matchup_points_are_exact_two_place_decimals(self) -> None:
+        """Matchup points are Decimals quantized to exactly 2 decimal places, not floats."""
         provider = ESPNLeagueProvider(
             league_factory=lambda *args, **kwargs: create_fake_league("league_basic.json")
         )
@@ -87,41 +88,26 @@ class TestESPNLeagueProviderMatchups:
 
         assert len(matchups) == 2
 
-        # First matchup: team 1 vs team 2
+        # First matchup: team 1 vs team 2. 120.5 becomes 120.50; 95.0 becomes 95.00.
         m1 = matchups[0]
         assert m1.week == 1
         assert m1.home.team_external_id == "1"
         assert m1.home.points == Decimal("120.50")
+        assert str(m1.home.points) == "120.50"
         assert m1.away is not None
         assert m1.away.team_external_id == "2"
         assert m1.away.points == Decimal("95.00")
+        assert str(m1.away.points) == "95.00"
         assert m1.is_playoff is False
         assert m1.is_complete is True
 
-        # Second matchup: team 3 vs team 4
+        # Second matchup: team 3 vs team 4.
         m2 = matchups[1]
         assert m2.home.team_external_id == "3"
         assert m2.home.points == Decimal("110.00")
         assert m2.away is not None
         assert m2.away.team_external_id == "4"
         assert m2.away.points == Decimal("100.00")
-
-    def test_AC_PR_01_decimal_quantization_preserves_precision(self) -> None:
-        """Float scores are quantized to exactly 2 decimal places."""
-        provider = ESPNLeagueProvider(
-            league_factory=lambda *args, **kwargs: create_fake_league("league_basic.json")
-        )
-        league_ref = LeagueRef(external_id="12345")
-
-        matchups = provider.fetch_matchups(league_ref, 2024, 1)
-
-        # 120.5 becomes 120.50 (2 decimal places)
-        assert matchups[0].home.points == Decimal("120.50")
-        assert str(matchups[0].home.points) == "120.50"
-
-        # 95.0 becomes 95.00
-        assert matchups[0].away.points == Decimal("95.00")
-        assert str(matchups[0].away.points) == "95.00"
 
 
 class TestESPNLeagueProviderByes:
@@ -320,71 +306,50 @@ class TestESPNLeagueProviderCredentials:
 
 
 class TestESPNSettingsNormalization:
-    """Test credential normalization handles .env formatting issues."""
+    """Credential normalization handles the common .env formatting mistakes."""
 
-    def test_normalization_strips_leading_trailing_whitespace(self) -> None:
-        """Whitespace around credentials is stripped."""
-        from app.providers.espn.settings import ESPNSettings
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            pytest.param("  ABC123  ", "ABC123", id="surrounding-whitespace"),
+            pytest.param("   ", "", id="whitespace-only"),
+            pytest.param("", "", id="empty"),
+        ],
+    )
+    def test_normalization_trims_whitespace(self, raw: str, expected: str) -> None:
+        """Leading/trailing whitespace is stripped; whitespace-only becomes empty."""
+        settings = ESPNSettings(espn_s2=raw, espn_swid=raw)
+        assert settings.espn_s2 == expected
+        assert settings.espn_swid == expected
 
-        settings = ESPNSettings(espn_s2="  ABC123  ", espn_swid="  {XYZ-456}  ")
-        assert settings.espn_s2 == "ABC123"
-        assert settings.espn_swid == "{XYZ-456}"
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            pytest.param('"ABC123"', "ABC123", id="double-quotes"),
+            pytest.param("'ABC123'", "ABC123", id="single-quotes"),
+            pytest.param('  "ABC123"  ', "ABC123", id="whitespace-then-quotes"),
+        ],
+    )
+    def test_normalization_strips_one_matching_quote_pair(self, raw: str, expected: str) -> None:
+        """One matching outer quote pair is removed, after whitespace is stripped."""
+        settings = ESPNSettings(espn_s2=raw, espn_swid=raw)
+        assert settings.espn_s2 == expected
+        assert settings.espn_swid == expected
 
-    def test_normalization_strips_matching_double_quotes(self) -> None:
-        """One matching pair of double quotes is stripped."""
-        from app.providers.espn.settings import ESPNSettings
-
-        settings = ESPNSettings(espn_s2='"ABC123"', espn_swid='"{XYZ-456}"')
-        assert settings.espn_s2 == "ABC123"
-        assert settings.espn_swid == "{XYZ-456}"
-
-    def test_normalization_strips_matching_single_quotes(self) -> None:
-        """One matching pair of single quotes is stripped."""
-        from app.providers.espn.settings import ESPNSettings
-
-        settings = ESPNSettings(espn_s2="'ABC123'", espn_swid="'{XYZ-456}'")
-        assert settings.espn_s2 == "ABC123"
-        assert settings.espn_swid == "{XYZ-456}"
-
-    def test_normalization_strips_whitespace_then_quotes(self) -> None:
-        """Whitespace is stripped first, then quotes."""
-        from app.providers.espn.settings import ESPNSettings
-
-        settings = ESPNSettings(espn_s2='  "ABC123"  ', espn_swid='  "{XYZ-456}"  ')
-        assert settings.espn_s2 == "ABC123"
-        assert settings.espn_swid == "{XYZ-456}"
-
-    def test_normalization_preserves_internal_quotes(self) -> None:
-        """Quotes inside the credential value are preserved."""
-        from app.providers.espn.settings import ESPNSettings
-
-        settings = ESPNSettings(espn_s2='ABC"123"DEF', espn_swid='{X"Y"Z}')
-        assert settings.espn_s2 == 'ABC"123"DEF'
-        assert settings.espn_swid == '{X"Y"Z}'
-
-    def test_normalization_preserves_mismatched_quotes(self) -> None:
-        """Mismatched quote pairs are not stripped."""
-        from app.providers.espn.settings import ESPNSettings
-
-        settings = ESPNSettings(espn_s2="\"ABC123'", espn_swid="'{XYZ-456}\"")
-        assert settings.espn_s2 == "\"ABC123'"
-        assert settings.espn_swid == "'{XYZ-456}\""
-
-    def test_normalization_handles_empty_strings(self) -> None:
-        """Empty strings remain empty."""
-        from app.providers.espn.settings import ESPNSettings
-
-        settings = ESPNSettings(espn_s2="", espn_swid="")
-        assert settings.espn_s2 == ""
-        assert settings.espn_swid == ""
-
-    def test_normalization_handles_whitespace_only(self) -> None:
-        """Whitespace-only strings become empty."""
-        from app.providers.espn.settings import ESPNSettings
-
-        settings = ESPNSettings(espn_s2="   ", espn_swid="   ")
-        assert settings.espn_s2 == ""
-        assert settings.espn_swid == ""
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            pytest.param('ABC"123"DEF', 'ABC"123"DEF', id="interior-quotes"),
+            pytest.param("\"ABC123'", "\"ABC123'", id="mismatched-quotes"),
+        ],
+    )
+    def test_normalization_preserves_interior_and_mismatched_quotes(
+        self, raw: str, expected: str
+    ) -> None:
+        """Interior quotes and unmatched outer quotes are preserved verbatim."""
+        settings = ESPNSettings(espn_s2=raw, espn_swid=raw)
+        assert settings.espn_s2 == expected
+        assert settings.espn_swid == expected
 
 
 class TestESPNLeagueProviderEdgeCases:

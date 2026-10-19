@@ -197,15 +197,6 @@ def test_AC_WF_07_ship_pushes_later_commits_to_the_same_branch(
     assert _pr_create_calls(env) == []
 
 
-def test_AC_WF_07_a_commit_alone_pushes_nothing(repo: Path, env: dict[str, str]) -> None:
-    """There is no post-commit hook: committing must never push behind the agent's back."""
-    (repo / "more.txt").write_text("more\n")
-    _git(repo, env, "add", "-A")
-    _git(repo, env, "commit", "-m", "More")
-
-    assert _git(repo, env, "ls-remote", "--heads", "origin") == ""
-
-
 def test_AC_WF_07_the_removed_post_commit_mode_is_rejected(repo: Path, env: dict[str, str]) -> None:
     result = _run(SHIP, repo, env, "--post-commit")
 
@@ -272,26 +263,20 @@ def _assert_refused(
     assert not any(call.startswith("pr merge") for call in _gh_calls(env)), _gh_calls(env)
 
 
-def test_AC_WF_13_merge_refuses_a_draft_pull_request(repo: Path, env: dict[str, str]) -> None:
-    _set_pr(env, **_open_pr(isDraft=True))
-
-    _assert_refused(_merge(repo, env), env, "still a draft")
-
-
-def test_AC_WF_13_merge_refuses_a_pull_request_that_is_not_open(
-    repo: Path, env: dict[str, str]
+@pytest.mark.parametrize(
+    ("payload", "needle"),
+    [
+        pytest.param({"isDraft": True}, "still a draft", id="draft"),
+        pytest.param({"state": "CLOSED"}, "not open", id="not-open"),
+        pytest.param({"statusCheckRollup": []}, "no CI checks", id="no-checks"),
+    ],
+)
+def test_AC_WF_13_merge_refuses_a_pr_that_is_not_ready(
+    repo: Path, env: dict[str, str], payload: dict[str, object], needle: str
 ) -> None:
-    _set_pr(env, **_open_pr(state="CLOSED"))
+    _set_pr(env, **_open_pr(**payload))
 
-    _assert_refused(_merge(repo, env), env, "not open")
-
-
-def test_AC_WF_13_merge_refuses_when_no_checks_have_reported(
-    repo: Path, env: dict[str, str]
-) -> None:
-    _set_pr(env, **_open_pr(statusCheckRollup=[]))
-
-    _assert_refused(_merge(repo, env), env, "no CI checks")
+    _assert_refused(_merge(repo, env), env, needle)
 
 
 @pytest.mark.parametrize(

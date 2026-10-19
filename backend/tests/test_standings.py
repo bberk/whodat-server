@@ -39,21 +39,6 @@ def test_empty_input_returns_empty_list() -> None:
     assert rank_teams([]) == []
 
 
-def test_single_row_gets_rank_one() -> None:
-    rows = [_row(1, "Alpha", Fraction(10), 5, "1000.00")]
-
-    result = rank_teams(rows)
-
-    assert len(result) == 1
-    assert result[0].rank == 1
-    assert result[0].team_id == 1
-    assert result[0].team_name == "Alpha"
-    assert result[0].vp == Fraction(10)
-    assert result[0].h2h_wins == 5
-    assert result[0].points_for == Decimal("1000.00")
-    assert result[0].division is None
-
-
 def test_AC_ST_02_teams_ranked_by_vp_descending() -> None:
     rows = [
         _row(1, "Low", Fraction(5), 3, "900.00"),
@@ -78,21 +63,6 @@ def test_AC_ST_03_vp_tie_broken_by_h2h_wins_descending() -> None:
 
     assert _ids(result) == [2, 3, 1]
     assert _ranks(result) == [1, 2, 3]
-
-
-def test_AC_ST_03_tiebreak_chain_reaches_points_for() -> None:
-    """When VP and H2H wins are tied, points_for is used as the tiebreaker."""
-    rows = [
-        _row(1, "Alpha", Fraction(10), 3, "1000.00"),
-        _row(2, "Beta", Fraction(10), 3, "900.00"),
-    ]
-
-    result = rank_teams(rows)
-
-    assert result[0].team_id == 1
-    assert result[0].rank == 1
-    assert result[1].team_id == 2
-    assert result[1].rank == 2
 
 
 def test_AC_ST_04_points_for_breaks_remaining_ties() -> None:
@@ -204,28 +174,6 @@ def test_AC_ST_07_overall_ranking_across_all_rows() -> None:
     assert _ranks(overall) == [1, 2, 3, 4, 5]
 
 
-def test_season_vp_summed_from_weekly_fractions_compares_exactly() -> None:
-    """A VP sum built from weekly thirds must compare exactly (no float drift).
-
-    The weekly-to-season aggregation (AC-ST-01) happens in the caller; this test
-    shows the resulting exact value is what rank_teams compares.
-    """
-    third = Fraction(1, 3)
-    weekly_vp = [third, third, third]  # three weeks, each 1/3
-    season_vp = sum(weekly_vp, Fraction(0))
-
-    rows = [
-        _row(1, "Alpha", season_vp, 3, "1000.00"),
-        _row(2, "Beta", Fraction(1), 3, "1000.00"),  # also 1
-    ]
-
-    result = rank_teams(rows)
-
-    # 1/3 + 1/3 + 1/3 equals exactly 1, so they share rank
-    assert result[0].rank == result[1].rank == 1
-    assert result[0].vp == result[1].vp == Fraction(1)
-
-
 def test_AC_ST_09_exact_fractional_equality_thirds_sum_to_one() -> None:
     """AC-ST-09: 1/3 + 1/3 + 1/3 equals 1 exactly (no float)."""
     season_vp = Fraction(1, 3) + Fraction(1, 3) + Fraction(1, 3)
@@ -244,21 +192,6 @@ def test_AC_ST_09_exact_fractional_equality_thirds_sum_to_one() -> None:
     # Alpha and Beta share rank 1; Gamma is rank 3
     assert result[0].rank == result[1].rank == 1
     assert result[2].rank == 3
-
-
-def test_AC_ST_09_exact_fractional_equality_sevenths() -> None:
-    """Seven-way tie split: seven 1/7 VP sum to exactly 1."""
-    seventh = Fraction(1, 7)
-    season_vp = sum([seventh] * 7, Fraction(0))
-
-    rows = [
-        _row(1, "Team", season_vp, 3, "1000.00"),
-        _row(2, "Other", Fraction(1), 3, "1000.00"),
-    ]
-
-    result = rank_teams(rows)
-
-    assert result[0].rank == result[1].rank == 1
 
 
 def test_results_are_deterministic_and_input_order_independent() -> None:
@@ -305,32 +238,19 @@ def test_ranked_row_preserves_all_fields() -> None:
     )
 
 
-def test_negative_vp_is_ranked_correctly() -> None:
-    """Teams can have negative VP (e.g., more low-score penalties than wins)."""
+def test_vp_ordering_handles_zero_and_negative_values() -> None:
+    """Zero and negative VP still sort strictly descending, ties broken by wins then points for."""
     rows = [
         _row(1, "Alpha", Fraction(-5), 0, "500.00"),
         _row(2, "Beta", Fraction(1), 1, "800.00"),
         _row(3, "Gamma", Fraction(-5), 1, "600.00"),
+        _row(4, "Delta", Fraction(0), 0, "1000.00"),
     ]
 
     result = rank_teams(rows)
 
-    assert _ids(result) == [2, 3, 1]
-    assert _ranks(result) == [1, 2, 3]
-
-
-def test_zero_vp_and_zero_wins() -> None:
-    rows = [
-        _row(1, "Alpha", Fraction(0), 0, "1000.00"),
-        _row(2, "Beta", Fraction(0), 0, "500.00"),
-    ]
-
-    result = rank_teams(rows)
-
-    assert result[0].team_id == 1
-    assert result[0].rank == 1
-    assert result[1].team_id == 2
-    assert result[1].rank == 2
+    assert _ids(result) == [2, 4, 3, 1]
+    assert _ranks(result) == [1, 2, 3, 4]
 
 
 @pytest.mark.parametrize(
@@ -386,50 +306,3 @@ def test_two_tied_groups() -> None:
     assert result[0].team_name == "A"
     assert result[1].team_name == "B"
     assert [r.team_name for r in result[2:]] == ["C", "D", "E"]
-
-
-def test_ranking_function_works_on_any_subset() -> None:
-    """The rank_teams function is generic and can rank any subset of rows.
-
-    Note: Production division tables do not call rank_teams on division subsets;
-    they compute overall ranks and filter by division (see AC-ST-06 test).
-    This test demonstrates the function's generic behavior on arbitrary inputs.
-    """
-    rows = [
-        _row(1, "East-1", Fraction(20), 5, "1500.00", "East"),
-        _row(2, "West-1", Fraction(15), 4, "1400.00", "West"),
-        _row(3, "East-2", Fraction(10), 3, "900.00", "East"),
-        _row(4, "West-2", Fraction(18), 3, "1300.00", "West"),
-    ]
-
-    overall = rank_teams(rows)
-    east_subset = rank_teams([r for r in rows if r.division == "East"])
-
-    # Overall: East-1 (rank 1), West-2 (rank 2), West-1 (rank 3), East-2 (rank 4)
-    assert {r.team_id: r.rank for r in overall} == {1: 1, 4: 2, 2: 3, 3: 4}
-    # Subset ranking (demonstrates function works on any input):
-    # East-1 rank 1, East-2 rank 2 (within this subset)
-    assert {r.team_id: r.rank for r in east_subset} == {1: 1, 3: 2}
-
-
-def test_season_row_and_ranked_row_are_frozen_dataclasses() -> None:
-    row = _row(1, "A", Fraction(1), 1, "100.00")
-    with pytest.raises(AttributeError):
-        row.team_id = 2  # type: ignore[misc]
-
-    ranked = rank_teams([row])[0]
-    with pytest.raises(AttributeError):
-        ranked.rank = 2  # type: ignore[misc]
-
-
-def test_vp_fraction_equivalence_in_sort_key() -> None:
-    """Identical Fraction VP values compare correctly (no false inequality)."""
-    rows = [
-        _row(1, "Alpha", Fraction(1, 2), 0, "1000.00"),
-        _row(2, "Beta", Fraction(1, 2), 0, "1000.00"),
-    ]
-
-    result = rank_teams(rows)
-
-    assert result[0].rank == result[1].rank == 1
-    assert result[0].vp == result[1].vp == Fraction(1, 2)

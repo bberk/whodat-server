@@ -1,39 +1,53 @@
-from sqlalchemy import JSON, Numeric, UniqueConstraint
-from sqlalchemy.dialects import postgresql, sqlite
-from sqlalchemy.schema import CreateTable
+"""The single model-metadata schema contract test (AC-DB-01, AC-DB-04).
 
-from app.db.models import AppUser, League, LeagueSeason, Matchup, Owner, Score, Team
+Columns, natural keys, foreign keys, indexes, and the numeric/JSON precision of the Score and
+league-season columns are asserted once here against SQLAlchemy metadata. Migrated DDL is asserted
+in test_migrations.py, and repository behaviour lives in test_repositories.py and
+test_auth_schema.py, so neither repeats these shapes.
+"""
 
+from sqlalchemy import JSON, Index, Numeric, Text, UniqueConstraint
 
-def test_AC_DB_01_schema_defines_normalized_league_entities() -> None:
-    """The schema contains each league, owner, team, matchup, score, and user entity."""
-    expected = {"league", "owner", "team", "matchup", "score", "app_user", "league_season"}
-    assert {
-        model.__tablename__
-        for model in (League, Owner, Team, Matchup, Score, AppUser, LeagueSeason)
-    } == expected
+from app.db.models import (
+    AppUser,
+    Invite,
+    League,
+    LeagueSeason,
+    Matchup,
+    Owner,
+    Score,
+    Team,
+    UserLeague,
+)
 
-    assert {column.name for column in League.__table__.columns} >= {
+MODELS = (League, LeagueSeason, Owner, Team, Matchup, Score, AppUser, Invite, UserLeague)
+
+EXPECTED_COLUMNS = {
+    "league": {
+        "id",
         "provider",
         "external_id",
         "name",
         "metadata",
         "provider_config_ref",
-    }
-    assert {column.name for column in Owner.__table__.columns} >= {
-        "league_id",
-        "external_id",
-        "display_name",
-    }
-    assert {column.name for column in Team.__table__.columns} >= {
+        "created_at",
+        "updated_at",
+    },
+    "league_season": {"id", "league_id", "season", "metadata", "created_at", "updated_at"},
+    "owner": {"id", "league_id", "external_id", "display_name", "created_at", "updated_at"},
+    "team": {
+        "id",
         "league_id",
         "season",
         "external_id",
         "name",
         "division",
         "owner_id",
-    }
-    assert {column.name for column in Matchup.__table__.columns} >= {
+        "created_at",
+        "updated_at",
+    },
+    "matchup": {
+        "id",
         "league_id",
         "season",
         "week",
@@ -41,116 +55,155 @@ def test_AC_DB_01_schema_defines_normalized_league_entities() -> None:
         "away_team_id",
         "is_playoff",
         "is_complete",
-    }
-    assert {column.name for column in Score.__table__.columns} >= {
+        "created_at",
+        "updated_at",
+    },
+    "score": {
+        "id",
         "team_id",
         "league_id",
         "season",
         "week",
         "points",
         "victory_points",
-    }
-    assert {column.name for column in AppUser.__table__.columns} >= {
-        "email",
-        "password_hash",
-        "role",
+        "vp_h2h",
+        "vp_top_half",
+        "vp_high",
+        "vp_low",
         "created_at",
         "updated_at",
-    }
-    # Owner associations moved to user_league; accounts carry no owner link.
-    assert "owner_id" not in {column.name for column in AppUser.__table__.columns}
-    assert not AppUser.__table__.foreign_keys
-    assert {column.name for column in LeagueSeason.__table__.columns} >= {
+    },
+    "app_user": {"id", "email", "password_hash", "role", "created_at", "updated_at"},
+    "invite": {
+        "id",
         "league_id",
-        "season",
-        "metadata",
+        "code_hash",
+        "role",
+        "expires_at",
         "created_at",
         "updated_at",
-    }
-    # Per-season settings carry no name: league.name stays the single league name.
-    assert "name" not in {column.name for column in LeagueSeason.__table__.columns}
+    },
+    "user_league": {
+        "id",
+        "user_id",
+        "league_id",
+        "owner_id",
+        "espn_s2_encrypted",
+        "espn_swid_encrypted",
+        "created_at",
+        "updated_at",
+    },
+}
+
+EXPECTED_UNIQUE_KEYS = {
+    "league": {("uq_league_provider_external_id", ("provider", "external_id"))},
+    "league_season": {("uq_league_season_league_season", ("league_id", "season"))},
+    "owner": {("uq_owner_league_external_id", ("league_id", "external_id"))},
+    "team": {("uq_team_league_season_external_id", ("league_id", "season", "external_id"))},
+    "matchup": {
+        ("uq_matchup_league_season_week_home", ("league_id", "season", "week", "home_team_id"))
+    },
+    "score": {("uq_score_team_season_week", ("team_id", "season", "week"))},
+    "app_user": {("uq_app_user_email", ("email",))},
+    "invite": {("uq_invite_code_hash", ("code_hash",))},
+    "user_league": {("uq_user_league_user_id_league_id", ("user_id", "league_id"))},
+}
+
+EXPECTED_FOREIGN_KEYS = {
+    "league": set(),
+    "league_season": {("fk_league_season_league_id_league", ("league_id", "league.id"))},
+    "owner": {("fk_owner_league_id_league", ("league_id", "league.id"))},
+    "team": {
+        ("fk_team_league_id_league", ("league_id", "league.id")),
+        ("fk_team_owner_id_owner", ("owner_id", "owner.id")),
+    },
+    "matchup": {
+        ("fk_matchup_league_id_league", ("league_id", "league.id")),
+        ("fk_matchup_home_team_id_team", ("home_team_id", "team.id")),
+        ("fk_matchup_away_team_id_team", ("away_team_id", "team.id")),
+    },
+    "score": {
+        ("fk_score_team_id_team", ("team_id", "team.id")),
+        ("fk_score_league_id_league", ("league_id", "league.id")),
+    },
+    "app_user": set(),
+    "invite": {("fk_invite_league_id_league", ("league_id", "league.id"))},
+    "user_league": {
+        ("fk_user_league_user_id_app_user", ("user_id", "app_user.id")),
+        ("fk_user_league_league_id_league", ("league_id", "league.id")),
+        ("fk_user_league_owner_id_owner", ("owner_id", "owner.id")),
+    },
+}
+
+EXPECTED_INDEXES = {
+    "league": set(),
+    "league_season": set(),
+    "owner": set(),
+    "team": set(),
+    "matchup": set(),
+    "score": set(),
+    "app_user": set(),
+    "invite": {("ix_invite_league_id", ("league_id",))},
+    "user_league": {("ix_user_league_league_id", ("league_id",))},
+}
 
 
-def test_AC_DB_04_score_persists_total_and_each_vp_component() -> None:
-    """Score uses the specified precision for points, total VP, and all components."""
-    columns = Score.__table__.c
-    assert isinstance(League.__table__.c.metadata.type, JSON)
-    assert isinstance(columns.points.type, Numeric)
-    assert (columns.points.type.precision, columns.points.type.scale) == (8, 2)
+def test_AC_DB_01_model_metadata_matches_the_schema_contract() -> None:
+    """Every table exposes exactly its contracted columns, keys, indexes, and value types."""
+    assert {model.__tablename__ for model in MODELS} == set(EXPECTED_COLUMNS)
 
-    for name in ("victory_points", "vp_h2h", "vp_top_half", "vp_high", "vp_low"):
-        column_type = columns[name].type
-        assert isinstance(column_type, Numeric)
-        assert (column_type.precision, column_type.scale) == (10, 6)
-
-
-def test_AC_DB_05_schema_ddl_compiles_for_sqlite_and_postgresql() -> None:
-    """All table DDL uses types supported by both configured database engines."""
-    for model in (League, Owner, Team, Matchup, Score, AppUser, LeagueSeason):
+    for model in MODELS:
         table = model.__table__
-        sqlite_ddl = str(CreateTable(table).compile(dialect=sqlite.dialect()))
-        postgres_ddl = str(CreateTable(table).compile(dialect=postgresql.dialect()))
-        assert table.name in sqlite_ddl
-        assert table.name in postgres_ddl
+        name = model.__tablename__
+        column_names = {column.name for column in table.columns}
+        assert column_names == EXPECTED_COLUMNS[name], name
 
-
-def test_schema_natural_keys_and_foreign_keys_match_contract() -> None:
-    """The schema enforces the declared natural keys and entity references."""
-    expected_unique_keys = {
-        "league": {("provider", "external_id")},
-        "owner": {("league_id", "external_id")},
-        "team": {("league_id", "season", "external_id")},
-        "matchup": {("league_id", "season", "week", "home_team_id")},
-        "score": {("team_id", "season", "week")},
-        "app_user": {("email",)},
-        "league_season": {("league_id", "season")},
-    }
-    models = (League, Owner, Team, Matchup, Score, AppUser, LeagueSeason)
-    for model in models:
         unique_keys = {
-            tuple(column.name for column in constraint.columns)
-            for constraint in model.__table__.constraints
+            (constraint.name, tuple(column.name for column in constraint.columns))
+            for constraint in table.constraints
             if isinstance(constraint, UniqueConstraint)
         }
-        assert unique_keys == expected_unique_keys[model.__tablename__]
+        assert unique_keys == EXPECTED_UNIQUE_KEYS[name], name
 
-    expected_foreign_keys = {
-        "owner": {("league_id", "league.id")},
-        "team": {("league_id", "league.id"), ("owner_id", "owner.id")},
-        "matchup": {
-            ("league_id", "league.id"),
-            ("home_team_id", "team.id"),
-            ("away_team_id", "team.id"),
-        },
-        "score": {("team_id", "team.id"), ("league_id", "league.id")},
-        "app_user": set(),
-        "league": set(),
-        "league_season": {("league_id", "league.id")},
-    }
-    for model in models:
-        actual = {
-            (foreign_key.parent.name, foreign_key.target_fullname)
-            for foreign_key in model.__table__.foreign_keys
+        foreign_keys = {
+            (foreign_key.name, (foreign_key.parent.name, foreign_key.target_fullname))
+            for foreign_key in table.foreign_keys
         }
-        assert actual == expected_foreign_keys[model.__tablename__]
+        assert foreign_keys == EXPECTED_FOREIGN_KEYS[name], name
 
+        indexes = {
+            (index.name, tuple(column.name for column in index.columns))
+            for index in table.indexes
+            if isinstance(index, Index)
+        }
+        assert indexes == EXPECTED_INDEXES[name], name
 
-def test_league_season_settings_are_constrained_json_per_league_and_season() -> None:
-    """league_season names its constraints per convention and defaults settings to JSON."""
-    column = LeagueSeason.__table__.c.metadata
-    assert isinstance(column.type, JSON)
-    assert column.nullable is False
-    assert column.default is not None
+    # AC-DB-04: Score stores points and every VP component at the declared precision.
+    score_columns = Score.__table__.c
+    assert isinstance(League.__table__.c.metadata.type, JSON)
+    assert isinstance(score_columns.points.type, Numeric)
+    assert (score_columns.points.type.precision, score_columns.points.type.scale) == (8, 2)
+    for component in ("victory_points", "vp_h2h", "vp_top_half", "vp_high", "vp_low"):
+        component_type = score_columns[component].type
+        assert isinstance(component_type, Numeric)
+        assert (component_type.precision, component_type.scale) == (10, 6)
 
-    constraint_names = {
-        constraint.name: tuple(constraint_column.name for constraint_column in constraint.columns)
-        for constraint in LeagueSeason.__table__.constraints
-        if isinstance(constraint, UniqueConstraint)
-    }
-    assert constraint_names == {"uq_league_season_league_season": ("league_id", "season")}
+    # league_season settings are a non-null JSON object with a Python-side default.
+    season_settings = LeagueSeason.__table__.c.metadata
+    assert isinstance(season_settings.type, JSON)
+    assert season_settings.nullable is False
+    assert season_settings.default is not None
 
-    foreign_key_names = {
-        foreign_key.name: (foreign_key.parent.name, foreign_key.target_fullname)
-        for foreign_key in LeagueSeason.__table__.foreign_keys
-    }
-    assert foreign_key_names == {"fk_league_season_league_id_league": ("league_id", "league.id")}
+    # Accounts carry a validated role and no owner link; owner associations live on user_league.
+    app_user_role = AppUser.__table__.c.role
+    assert isinstance(app_user_role.type, Text)
+    assert app_user_role.nullable is False
+    assert app_user_role.server_default is not None
+    assert str(app_user_role.server_default.arg) == "member"
+    invite_role = Invite.__table__.c.role
+    assert isinstance(invite_role.type, Text)
+    assert invite_role.nullable is False
+    assert str(invite_role.server_default.arg) == "member"
+    assert UserLeague.__table__.c.owner_id.nullable is True
+    assert UserLeague.__table__.c.espn_s2_encrypted.nullable is True
+    assert UserLeague.__table__.c.espn_swid_encrypted.nullable is True

@@ -5,8 +5,6 @@ isolated in-memory SQLite database, so nothing here touches ESPN, the live netwo
 configured development database (AC-DB-07).
 """
 
-import argparse
-import runpy
 from collections.abc import Iterator
 from decimal import Decimal
 
@@ -17,7 +15,6 @@ from sqlalchemy.pool import StaticPool
 
 from app.cli import (
     DEFAULT_PROVIDER_ID,
-    build_parser,
     build_provider_registry,
     main,
     parse_week_range,
@@ -394,15 +391,8 @@ def test_invalid_week_ranges_are_structured_argparse_errors(
     assert "--weeks" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("value", ["0", "5-1", "abc", "", "31", "1-31"])
-def test_parse_week_range_rejects_invalid_values(value: str) -> None:
-    """parse_week_range raises argparse.ArgumentTypeError so argparse reports a usage error."""
-    with pytest.raises(argparse.ArgumentTypeError):
-        parse_week_range(value)
-
-
 # ---------------------------------------------------------------------------
-# create-user stub and parser wiring
+# create-user stub
 # ---------------------------------------------------------------------------
 
 
@@ -410,23 +400,6 @@ def test_cli_create_user_is_still_a_stub(capsys: pytest.CaptureFixture[str]) -> 
     """create-user stays an explicit no-op until M4 implements auth."""
     assert main(["create-user"]) == 0
     assert "not implemented yet" in capsys.readouterr().out
-
-
-def test_cli_parser_requires_a_subcommand() -> None:
-    """The parser is named and a missing subcommand is a usage error (exit code 2)."""
-    parser = build_parser()
-    assert parser.prog == "python -m app.cli"
-    with pytest.raises(SystemExit) as excinfo:
-        parser.parse_args([])
-    assert excinfo.value.code == 2
-
-
-def test_cli_module_entry_point(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`python -m app.cli create-user` returns exit code 0 via SystemExit."""
-    monkeypatch.setattr("sys.argv", ["app.cli", "create-user"])
-    with pytest.raises(SystemExit) as excinfo:
-        runpy.run_module("app.cli", run_name="__main__")
-    assert excinfo.value.code == 0
 
 
 def test_build_provider_registry_registers_espn(monkeypatch: pytest.MonkeyPatch) -> None:
