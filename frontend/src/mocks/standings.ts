@@ -27,9 +27,9 @@ export interface StandingsRow {
 export interface DivisionStandings {
   name: string;
   /**
-   * Division rows, each carrying the team's **overall league rank** (the owner confirmed that a
-   * division only groups/filters rows and does not rank within itself). The table renders that
-   * value verbatim and the frontend computes no rank of its own.
+   * Division rows: the same rows as `overall`, in overall-rank order. Each carries the team's
+   * **overall league rank** (a division only groups and filters rows; it never ranks within itself).
+   * The table renders that value verbatim and the frontend computes no rank of its own.
    */
   standings: StandingsRow[];
 }
@@ -83,182 +83,115 @@ export interface StandingsBundle {
  * Season 2026: 6 teams, 2 divisions, 4 completed weeks. Week 1 = ACCEPTANCE example A, week 2 =
  * example B with the head-to-head tie removed, week 3 = example C, week 4 = example D. Because no
  * matchup was tied, every row's `ties` is 0 and the tables show W-L rather than W-L-T.
+ *
+ * The rows below are the single source of truth for ranks: `standings.overall` and the per-division
+ * lists both reference them, so a division table can only ever show a team's overall league rank.
  */
+const overallRows: StandingsRow[] = [
+  {
+    rank: 1,
+    team_id: 7,
+    team_name: "Alpha",
+    owner_name: "Alex",
+    division: "East",
+    victory_points: "10.83",
+    wins: 4,
+    losses: 0,
+    ties: 0,
+    points_for: "495.00",
+    weekly_vp: ["2.5", "3", "3", "2.33"],
+  },
+  {
+    rank: 2,
+    team_id: 3,
+    team_name: "Bravo",
+    owner_name: "Blair",
+    division: "East",
+    victory_points: "8.83",
+    wins: 4,
+    losses: 0,
+    ties: 0,
+    points_for: "475.00",
+    weekly_vp: ["2.5", "2", "2", "2.33"],
+  },
+  {
+    rank: 3,
+    team_id: 9,
+    team_name: "Charlie",
+    owner_name: "Casey",
+    division: "East",
+    victory_points: "5.5",
+    wins: 3,
+    losses: 1,
+    ties: 0,
+    points_for: "405.00",
+    weekly_vp: ["2", "1.5", "2", "0"],
+  },
+  {
+    rank: 4,
+    team_id: 5,
+    team_name: "Echo",
+    owner_name: "Emery",
+    division: "West",
+    victory_points: "1.83",
+    wins: 1,
+    losses: 3,
+    ties: 0,
+    points_for: "355.00",
+    weekly_vp: ["0", "0", "-0.5", "2.33"],
+  },
+  {
+    rank: 5,
+    team_id: 2,
+    team_name: "Delta",
+    owner_name: "Devon",
+    division: "West",
+    victory_points: "0.5",
+    wins: 0,
+    losses: 4,
+    ties: 0,
+    points_for: "370.00",
+    weekly_vp: ["0", "0.5", "0", "0"],
+  },
+  {
+    rank: 6,
+    team_id: 4,
+    team_name: "Foxtrot",
+    owner_name: "Frankie",
+    division: "West",
+    victory_points: "-3.5",
+    wins: 0,
+    losses: 4,
+    ties: 0,
+    points_for: "300.00",
+    weekly_vp: ["-1", "-1", "-0.5", "-1"],
+  },
+];
+
+/** Division membership only; a division's ranks always come from `overallRows`. */
+const DIVISION_TEAM_IDS: readonly { name: string; teamIds: readonly number[] }[] = [
+  { name: "East", teamIds: [7, 3, 9] },
+  { name: "West", teamIds: [5, 2, 4] },
+];
+
+/**
+ * A division groups and filters rows. It reuses the same overall rows, so the rank it shows is the
+ * team's overall league rank, and it keeps them in overall-rank order.
+ */
+function divisionStandings(name: string, teamIds: readonly number[]): DivisionStandings {
+  const members = new Set(teamIds);
+  return { name, standings: overallRows.filter((row) => members.has(row.team_id)) };
+}
+
 export const mockStandingsBundle: StandingsBundle = {
   standings: {
     league_id: 1,
     season: 2026,
     completed_weeks: 4,
-    overall: [
-      {
-        rank: 1,
-        team_id: 7,
-        team_name: "Alpha",
-        owner_name: "Alex",
-        division: "East",
-        victory_points: "10.83",
-        wins: 4,
-        losses: 0,
-        ties: 0,
-        points_for: "495.00",
-        weekly_vp: ["2.5", "3", "3", "2.33"],
-      },
-      {
-        rank: 2,
-        team_id: 3,
-        team_name: "Bravo",
-        owner_name: "Blair",
-        division: "East",
-        victory_points: "8.83",
-        wins: 4,
-        losses: 0,
-        ties: 0,
-        points_for: "475.00",
-        weekly_vp: ["2.5", "2", "2", "2.33"],
-      },
-      {
-        rank: 3,
-        team_id: 9,
-        team_name: "Charlie",
-        owner_name: "Casey",
-        division: "East",
-        victory_points: "5.5",
-        wins: 3,
-        losses: 1,
-        ties: 0,
-        points_for: "405.00",
-        weekly_vp: ["2", "1.5", "2", "0"],
-      },
-      {
-        rank: 4,
-        team_id: 5,
-        team_name: "Echo",
-        owner_name: "Emery",
-        division: "West",
-        victory_points: "1.83",
-        wins: 1,
-        losses: 3,
-        ties: 0,
-        points_for: "355.00",
-        weekly_vp: ["0", "0", "-0.5", "2.33"],
-      },
-      {
-        rank: 5,
-        team_id: 2,
-        team_name: "Delta",
-        owner_name: "Devon",
-        division: "West",
-        victory_points: "0.5",
-        wins: 0,
-        losses: 4,
-        ties: 0,
-        points_for: "370.00",
-        weekly_vp: ["0", "0.5", "0", "0"],
-      },
-      {
-        rank: 6,
-        team_id: 4,
-        team_name: "Foxtrot",
-        owner_name: "Frankie",
-        division: "West",
-        victory_points: "-3.5",
-        wins: 0,
-        losses: 4,
-        ties: 0,
-        points_for: "300.00",
-        weekly_vp: ["-1", "-1", "-0.5", "-1"],
-      },
-    ],
-    divisions: [
-      {
-        name: "East",
-        standings: [
-          {
-            rank: 1,
-            team_id: 7,
-            team_name: "Alpha",
-            owner_name: "Alex",
-            division: "East",
-            victory_points: "10.83",
-            wins: 4,
-            losses: 0,
-            ties: 0,
-            points_for: "495.00",
-            weekly_vp: ["2.5", "3", "3", "2.33"],
-          },
-          {
-            rank: 2,
-            team_id: 3,
-            team_name: "Bravo",
-            owner_name: "Blair",
-            division: "East",
-            victory_points: "8.83",
-            wins: 4,
-            losses: 0,
-            ties: 0,
-            points_for: "475.00",
-            weekly_vp: ["2.5", "2", "2", "2.33"],
-          },
-          {
-            rank: 3,
-            team_id: 9,
-            team_name: "Charlie",
-            owner_name: "Casey",
-            division: "East",
-            victory_points: "5.5",
-            wins: 3,
-            losses: 1,
-            ties: 0,
-            points_for: "405.00",
-            weekly_vp: ["2", "1.5", "2", "0"],
-          },
-        ],
-      },
-      {
-        name: "West",
-        standings: [
-          {
-            rank: 4,
-            team_id: 5,
-            team_name: "Echo",
-            owner_name: "Emery",
-            division: "West",
-            victory_points: "1.83",
-            wins: 1,
-            losses: 3,
-            ties: 0,
-            points_for: "355.00",
-            weekly_vp: ["0", "0", "-0.5", "2.33"],
-          },
-          {
-            rank: 5,
-            team_id: 2,
-            team_name: "Delta",
-            owner_name: "Devon",
-            division: "West",
-            victory_points: "0.5",
-            wins: 0,
-            losses: 4,
-            ties: 0,
-            points_for: "370.00",
-            weekly_vp: ["0", "0.5", "0", "0"],
-          },
-          {
-            rank: 6,
-            team_id: 4,
-            team_name: "Foxtrot",
-            owner_name: "Frankie",
-            division: "West",
-            victory_points: "-3.5",
-            wins: 0,
-            losses: 4,
-            ties: 0,
-            points_for: "300.00",
-            weekly_vp: ["-1", "-1", "-0.5", "-1"],
-          },
-        ],
-      },
-    ],
+    overall: overallRows,
+    divisions: DIVISION_TEAM_IDS.map((division) =>
+      divisionStandings(division.name, division.teamIds),
+    ),
   },
   history: {
     weeks: [1, 2, 3, 4],

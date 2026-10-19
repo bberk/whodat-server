@@ -72,6 +72,23 @@ describe("standings bundle consistency", () => {
     expect(west?.standings.map((row) => row.rank)).toEqual([4, 5, 6]);
   });
 
+  it("builds every division from the same overall rows, so ranks cannot drift", () => {
+    const overallByTeam = new Map(
+      mockStandingsBundle.standings.overall.map((row) => [row.team_id, row]),
+    );
+    for (const division of mockStandingsBundle.standings.divisions) {
+      for (const row of division.standings) {
+        expect(row).toBe(overallByTeam.get(row.team_id));
+      }
+    }
+    const grouped = mockStandingsBundle.standings.divisions.flatMap((division) =>
+      division.standings.map((row) => row.team_id),
+    );
+    expect([...grouped].sort((a, b) => a - b)).toEqual(
+      mockStandingsBundle.standings.overall.map((row) => row.team_id).sort((a, b) => a - b),
+    );
+  });
+
   it("has weekly component rows that add up to the displayed total", () => {
     for (const week of mockStandingsBundle.weekly) {
       for (const row of week.rows) {
