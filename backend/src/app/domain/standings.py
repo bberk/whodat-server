@@ -16,7 +16,7 @@ class SeasonRow:
         vp: Exact season VP as sum of weekly Fractions
         h2h_wins: Number of H2H wins (ties don't count per SPEC 3.2)
         points_for: Total points scored in the season
-        division: Optional division name for subset rankings
+        division: Optional division name for grouping (not for local ranking)
     """
 
     team_id: int
@@ -53,14 +53,18 @@ class RankedRow:
 def rank_teams(rows: Sequence[SeasonRow]) -> list[RankedRow]:
     """Rank teams by VP, H2H wins, and points for with shared ranks for ties.
 
-    Implements AC-ST-01 through AC-ST-09:
+    Implements ranking and tiebreak logic:
     - Sort by season VP descending (AC-ST-02)
     - Tie-break by H2H wins descending, ties not counted (AC-ST-03)
     - Tie-break by points for descending (AC-ST-04)
     - Equal keys share rank number (AC-ST-05)
     - Display order alphabetical when all keys equal (AC-ST-05)
-    - Works on any subset (AC-ST-06, AC-ST-07)
+    - Callable on any subset (AC-ST-06, AC-ST-07)
     - Uses exact Fraction arithmetic (AC-ST-09)
+
+    Note: AC-ST-01 (season VP aggregation from weekly values) and AC-ST-08
+    (week filtering for playoffs/incomplete weeks) are upstream concerns handled
+    by the caller before invoking this function.
 
     Returns empty list for empty input. Deterministic and input-order independent.
     """
