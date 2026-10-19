@@ -7,6 +7,7 @@ configured development database (AC-DB-07).
 
 import runpy
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -21,7 +22,7 @@ from app.cli import (
     parse_week_range,
 )
 from app.db.base import Base
-from app.db.models import League, Score
+from app.db.models import Invite, League, Score
 from app.db.repositories import SyncRepository
 from app.providers.base import (
     LeagueDTO,
@@ -34,9 +35,11 @@ from app.providers.base import (
 from app.providers.espn.settings import ESPNSettings
 from app.providers.fake import FakeProvider
 from app.providers.registry import ProviderRegistry
+from app.security.invite_codes import hash_invite_code, invite_code_matches
 
 LEAGUE_EXTERNAL_ID = "699385"
 SEASON = 2026
+INVITE_NOW = datetime(2026, 10, 19, 12, 0, tzinfo=UTC)
 type FakeSeed = tuple[
     LeagueDTO,
     list[OwnerDTO],
@@ -128,6 +131,38 @@ def _vp_snapshot(session: Session) -> dict[tuple[int, int], Decimal]:
         (score.week, score.team_id): score.victory_points
         for score in session.scalars(select(Score)).all()
     }
+
+
+def _fixed_clock() -> datetime:
+    """Return the injected invite clock instant."""
+    return INVITE_NOW
+
+
+def _as_utc(value: datetime) -> datetime:
+    """Treat a SQLite naive timestamp as UTC so expiry comparisons are deterministic."""
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+def _seed_league(
+    session_factory: sessionmaker[Session],
+    *,
+    provider: str = DEFAULT_PROVIDER_ID,
+    external_id: str = LEAGUE_EXTERNAL_ID,
+) -> None:
+    """Store the league row that create-invite resolves by natural key."""
+    with session_factory() as session:
+        SyncRepository(session).upsert_league(
+            provider=provider,
+            external_id=external_id,
+            name="CLI League",
+            league_metadata={},
+            provider_config_ref="env:default",
+        )
+        session.commit()
+
+
+def _invite_count(session: Session) -> int:
+    return session.scalar(select(func.count()).select_from(Invite)) or 0
 
 
 # ---------------------------------------------------------------------------
@@ -390,6 +425,189 @@ def test_invalid_week_ranges_are_structured_argparse_errors(
 
     assert excinfo.value.code == 2
     assert "--weeks" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# create-invite
+# ---------------------------------------------------------------------------
+
+
+def test_cli_create_invite_stores_only_the_hash_and_prints_the_raw_code_once(
+    session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """AC-AU-01: creation stores the hash plus role/expiry and prints the raw code exactly once."""
+    _seed_league(session_factory)
+
+    code = main(
+        ["create-invite", "--league", LEAGUE_EXTERNAL_ID, "--role", "admin"],
+        session_factory=session_factory,
+        clock=_fixed_clock,
+    )
+
+    assert code == 0
+    captured = capsys.readouterr()
+    raw_code = captured.out.rstrip("\n")
+    assert captured.out == f"{raw_code}\n"
+    assert captured.err == ""
+    with session_factory() as session:
+        invite = session.scalar(select(Invite))
+        assert invite is not None
+        assert invite.code_hash == hash_invite_code(raw_code)
+        assert invite.role == "admin"
+        assert _as_utc(invite.expires_at) == INVITE_NOW + timedelta(days=7)
+        # The printed code is the only thing that can produce the stored digest.
+        assert invite_code_matches(raw_code, invite.code_hash)
+
+
+@pytest.mark.parametrize(
+    ("expires", "lifetime"),
+    [
+        ("7d", timedelta(days=7)),
+        ("24h", timedelta(hours=24)),
+        ("2", timedelta(days=2)),
+    ],
+)
+def test_cli_create_invite_duration_accepts_days_hours_and_bare_integers(
+    expires: str,
+    lifetime: timedelta,
+    session_factory: sessionmaker[Session],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """--expires accepts d and h suffixes and reads a bare integer as days."""
+    _seed_league(session_factory)
+
+    code = main(
+        ["create-invite", "--league", LEAGUE_EXTERNAL_ID, "--role", "member", "--expires", expires],
+        session_factory=session_factory,
+        clock=_fixed_clock,
+    )
+
+    assert code == 0
+    capsys.readouterr()
+    with session_factory() as session:
+        invite = session.scalar(select(Invite))
+        assert invite is not None
+        assert _as_utc(invite.expires_at) == INVITE_NOW + lifetime
+
+
+def test_cli_create_invite_second_invite_creates_a_distinct_row_and_code(
+    session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Creating a second invite adds a new row with a different raw code and hash."""
+    _seed_league(session_factory)
+
+    printed_codes: list[str] = []
+    for _ in range(2):
+        assert (
+            main(
+                ["create-invite", "--league", LEAGUE_EXTERNAL_ID, "--role", "member"],
+                session_factory=session_factory,
+                clock=_fixed_clock,
+            )
+            == 0
+        )
+        printed_codes.append(capsys.readouterr().out.rstrip("\n"))
+
+    assert printed_codes[0] != printed_codes[1]
+    with session_factory() as session:
+        invites = session.scalars(select(Invite).order_by(Invite.id)).all()
+        assert len(invites) == 2
+        assert len({invite.code_hash for invite in invites}) == 2
+        assert [invite.role for invite in invites] == ["member", "member"]
+
+
+def test_cli_create_invite_unknown_league_exits_nonzero_without_writing(
+    session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A league not stored for the provider is a clear error and leaves no invite row."""
+    code = main(
+        ["create-invite", "--league", "does-not-exist", "--role", "admin"],
+        session_factory=session_factory,
+        clock=_fixed_clock,
+    )
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error:")
+    assert "does-not-exist" in err
+    with session_factory() as session:
+        assert _invite_count(session) == 0
+
+
+def test_cli_create_invite_unknown_provider_exits_nonzero_without_writing(
+    session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A provider with no stored league for this id is reported and writes nothing."""
+    _seed_league(session_factory)
+
+    code = main(
+        [
+            "create-invite",
+            "--league",
+            LEAGUE_EXTERNAL_ID,
+            "--role",
+            "admin",
+            "--provider",
+            "sleeper",
+        ],
+        session_factory=session_factory,
+        clock=_fixed_clock,
+    )
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error:")
+    assert "sleeper" in err
+    with session_factory() as session:
+        assert _invite_count(session) == 0
+
+
+@pytest.mark.parametrize("role", ["owner", "", "Admin"])
+def test_cli_create_invite_invalid_role_is_a_usage_error(
+    role: str, session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Only admin and member are accepted; anything else exits 2 and writes nothing."""
+    _seed_league(session_factory)
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(
+            ["create-invite", "--league", LEAGUE_EXTERNAL_ID, "--role", role],
+            session_factory=session_factory,
+            clock=_fixed_clock,
+        )
+
+    assert excinfo.value.code == 2
+    assert "--role" in capsys.readouterr().err
+    with session_factory() as session:
+        assert _invite_count(session) == 0
+
+
+@pytest.mark.parametrize("expires", ["0", "0d", "0h", "-1", "-1d", "abc", "1.5d", "1w", "", "d"])
+def test_cli_create_invite_invalid_duration_is_a_usage_error(
+    expires: str, session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Zero, negative, or malformed durations exit 2 without a traceback or an invite row."""
+    _seed_league(session_factory)
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(
+            [
+                "create-invite",
+                "--league",
+                LEAGUE_EXTERNAL_ID,
+                "--role",
+                "admin",
+                "--expires",
+                expires,
+            ],
+            session_factory=session_factory,
+            clock=_fixed_clock,
+        )
+
+    assert excinfo.value.code == 2
+    assert "--expires" in capsys.readouterr().err
+    with session_factory() as session:
+        assert _invite_count(session) == 0
 
 
 # ---------------------------------------------------------------------------

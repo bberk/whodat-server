@@ -1,33 +1,44 @@
-"""Command-line entry point (sync, recompute, create-user).
+"""Command-line entry point (sync, recompute, create-invite, create-user).
 
 ``sync`` fetches a league season through the configured provider (ESPN in production) and writes
 normalized leagues, owners, teams, matchups, scores, and weekly Victory Points. ``recompute``
-rebuilds Victory Points from data already stored, without any provider calls. ``create-user``
+rebuilds Victory Points from data already stored, without any provider calls. ``create-invite``
+mints a league invite and prints its raw code once; only the code hash is stored. ``create-user``
 remains a stub for the M4 auth work.
 
-Both real commands own their database transaction: they open a session, run the service, and
-commit. Tests inject a ``ProviderRegistry`` (for example holding a ``FakeProvider``) and a
-session factory bound to a throwaway database through :func:`main`'s keyword arguments, so no
-test touches ESPN or the configured development database.
+Every real command owns its database transaction: it opens a session, runs the service or
+repository calls, and commits. Tests inject a ``ProviderRegistry`` (for example holding a
+``FakeProvider``), a session factory bound to a throwaway database, and a clock through
+:func:`main`'s keyword arguments, so no test touches ESPN, the network, or the configured
+development database.
 """
 
 import argparse
 import re
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.db.auth_repositories import InviteRepository
+from app.db.models import VALID_ROLES
+from app.db.repositories import SyncRepository
 from app.db.session import get_session_factory
 from app.providers.base import LeagueRef
 from app.providers.espn.adapter import ESPNLeagueProvider
 from app.providers.registry import ProviderRegistry
+from app.security.invite_codes import generate_invite_code, hash_invite_code
 from app.services.sync_service import SyncError, SyncService
 
 # Production sync always reads through the ESPN provider registered by build_provider_registry.
 DEFAULT_PROVIDER_ID = "espn"
 
+# The documented default invite lifetime (AC-AU-01).
+DEFAULT_INVITE_LIFETIME = timedelta(days=7)
+
 _WEEK_RANGE = re.compile(r"^(?P<start>[1-9][0-9]*)(?:-(?P<end>[1-9][0-9]*))?$")
+_DURATION = re.compile(r"^(?P<amount>[0-9]+)(?P<unit>[dh])?$")
 
 # Defensive ceiling for a fantasy football season (regular season plus playoffs). No provider
 # reports anything close to this, so it only rejects absurd ranges without silently truncating.
@@ -58,6 +69,37 @@ def parse_week_range(value: str) -> list[int]:
     return list(range(start, end + 1))
 
 
+def parse_expiry_duration(value: str) -> timedelta:
+    """Parse an invite lifetime such as ``7d``, ``24h``, or a bare integer meaning days.
+
+    A duration must be a positive whole number of days or hours. A bare integer is read as days,
+    which matches the documented ``--expires 7`` shorthand. Anything else (zero, a negative or
+    fractional number, an unsupported unit, or stray characters) raises
+    ``argparse.ArgumentTypeError``, which argparse reports as a usage error on exit code 2 instead
+    of letting a traceback escape.
+    """
+    match = _DURATION.match(value.strip())
+    if match is None:
+        raise argparse.ArgumentTypeError(
+            f"expected a positive duration like '7d' or '24h', got {value!r}"
+        )
+    amount = int(match.group("amount"))
+    if amount <= 0:
+        raise argparse.ArgumentTypeError(f"duration must be positive, got {value!r}")
+    if match.group("unit") == "h":
+        return timedelta(hours=amount)
+    return timedelta(days=amount)
+
+
+def parse_role(value: str) -> str:
+    """Return a supported invite role, raising an argparse usage error for anything else."""
+    if value not in VALID_ROLES:
+        raise argparse.ArgumentTypeError(
+            f"invalid role {value!r}; expected one of {sorted(VALID_ROLES)}"
+        )
+    return value
+
+
 def build_provider_registry() -> ProviderRegistry:
     """Return the production provider registry with the ESPN adapter registered.
 
@@ -71,7 +113,7 @@ def build_provider_registry() -> ProviderRegistry:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build the argument parser with the sync, recompute, and create-user subcommands."""
+    """Build the argument parser with sync, recompute, create-invite, and create-user commands."""
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -88,6 +130,22 @@ def build_parser() -> argparse.ArgumentParser:
     recompute = sub.add_parser("recompute", help="recompute VP without provider calls")
     recompute.add_argument("--league", required=True, help="league external id")
     recompute.add_argument("--season", type=int, required=True, help="season year")
+
+    create_invite = sub.add_parser("create-invite", help="create a league invite code")
+    create_invite.add_argument("--league", required=True, help="league external id")
+    create_invite.add_argument(
+        "--role", required=True, type=parse_role, help="role granted by the invite: admin or member"
+    )
+    create_invite.add_argument(
+        "--expires",
+        type=parse_expiry_duration,
+        default=DEFAULT_INVITE_LIFETIME,
+        metavar="DURATION",
+        help="invite lifetime like 7d or 24h (default: 7d)",
+    )
+    create_invite.add_argument(
+        "--provider", default=DEFAULT_PROVIDER_ID, help="provider id (default: espn)"
+    )
 
     sub.add_parser("create-user", help="create an application user")
 
@@ -163,18 +221,58 @@ def _run_recompute(
     return 0
 
 
+def _utc_now() -> datetime:
+    """Return the current UTC wall-clock time (the production invite clock)."""
+    return datetime.now(UTC)
+
+
+def _run_create_invite(
+    args: argparse.Namespace,
+    session_factory: sessionmaker[Session],
+    clock: Callable[[], datetime],
+) -> int:
+    """Run ``create-invite`` and return a process exit code.
+
+    The league is resolved by its natural key through the repository layer, so no provider call or
+    network access happens here. The raw code is printed only after the invite row commits: a
+    failure returns a message on stderr without ever exposing an unpersisted or unprintable code.
+    """
+    with session_factory() as session:
+        league = SyncRepository(session).get_league(args.provider, args.league)
+        if league is None:
+            print(
+                f"error: no league stored for provider {args.provider!r} "
+                f"with external id {args.league!r}",
+                file=sys.stderr,
+            )
+            return 1
+        raw_code = generate_invite_code()
+        InviteRepository(session).create(
+            league.id,
+            hash_invite_code(raw_code),
+            clock() + args.expires,
+            role=args.role,
+        )
+        session.commit()
+
+    print(raw_code)
+    return 0
+
+
 def main(
     argv: Sequence[str] | None = None,
     *,
     registry: ProviderRegistry | None = None,
     session_factory: sessionmaker[Session] | None = None,
     provider_id: str = DEFAULT_PROVIDER_ID,
+    clock: Callable[[], datetime] | None = None,
 ) -> int:
     """Parse arguments, run the requested command, and return a process exit code.
 
-    ``registry`` and ``session_factory`` are dependency-injection seams: production callers leave
-    them unset and get the ESPN registry plus the configured database, while tests pass a registry
-    holding a ``FakeProvider`` and a factory bound to an isolated SQLite database.
+    ``registry``, ``session_factory``, and ``clock`` are dependency-injection seams: production
+    callers leave them unset and get the ESPN registry, the configured database, and the real UTC
+    clock, while tests pass a registry holding a ``FakeProvider``, a factory bound to an isolated
+    SQLite database, and a fixed clock.
     """
     args = build_parser().parse_args(argv)
 
@@ -191,6 +289,9 @@ def main(
 
     if args.command == "recompute":
         return _run_recompute(args, factory, provider_id)
+
+    if args.command == "create-invite":
+        return _run_create_invite(args, factory, clock or _utc_now)
 
     raise AssertionError(f"unhandled command: {args.command!r}")  # pragma: no cover
 
