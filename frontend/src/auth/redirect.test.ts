@@ -34,5 +34,6 @@ describe("redirectTarget", () => {
     expect(redirectTarget({})).toBe("/");
     expect(redirectTarget(from(""))).toBe("/");
     expect(redirectTarget(from("/leagues", "tab=vp"))).toBe("/");
+    expect(redirectTarget({ from: { pathname: 7 } })).toBe("/");
   });
 });

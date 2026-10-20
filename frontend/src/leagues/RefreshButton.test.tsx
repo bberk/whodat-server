@@ -50,4 +50,36 @@ describe("RefreshButton", () => {
       expect(screen.getByRole("button", { name: "Refresh" })).toBeEnabled();
     });
   });
+
+  it("reports a refresh that synced no weeks", async () => {
+    const user = userEvent.setup();
+    mockFetch(() =>
+      jsonResponse({
+        league_id: 1,
+        season: 2026,
+        weeks_synced: [],
+        weeks_with_vp_recomputed: [],
+      }),
+    );
+    render(<RefreshButton leagueId={1} hasCredentials onRefreshed={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(
+      await screen.findByText("Refresh finished; no weeks needed syncing."),
+    ).toBeInTheDocument();
+  });
+
+  it("uses the singular week label", async () => {
+    const user = userEvent.setup();
+    mockFetch(() =>
+      jsonResponse({
+        league_id: 1,
+        season: 2026,
+        weeks_synced: [3],
+        weeks_with_vp_recomputed: [3],
+      }),
+    );
+    render(<RefreshButton leagueId={1} hasCredentials onRefreshed={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(await screen.findByText("Refreshed 1 week (W3).")).toBeInTheDocument();
+  });
 });

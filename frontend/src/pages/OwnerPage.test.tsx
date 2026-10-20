@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -36,9 +36,9 @@ function leagueValue(overrides: Partial<LeagueContextValue> = {}): LeagueContext
   };
 }
 
-function renderPage(value: LeagueContextValue = leagueValue()) {
-  render(
-    <MemoryRouter initialEntries={["/leagues/1/owner"]}>
+function renderPage(value: LeagueContextValue = leagueValue(), path = "/leagues/1/owner") {
+  return render(
+    <MemoryRouter initialEntries={[path]}>
       <LeagueContext.Provider value={value}>
         <Routes>
           <Route path="/leagues/:leagueId/owner" element={<OwnerPage />} />
@@ -47,7 +47,6 @@ function renderPage(value: LeagueContextValue = leagueValue()) {
       </LeagueContext.Provider>
     </MemoryRouter>,
   );
-  return value;
 }
 
 afterEach(() => {
@@ -73,6 +72,8 @@ describe("OwnerPage", () => {
     renderPage(league);
     const select = await screen.findByLabelText("Owner");
     expect(select).toHaveValue("7");
+    await user.selectOptions(select, "");
+    expect(select).toHaveValue("");
     await user.selectOptions(select, "3");
     await user.click(screen.getByRole("button", { name: "Save owner" }));
 
@@ -89,9 +90,48 @@ describe("OwnerPage", () => {
   });
 
   it("shows an error state with retry when owners cannot be loaded", async () => {
-    mockFetch(() => errorResponse(404, { code: "not_found", message: "League not found" }));
+    const user = userEvent.setup();
+    const fetchMock = mockFetch(() =>
+      errorResponse(404, { code: "not_found", message: "League not found" }),
+    );
     renderPage();
     expect(await screen.findByRole("alert")).toHaveTextContent("League not found");
-    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("shows a structured error when saving fails", async () => {
+    const user = userEvent.setup();
+    mockFetch((url, init) => {
+      if (requestPath(url) === "/api/v1/leagues/1/owners") {
+        return jsonResponse({ owners });
+      }
+      if (init.method === "PUT") {
+        return errorResponse(422, [
+          { loc: ["body", "owner_id"], msg: "Owner is not available", type: "value_error" },
+        ]);
+      }
+      return errorResponse(404, { code: "not_found", message: "unexpected" });
+    });
+    renderPage();
+    await screen.findByLabelText("Owner");
+    await user.click(screen.getByRole("button", { name: "Save owner" }));
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent("Owner is not available");
+    });
+  });
+
+  it("rejects an invalid league id and falls back to the selected league", async () => {
+    const first = renderPage(leagueValue(), "/leagues/not-a-number/owner");
+    expect(await screen.findByRole("alert")).toHaveTextContent("This league id is not valid.");
+    first.unmount();
+
+    mockFetch(() => jsonResponse({ owners }));
+    renderPage(leagueValue({ leagues: [], selectedLeague: leagueAlpha }));
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Owner · Alpha League" }),
+    ).toBeInTheDocument();
   });
 });

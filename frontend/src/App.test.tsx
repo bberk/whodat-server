@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { AppRoutes } from "./App";
+import { App, AppRoutes } from "./App";
 import {
   adminUser,
   errorResponse,
@@ -70,6 +70,7 @@ function signedInFetch(options: { seasonsAlpha?: number[]; seasonsBeta?: number[
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  window.history.pushState({}, "", "/");
 });
 
 describe("App routing", () => {
@@ -202,5 +203,99 @@ describe("App routing", () => {
     await user.type(screen.getByLabelText("Invite code"), "invite-code");
     await user.click(screen.getByRole("button", { name: "Create account" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Try again in 30 seconds");
+  });
+
+  it("signs up and lands on the standings", async () => {
+    const user = userEvent.setup();
+    mockFetch((url) => {
+      const path = requestPath(url);
+      if (path === "/api/v1/auth/signup") {
+        return jsonResponse(adminUser, { status: 201 });
+      }
+      if (path === "/api/v1/me") {
+        return errorResponse(401, {
+          code: "not_authenticated",
+          message: "Authentication required",
+        });
+      }
+      if (path === "/api/v1/me/leagues") {
+        return jsonResponse([leagueAlpha]);
+      }
+      if (path === "/api/v1/leagues/1/seasons") {
+        return jsonResponse({ seasons: [2026] });
+      }
+      if (/^\/api\/v1\/leagues\/1\/seasons\/2026\/(standings|vp-history)$/.test(path)) {
+        return path.endsWith("standings")
+          ? jsonResponse(standingsResponse)
+          : jsonResponse(historyResponse);
+      }
+      return errorResponse(404, { code: "not_found", message: path });
+    });
+    renderAt("/signup");
+    await screen.findByRole("heading", { level: 1, name: "Create an account" });
+    await user.type(screen.getByLabelText("Email"), "new@example.com");
+    await user.type(screen.getByLabelText("Password"), "password");
+    await user.type(screen.getByLabelText("Invite code"), "invite-code");
+    await user.click(screen.getByRole("button", { name: "Create account" }));
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Alpha League — standings" }),
+    ).toBeInTheDocument();
+  });
+
+  it("redirects a signed-in visitor away from signup", async () => {
+    signedInFetch();
+    renderAt("/signup");
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Alpha League — standings" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { level: 1, name: "Create an account" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps the owner route when a league is switched and opens the add-league dialog", async () => {
+    const user = userEvent.setup();
+    signedInFetch();
+    renderAt("/leagues/1/owner");
+    await screen.findByRole("heading", { level: 1, name: "Owner · Alpha League" });
+
+    await user.selectOptions(screen.getByLabelText("League"), "2");
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Owner · Beta League" }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Add league" }));
+    expect(screen.getByRole("dialog", { name: "Add a league" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close add-league dialog" }));
+    expect(screen.queryByRole("dialog", { name: "Add a league" })).not.toBeInTheDocument();
+  });
+
+  it("renders the browser router entrypoint", async () => {
+    mockFetch(() =>
+      errorResponse(401, { code: "not_authenticated", message: "Authentication required" }),
+    );
+    window.history.pushState({}, "", "/login");
+    render(<App />);
+    expect(await screen.findByRole("heading", { level: 1, name: "Log in" })).toBeInTheDocument();
+  });
+
+  it("shows a boot failure on the login page", async () => {
+    mockFetch(() => errorResponse(500, { code: "boom", message: "The API is unavailable." }));
+    renderAt("/");
+    expect(await screen.findByRole("alert")).toHaveTextContent("The API is unavailable.");
+  });
+
+  it("shows a membership error banner without losing the shell", async () => {
+    mockFetch((url) => {
+      const path = requestPath(url);
+      if (path === "/api/v1/me") {
+        return jsonResponse(adminUser);
+      }
+      return errorResponse(500, { code: "boom", message: "Leagues unavailable" });
+    });
+    renderAt("/");
+    const alerts = await screen.findAllByRole("alert");
+    expect(alerts.some((alert) => alert.textContent?.includes("Leagues unavailable"))).toBe(true);
+    expect(screen.getAllByRole("button", { name: "Retry" }).length).toBeGreaterThan(0);
   });
 });
