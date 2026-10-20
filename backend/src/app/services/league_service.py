@@ -143,10 +143,6 @@ class InvalidLeagueRequestError(LeagueServiceError):
     """The requested league id, season, or credential pair is not usable."""
 
 
-class CredentialPermissionError(LeagueServiceError):
-    """A caller tried to supply credentials without permission."""
-
-
 class AdminRequiredError(LeagueServiceError):
     """A non-admin tried to add a league; members join only by redeeming a member invite."""
 
@@ -157,10 +153,6 @@ class InviteNotRedeemableError(LeagueServiceError):
 
 class NotAMemberError(LeagueServiceError, LookupError):
     """The caller has no membership in the requested league."""
-
-
-class LeagueNotFoundError(LeagueServiceError, LookupError):
-    """No stored league matches the requested provider external id."""
 
 
 class AlreadyMemberError(LeagueServiceError):
