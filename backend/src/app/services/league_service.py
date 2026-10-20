@@ -7,13 +7,18 @@ request back when an exception escapes. Multi-step writes that must not survive 
 (a credentialed add and a refresh) additionally run inside a SAVEPOINT, so a typed sync error never
 leaves a partial league, membership, or refresh behind even if a caller commits afterwards.
 
+Only an admin may add a league; members join an additional league by redeeming a valid, unexpired
+member invite, never by supplying a bare league id. A member-invite redemption writes exactly one
+membership (or nothing at all on an unknown, expired, wrong-role, or league-less invite).
+
 Credential handling follows the provider boundary: the service encrypts request credentials with
 :mod:`app.security.crypto` immediately and only ever passes ciphertext to the injected provider
 factory. It never decrypts a stored token and never logs or returns a credential value. The
 factory (production: :func:`app.providers.espn.credentials.create_espn_provider`) owns decryption.
 
 Errors are typed so routers can map them to structured responses. Error messages are fixed and
-never include cookie values, ciphertext, password material, or provider exception text.
+never include cookie values, ciphertext, password material, invite codes, or provider exception
+text.
 """
 
 from __future__ import annotations
@@ -30,11 +35,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.auth_repositories import DuplicateMembershipError as DatabaseDuplicateMembershipError
-from app.db.auth_repositories import MembershipRepository
-from app.db.models import ROLE_ADMIN, League, Owner, UserLeague
+from app.db.auth_repositories import InviteRepository, MembershipRepository
+from app.db.models import ROLE_ADMIN, ROLE_MEMBER, League, Owner, UserLeague
 from app.db.repositories import SyncRepository
 from app.providers.base import LeagueDTO, LeagueProvider, LeagueRef
 from app.security.crypto import CredentialCryptoError, encrypt
+from app.security.invite_codes import hash_invite_code, invite_code_matches
 from app.services.sync_service import SyncError, SyncService, SyncSummary
 
 #: The only provider the HTTP API currently stores leagues for.
@@ -138,7 +144,15 @@ class InvalidLeagueRequestError(LeagueServiceError):
 
 
 class CredentialPermissionError(LeagueServiceError):
-    """A non-admin tried to supply credentials, or supplied credentials without permission."""
+    """A caller tried to supply credentials without permission."""
+
+
+class AdminRequiredError(LeagueServiceError):
+    """A non-admin tried to add a league; members join only by redeeming a member invite."""
+
+
+class InviteNotRedeemableError(LeagueServiceError):
+    """The invite code is unknown, expired, wrong-role, or not bound to a league."""
 
 
 class NotAMemberError(LeagueServiceError, LookupError):
@@ -298,6 +312,7 @@ class LeagueService:
         self._refresh_limiter = refresh_limiter or RefreshRateLimiter()
         self._clock = clock or _utc_now
         self._memberships = MembershipRepository(session)
+        self._invites = InviteRepository(session)
         self._sync = SyncRepository(session)
 
     def commit(self) -> None:
@@ -315,17 +330,17 @@ class LeagueService:
         season: int | None = None,
         credentials: EspnCredentials | None = None,
     ) -> AddLeagueResult:
-        """Add a league as an admin, or join an existing league as a member.
+        """Add a league as an admin; members join only by redeeming a member invite.
 
-        A credentialed add requires an admin account. The credentials are encrypted before use,
-        the provider is constructed and the requested season is fetched, and only after that
-        validation succeeds are the league, membership, encrypted tokens, and initial sync written
-        inside one SAVEPOINT. A duplicate membership is rejected before any provider call.
+        The account must be an admin (AC-AU-06/08); a member's request is rejected before any
+        provider call or write. The credentials are encrypted before use, the provider is
+        constructed and the requested season is fetched, and only after that validation succeeds
+        are the league, membership, encrypted tokens, and initial sync written inside one
+        SAVEPOINT. A duplicate membership is rejected before any provider call.
 
         Without credentials, an admin may add a brand-new public league: the provider is built with
         explicit empty cookies, the league season is fetched before any write, and the membership is
-        stored without credentials. A member without credentials may only join an already-stored
-        league and no provider is contacted. The caller commits.
+        stored without credentials. The caller commits.
         """
         external_id = espn_league_id.strip()
         if not external_id:
@@ -334,8 +349,8 @@ class LeagueService:
         if requested_season <= 0:
             raise InvalidLeagueRequestError("season must be a positive year")
 
-        if credentials is not None and user.role != ROLE_ADMIN:
-            raise CredentialPermissionError("only an admin may add league credentials")
+        if user.role != ROLE_ADMIN:
+            raise AdminRequiredError("only an admin may add a league")
 
         existing = self._sync.get_league(self._provider_id, external_id)
         if existing is not None and self._memberships.get(user.user_id, existing.id) is not None:
@@ -349,8 +364,6 @@ class LeagueService:
                     season=requested_season,
                     weeks_synced=(),
                 )
-            if user.role != ROLE_ADMIN:
-                raise LeagueNotFoundError("league is not stored and no credentials were supplied")
             provider = self._build_provider(None)
             league_dto = self._fetch_league(
                 provider, external_id, requested_season, using_credentials=False
@@ -367,6 +380,28 @@ class LeagueService:
         return self._persist_new_league(
             user, external_id, requested_season, provider, league_dto, encrypted
         )
+
+    def redeem_invite(self, user: LeagueUser, invite_code: str) -> MembershipView:
+        """Join the league named by a valid member invite, creating exactly one membership.
+
+        The code is validated against its stored hash and the invite must be unexpired, carry the
+        member role, and name a league; any other state raises
+        :class:`InviteNotRedeemableError` before a write. A caller who already belongs to the
+        league raises :class:`AlreadyMemberError`. The raw code is never stored, logged, or
+        returned. The caller commits.
+        """
+        expected_hash = hash_invite_code(invite_code) if invite_code else ""
+        invite = self._invites.get_by_code_hash(expected_hash) if expected_hash else None
+        if invite is None or not invite_code_matches(invite_code, invite.code_hash):
+            raise InviteNotRedeemableError("invite code is invalid or expired")
+        if not self._invites.is_valid(invite, now=self._clock()):
+            raise InviteNotRedeemableError("invite code is invalid or expired")
+        if invite.role != ROLE_MEMBER or invite.league_id is None:
+            raise InviteNotRedeemableError("invite code is invalid or expired")
+        if self._memberships.get(user.user_id, invite.league_id) is not None:
+            raise AlreadyMemberError("user already belongs to this league")
+        membership = self._create_membership(user.user_id, invite.league_id)
+        return self._view(membership)
 
     def set_owner(
         self,

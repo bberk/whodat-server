@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import base64
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db.auth_repositories import DuplicateMembershipError as DatabaseDuplicateMembershipError
-from app.db.auth_repositories import MembershipRepository, UserRepository
+from app.db.auth_repositories import InviteRepository, MembershipRepository, UserRepository
 from app.db.base import Base
 from app.db.models import AppUser, League, LeagueSeason, Owner, Score, UserLeague
 from app.db.repositories import SyncRepository
@@ -36,15 +36,16 @@ from app.providers.espn import credentials as espn_credentials
 from app.providers.espn.credentials import create_espn_provider
 from app.providers.fake import FakeProvider
 from app.security.crypto import decrypt, encrypt
+from app.security.invite_codes import hash_invite_code
 from app.services.league_service import (
+    AdminRequiredError,
     AlreadyMemberError,
-    CredentialPermissionError,
     CredentialsRequiredError,
     EspnCredentials,
     IncompleteCredentialsError,
     InvalidLeagueRequestError,
+    InviteNotRedeemableError,
     LeagueAccessError,
-    LeagueNotFoundError,
     LeagueProviderError,
     LeagueService,
     LeagueSyncError,
@@ -226,6 +227,29 @@ def _seed_membership(
     return membership
 
 
+def _seed_invite(
+    session: Session,
+    *,
+    code: str = "member-invite-code",
+    role: str = "member",
+    league: League | None = None,
+    expires_at: datetime | None = None,
+) -> str:
+    """Store an invite for ``code`` and return the raw code.
+
+    A member invite needs a league (AC-AU-17); passing ``None`` deliberately creates the
+    malformed league-less member invite that redemption and signup must reject.
+    """
+    InviteRepository(session).create(
+        league.id if league is not None else None,
+        hash_invite_code(code),
+        expires_at or (datetime.now(UTC) + timedelta(days=7)),
+        role=role,
+    )
+    session.commit()
+    return code
+
+
 class FailAfterValidationProvider(FakeProvider):
     """Return league metadata but fail as soon as the sync asks for owners."""
 
@@ -322,7 +346,7 @@ def test_AC_AU_06_member_supplying_credentials_is_rejected_without_writes(
     factory = RecordingFactory(_seed())
     service = LeagueService(session, factory, provider_id="fake")
 
-    with pytest.raises(CredentialPermissionError):
+    with pytest.raises(AdminRequiredError):
         service.add_league(_actor(member), LEAGUE_EXTERNAL, SEASON, _credentials())
 
     session.commit()
@@ -391,11 +415,11 @@ def test_AC_AU_06_incomplete_credentials_are_rejected_before_any_write(
 
 
 # ---------------------------------------------------------------------------
-# AC-AU-08: member joins an existing league
+# AC-AU-08: members cannot add a league by id
 # ---------------------------------------------------------------------------
 
 
-def test_AC_AU_08_member_joins_existing_league_without_credentials(
+def test_AC_AU_08_member_add_by_id_is_rejected_without_credentials_and_writes(
     session: Session,
 ) -> None:
     member = _create_user(session, "member@example.com", "member")
@@ -403,32 +427,29 @@ def test_AC_AU_08_member_joins_existing_league_without_credentials(
     factory = RecordingFactory(_seed())
     service = LeagueService(session, factory, provider_id="fake")
 
-    result = service.add_league(_actor(member), LEAGUE_EXTERNAL)
-    service.commit()
-
-    assert result.membership.has_credentials is False
-    assert result.weeks_synced == ()
-    assert factory.calls == []
-    membership = session.scalar(select(UserLeague))
-    assert membership is not None
-    assert membership.espn_s2_encrypted is None
-    assert membership.espn_swid_encrypted is None
-
-
-def test_AC_AU_08_member_join_missing_league_fails_without_writes(
-    session: Session,
-) -> None:
-    member = _create_user(session, "member@example.com", "member")
-    factory = RecordingFactory(_seed())
-    service = LeagueService(session, factory, provider_id="fake")
-
-    with pytest.raises(LeagueNotFoundError):
-        service.add_league(_actor(member), "not-stored")
+    with pytest.raises(AdminRequiredError):
+        service.add_league(_actor(member), LEAGUE_EXTERNAL)
 
     assert factory.public_calls == 0
     assert factory.calls == []
     session.commit()
     assert _count(session, UserLeague) == 0
+
+
+def test_AC_AU_08_admin_add_by_id_to_an_already_stored_league_still_works(
+    session: Session,
+) -> None:
+    admin = _create_user(session, "admin@example.com", "admin")
+    _seed_existing_league(session)
+    factory = RecordingFactory(_seed())
+    service = LeagueService(session, factory, provider_id="fake")
+
+    result = service.add_league(_actor(admin), LEAGUE_EXTERNAL)
+    service.commit()
+
+    assert result.membership.has_credentials is False
+    assert result.weeks_synced == ()
+    assert _count(session, UserLeague) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -451,10 +472,94 @@ def test_AC_AU_05_duplicate_membership_is_rejected(session: Session) -> None:
     assert _count(session, UserLeague) == 1
 
     member = _create_user(session, "member@example.com", "member")
-    service.add_league(_actor(member), LEAGUE_EXTERNAL)
+    league = session.scalar(select(League))
+    assert league is not None
+    invite = _seed_invite(session, code="member-code", league=league)
+    service.redeem_invite(_actor(member), invite)
     with pytest.raises(AlreadyMemberError):
-        service.add_league(_actor(member), LEAGUE_EXTERNAL)
+        service.redeem_invite(_actor(member), invite)
+
     assert _count(session, UserLeague) == 2
+
+
+# ---------------------------------------------------------------------------
+# AC-AU-16: member invite redemption
+# ---------------------------------------------------------------------------
+
+
+def test_AC_AU_16_redeem_member_invite_creates_exactly_one_membership(
+    session: Session,
+) -> None:
+    member = _create_user(session, "member@example.com")
+    league = _seed_existing_league(session)
+    code = _seed_invite(session, code="redeem-me", league=league)
+    service = LeagueService(session, RecordingFactory({}), provider_id="fake")
+
+    view = service.redeem_invite(_actor(member), code)
+    service.commit()
+
+    assert view.league_id == league.id
+    assert view.external_id == LEAGUE_EXTERNAL
+    assert view.has_credentials is False
+    membership = session.scalar(select(UserLeague))
+    assert membership is not None
+    assert membership.user_id == member.id
+    assert membership.league_id == league.id
+    assert membership.espn_s2_encrypted is None
+    assert membership.espn_swid_encrypted is None
+    assert _count(session, UserLeague) == 1
+    assert code not in repr(view)
+
+
+def test_AC_AU_16_unknown_invite_is_rejected_and_creates_nothing(session: Session) -> None:
+    member = _create_user(session, "member@example.com")
+    league = _seed_existing_league(session)
+    _seed_invite(session, code="the-real-code", league=league)
+    service = LeagueService(session, RecordingFactory({}), provider_id="fake")
+
+    with pytest.raises(InviteNotRedeemableError, match="invalid or expired") as error:
+        service.redeem_invite(_actor(member), "not-the-code")
+
+    assert "not-the-code" not in str(error.value)
+    assert _count(session, UserLeague) == 0
+
+
+@pytest.mark.parametrize(
+    ("role", "with_league", "expired"),
+    [
+        ("member", False, False),
+        ("admin", True, False),
+        ("member", True, True),
+    ],
+    ids=["member-without-league", "admin-role", "expired"],
+)
+def test_AC_AU_16_invalid_invites_are_rejected_and_create_nothing(
+    session: Session,
+    role: str,
+    with_league: bool,
+    expired: bool,
+) -> None:
+    member = _create_user(session, "member@example.com")
+    league = _seed_existing_league(session)
+    expiry = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+    code = _seed_invite(
+        session,
+        code="not-redeemable",
+        role=role,
+        league=league if with_league else None,
+        expires_at=expiry if expired else None,
+    )
+    service = LeagueService(
+        session,
+        RecordingFactory({}),
+        provider_id="fake",
+        clock=lambda: expiry if expired else datetime(2026, 1, 1, 11, 59, tzinfo=UTC),
+    )
+
+    with pytest.raises(InviteNotRedeemableError):
+        service.redeem_invite(_actor(member), code)
+
+    assert _count(session, UserLeague) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -701,7 +806,8 @@ def test_AC_AU_05_database_duplicate_race_is_reported_as_already_member(
     session: Session,
 ) -> None:
     member = _create_user(session, "member@example.com")
-    _seed_existing_league(session)
+    league = _seed_existing_league(session)
+    code = _seed_invite(session, code="race-code", league=league)
     service = LeagueService(session, RecordingFactory({}), provider_id="fake")
 
     with (
@@ -712,7 +818,7 @@ def test_AC_AU_05_database_duplicate_race_is_reported_as_already_member(
         ),
         pytest.raises(AlreadyMemberError),
     ):
-        service.add_league(_actor(member), LEAGUE_EXTERNAL)
+        service.redeem_invite(_actor(member), code)
 
     session.rollback()
     assert _count(session, UserLeague) == 0

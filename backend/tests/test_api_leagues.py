@@ -11,7 +11,7 @@ import base64
 import logging
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -27,7 +27,7 @@ from app.api.main import create_app
 from app.api.schemas_leagues import AddLeagueRequest
 from app.api.session import SESSION_COOKIE_NAME, set_session
 from app.config import get_settings
-from app.db.auth_repositories import MembershipRepository, UserRepository
+from app.db.auth_repositories import InviteRepository, MembershipRepository, UserRepository
 from app.db.base import Base
 from app.db.models import League, Owner, UserLeague
 from app.db.repositories import SyncRepository
@@ -43,12 +43,15 @@ from app.providers.base import (
 )
 from app.providers.fake import FakeProvider
 from app.security.crypto import decrypt, encrypt
+from app.security.invite_codes import hash_invite_code
 from app.services.league_service import (
+    AdminRequiredError,
     AlreadyMemberError,
     CredentialPermissionError,
     CredentialsRequiredError,
     IncompleteCredentialsError,
     InvalidLeagueRequestError,
+    InviteNotRedeemableError,
     LeagueAccessError,
     LeagueNotFoundError,
     LeagueProviderError,
@@ -313,6 +316,26 @@ def _count(api: Api, model: type[Base]) -> int:
         return int(session.scalar(select(func.count()).select_from(model)) or 0)
 
 
+def _seed_invite(
+    api: Api,
+    *,
+    code: str = "member-invite-code",
+    role: str = "member",
+    league_id: int | None = None,
+    expires_at: datetime | None = None,
+) -> str:
+    """Store an invite for ``code`` and return the raw code."""
+    with api.factory() as session:
+        InviteRepository(session).create(
+            league_id,
+            hash_invite_code(code),
+            expires_at or (datetime.now(UTC) + timedelta(days=7)),
+            role=role,
+        )
+        session.commit()
+    return code
+
+
 def _add_payload(*, credentials: bool = True) -> dict[str, object]:
     payload: dict[str, object] = {
         "espn_league_id": LEAGUE_EXTERNAL,
@@ -333,6 +356,7 @@ def _add_payload(*, credentials: bool = True) -> dict[str, object]:
     ("method", "path", "body"),
     [
         ("post", "/api/v1/leagues", {"espn_league_id": LEAGUE_EXTERNAL}),
+        ("post", "/api/v1/me/leagues/redeem-invite", {"invite_code": "code"}),
         ("get", "/api/v1/me/leagues", None),
         ("get", "/api/v1/leagues/1/seasons", None),
         ("get", "/api/v1/leagues/1/owners", None),
@@ -447,38 +471,117 @@ def test_AC_AU_06_member_supplying_credentials_returns_403_and_stores_nothing(
     assert _count(api, UserLeague) == 0
 
 
-def test_AC_AU_08_member_joins_existing_league_and_missing_league_is_404(
+def test_AC_AU_08_member_add_by_id_returns_403_and_stores_nothing(
     api_factory: Callable[..., Api],
 ) -> None:
     api = api_factory()
     member_id = _create_user(api, "member@example.com")
     _login(api, member_id)
-    league_id = _seed_league(api)
-
-    joined = api.client.post("/api/v1/leagues", json={"espn_league_id": LEAGUE_EXTERNAL})
-    missing = api.client.post("/api/v1/leagues", json={"espn_league_id": "missing-league"})
-
-    assert joined.status_code == 201
-    assert joined.json()["league"]["league_id"] == league_id
-    assert joined.json()["league"]["has_credentials"] is False
-    assert missing.status_code == 404
-    assert missing.json()["detail"]["code"] == "not_found"
-
-
-def test_AC_AU_05_duplicate_join_returns_409(api_factory: Callable[..., Api]) -> None:
-    api = api_factory()
-    member_id = _create_user(api, "member@example.com")
-    _login(api, member_id)
     _seed_league(api)
 
-    assert (
-        api.client.post("/api/v1/leagues", json={"espn_league_id": LEAGUE_EXTERNAL}).status_code
-        == 201
-    )
-    duplicate = api.client.post("/api/v1/leagues", json={"espn_league_id": LEAGUE_EXTERNAL})
+    response = api.client.post("/api/v1/leagues", json={"espn_league_id": LEAGUE_EXTERNAL})
 
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "forbidden"
+    assert api.provider_factory.calls == []
+    assert api.provider_factory.public_calls == 0
+    assert _count(api, UserLeague) == 0
+
+
+def test_AC_AU_16_redeem_member_invite_returns_the_joined_league(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    member_id = _create_user(api, "member@example.com")
+    league_id = _seed_league(api)
+    code = _seed_invite(api, code="redeem-me", league_id=league_id)
+    _login(api, member_id)
+
+    response = api.client.post("/api/v1/me/leagues/redeem-invite", json={"invite_code": code})
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["league"]["league_id"] == league_id
+    assert body["league"]["external_id"] == LEAGUE_EXTERNAL
+    assert body["league"]["has_credentials"] is False
+    assert code not in response.text
+    with api.factory() as session:
+        membership = session.scalar(select(UserLeague))
+        assert membership is not None
+        assert membership.user_id == member_id
+        assert membership.league_id == league_id
+    assert _count(api, UserLeague) == 1
+
+
+@pytest.mark.parametrize(
+    ("role", "with_league", "expired"),
+    [
+        ("member", False, False),
+        ("admin", True, False),
+        ("member", True, True),
+    ],
+    ids=["member-without-league", "admin-role", "expired"],
+)
+def test_AC_AU_16_invalid_invites_return_400_and_store_nothing(
+    api_factory: Callable[..., Api],
+    role: str,
+    with_league: bool,
+    expired: bool,
+) -> None:
+    api = api_factory()
+    member_id = _create_user(api, "member@example.com")
+    league_id = _seed_league(api)
+    code = _seed_invite(
+        api,
+        code="not-redeemable",
+        role=role,
+        league_id=league_id if with_league else None,
+        expires_at=(datetime(2025, 12, 31, tzinfo=UTC)) if expired else None,
+    )
+    _login(api, member_id)
+
+    response = api.client.post("/api/v1/me/leagues/redeem-invite", json={"invite_code": code})
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "invalid_invite"
+    assert code not in response.text
+    assert _count(api, UserLeague) == 0
+
+
+def test_AC_AU_16_unknown_invite_returns_400_and_stores_nothing(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    member_id = _create_user(api, "member@example.com")
+    _seed_league(api)
+    _login(api, member_id)
+
+    response = api.client.post(
+        "/api/v1/me/leagues/redeem-invite", json={"invite_code": "unknown-code"}
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "invalid_invite"
+    assert "unknown-code" not in response.text
+    assert _count(api, UserLeague) == 0
+
+
+def test_AC_AU_05_redeem_duplicate_returns_409_and_keeps_one_membership(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    member_id = _create_user(api, "member@example.com")
+    league_id = _seed_league(api)
+    code = _seed_invite(api, code="duplicate-code", league_id=league_id)
+    _login(api, member_id)
+
+    first = api.client.post("/api/v1/me/leagues/redeem-invite", json={"invite_code": code})
+    duplicate = api.client.post("/api/v1/me/leagues/redeem-invite", json={"invite_code": code})
+
+    assert first.status_code == 201
     assert duplicate.status_code == 409
     assert duplicate.json()["detail"]["code"] == "already_member"
+    assert code not in duplicate.text
     assert _count(api, UserLeague) == 1
 
 
@@ -780,6 +883,8 @@ def test_production_league_service_dependency_builds(api_factory: Callable[..., 
     [
         (RefreshRateLimitedError(7), 429, "rate_limited"),
         (CredentialPermissionError("x"), 403, "forbidden"),
+        (AdminRequiredError("x"), 403, "forbidden"),
+        (InviteNotRedeemableError("x"), 400, "invalid_invite"),
         (CredentialsRequiredError("x"), 403, "credentials_required"),
         (NotAMemberError("x"), 404, "not_found"),
         (LeagueNotFoundError("x"), 404, "not_found"),

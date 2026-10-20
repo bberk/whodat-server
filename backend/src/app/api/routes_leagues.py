@@ -24,18 +24,22 @@ from app.api.schemas_leagues import (
     OwnerSummary,
     OwnerUpdateRequest,
     OwnerUpdateResponse,
+    RedeemInviteRequest,
+    RedeemInviteResponse,
     RefreshResponse,
     SeasonsResponse,
 )
 from app.db.session import get_session
 from app.providers.espn.credentials import create_espn_provider
 from app.services.league_service import (
+    AdminRequiredError,
     AlreadyMemberError,
     CredentialPermissionError,
     CredentialsRequiredError,
     EspnCredentials,
     IncompleteCredentialsError,
     InvalidLeagueRequestError,
+    InviteNotRedeemableError,
     LeagueAccessError,
     LeagueNotFoundError,
     LeagueProviderError,
@@ -111,6 +115,16 @@ def _http_error(error: LeagueServiceError) -> HTTPException:
             status_code=status.HTTP_403_FORBIDDEN,
             detail=error_detail("forbidden", "Only an admin may add league credentials"),
         )
+    if isinstance(error, AdminRequiredError):
+        return HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=error_detail("forbidden", "Only an admin may add a league"),
+        )
+    if isinstance(error, InviteNotRedeemableError):
+        return HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_detail("invalid_invite", "Invite code is invalid or expired"),
+        )
     if isinstance(error, CredentialsRequiredError):
         return HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -175,7 +189,7 @@ def add_league(
     current_user: CurrentUserDep,
     service: ServiceDep,
 ) -> AddLeagueResponse:
-    """Add a league with admin credentials or join an already-stored league as a member."""
+    """Add a league as an admin; members join only by redeeming a member invite."""
     credentials = None
     if payload.espn_s2 is not None and payload.espn_swid is not None:
         credentials = EspnCredentials(
@@ -197,6 +211,33 @@ def add_league(
         season=result.season,
         weeks_synced=list(result.weeks_synced),
     )
+
+
+@router.post(
+    "/me/leagues/redeem-invite",
+    response_model=RedeemInviteResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def redeem_invite(
+    payload: RedeemInviteRequest,
+    current_user: CurrentUserDep,
+    service: ServiceDep,
+) -> RedeemInviteResponse:
+    """Join the league named by a valid member invite, creating exactly one membership.
+
+    Unknown, expired, admin-role, and league-less invites share one structured 400 so the endpoint
+    does not reveal which part failed; a duplicate membership returns 409. The submitted code is
+    never echoed in the response or an error message.
+    """
+    try:
+        membership = service.redeem_invite(
+            _actor(current_user),
+            payload.invite_code.get_secret_value(),
+        )
+        service.commit()
+    except LeagueServiceError as error:
+        _raise(error)
+    return RedeemInviteResponse(league=_league_summary(membership))
 
 
 @router.get("/me/leagues", response_model=list[LeagueSummary])

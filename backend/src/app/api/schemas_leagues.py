@@ -34,7 +34,7 @@ def _require_printable(value: str, field_name: str) -> None:
 
 
 class AddLeagueRequest(BaseModel):
-    """Add a league with admin credentials or join an existing league without them."""
+    """Add a league with admin credentials (or a public league without them)."""
 
     model_config = ConfigDict(extra="forbid", validate_default=True)
 
@@ -72,6 +72,21 @@ class AddLeagueRequest(BaseModel):
         return self
 
 
+class RedeemInviteRequest(BaseModel):
+    """Redeem a member invite to join its league."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    invite_code: SecretStr = Field(min_length=1, max_length=512)
+
+    @field_validator("invite_code")
+    @classmethod
+    def _check_invite_code(cls, value: SecretStr) -> SecretStr:
+        """Reject empty or non-printable codes before they reach the service."""
+        _require_printable(value.get_secret_value(), "invite code")
+        return value
+
+
 class LeagueSummary(BaseModel):
     """A membership's league, with no credential material."""
 
@@ -89,6 +104,12 @@ class AddLeagueResponse(BaseModel):
     league: LeagueSummary
     season: int
     weeks_synced: list[int]
+
+
+class RedeemInviteResponse(BaseModel):
+    """The membership created by redeeming a member invite."""
+
+    league: LeagueSummary
 
 
 class SeasonsResponse(BaseModel):

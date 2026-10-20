@@ -2,7 +2,9 @@
 
 Passwords and invite codes use :class:`pydantic.SecretStr` so they never appear in a model repr,
 traceback, or structured log by accident. Responses expose only the public account fields
-(``id``, ``email``, ``role``); password hashes and invite material are never serialized.
+(``id``, ``email``, ``role``) plus a credential-free league reference at signup and the
+``has_league`` onboarding flag on ``GET /me``; password hashes and invite material are never
+serialized.
 
 User-supplied text is rejected when it contains NUL, other control characters, format characters,
 or line separators. Postgres rejects NUL in text columns with a ``DataError``, so validation must
@@ -98,6 +100,27 @@ class PublicUser(BaseModel):
     id: int
     email: str
     role: str
+
+
+class SignupLeague(BaseModel):
+    """The league granted by a member invite, with no membership or credential material."""
+
+    league_id: int
+    provider: str
+    external_id: str
+    name: str
+
+
+class SignupResponse(PublicUser):
+    """A newly created account and the league its invite granted, if any."""
+
+    league: SignupLeague | None
+
+
+class MeResponse(PublicUser):
+    """The signed-in account plus the flag the onboarding gate needs."""
+
+    has_league: bool
 
 
 class LogoutResponse(BaseModel):
