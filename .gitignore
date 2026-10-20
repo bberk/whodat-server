@@ -15,6 +15,9 @@ htmlcov/
 # Node / frontend
 node_modules/
 frontend/coverage/
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
 dist/
 *.tsbuildinfo
 

@@ -1,0 +1,149 @@
+{
+  "league": {
+    "externalId": "e2e-fixture-league",
+    "name": "E2E Fixture League",
+    "season": 2026,
+    "regularSeasonLength": 2
+  },
+  "users": {
+    "admin": {
+      "email": "e2e-admin@example.com",
+      "password": "e2e-admin-password"
+    },
+    "memberPassword": "e2e-member-password"
+  },
+  "inviteCodes": {
+    "admin": "e2e-admin-invite-code",
+    "member": "e2e-member-invite-code"
+  },
+  "teams": [
+    {
+      "externalId": "team-a",
+      "name": "Alpha",
+      "division": "East",
+      "owner": "Owner Alpha"
+    },
+    {
+      "externalId": "team-b",
+      "name": "Bravo",
+      "division": "East",
+      "owner": "Owner Bravo"
+    },
+    {
+      "externalId": "team-c",
+      "name": "Charlie",
+      "division": "West",
+      "owner": "Owner Charlie"
+    },
+    {
+      "externalId": "team-d",
+      "name": "Delta",
+      "division": "West",
+      "owner": "Owner Delta"
+    }
+  ],
+  "weeks": {
+    "1": [
+      {
+        "home": "team-a",
+        "homePoints": "120.00",
+        "away": "team-d",
+        "awayPoints": "90.00"
+      },
+      {
+        "home": "team-b",
+        "homePoints": "110.00",
+        "away": "team-c",
+        "awayPoints": "100.00"
+      }
+    ],
+    "2": [
+      {
+        "home": "team-a",
+        "homePoints": "130.00",
+        "away": "team-c",
+        "awayPoints": "95.00"
+      },
+      {
+        "home": "team-b",
+        "homePoints": "105.00",
+        "away": "team-d",
+        "awayPoints": "115.00"
+      }
+    ]
+  },
+  "expected": {
+    "overall": [
+      {
+        "rank": 1,
+        "team": "Alpha",
+        "owner": "Owner Alpha",
+        "division": "East",
+        "victoryPoints": "6",
+        "wins": 2,
+        "losses": 0,
+        "ties": 0,
+        "pointsFor": "250.00",
+        "weeklyVp": ["3", "3"]
+      },
+      {
+        "rank": 2,
+        "team": "Bravo",
+        "owner": "Owner Bravo",
+        "division": "East",
+        "victoryPoints": "2",
+        "wins": 1,
+        "losses": 1,
+        "ties": 0,
+        "pointsFor": "215.00",
+        "weeklyVp": ["2", "0"]
+      },
+      {
+        "rank": 3,
+        "team": "Delta",
+        "owner": "Owner Delta",
+        "division": "West",
+        "victoryPoints": "1",
+        "wins": 1,
+        "losses": 1,
+        "ties": 0,
+        "pointsFor": "205.00",
+        "weeklyVp": ["-1", "2"]
+      },
+      {
+        "rank": 4,
+        "team": "Charlie",
+        "owner": "Owner Charlie",
+        "division": "West",
+        "victoryPoints": "-1",
+        "wins": 0,
+        "losses": 2,
+        "ties": 0,
+        "pointsFor": "195.00",
+        "weeklyVp": ["0", "-1"]
+      }
+    ],
+    "divisions": [
+      {
+        "name": "East",
+        "teams": [
+          { "team": "Alpha", "rank": 1 },
+          { "team": "Bravo", "rank": 2 }
+        ]
+      },
+      {
+        "name": "West",
+        "teams": [
+          { "team": "Delta", "rank": 3 },
+          { "team": "Charlie", "rank": 4 }
+        ]
+      }
+    ],
+    "history": [
+      { "team": "Alpha", "weekly": ["3", "3"], "cumulative": ["3", "6"] },
+      { "team": "Bravo", "weekly": ["2", "0"], "cumulative": ["2", "2"] },
+      { "team": "Charlie", "weekly": ["0", "-1"], "cumulative": ["0", "-1"] },
+      { "team": "Delta", "weekly": ["-1", "2"], "cumulative": ["-1", "1"] }
+    ]
+  }
+}
