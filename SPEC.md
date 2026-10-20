@@ -61,15 +61,14 @@ If all three are equal, teams share the same rank (display order is then alphabe
 - Sync is **idempotent**: re-running it never creates duplicates and updates any changed values (ESPN scores can be corrected after the fact). After a sync, VP is recomputed for any affected weeks.
 - Sync is runnable on demand via a CLI command, and schedulable via cron or equivalent.
 - Private ESPN leagues require ESPN auth cookies (`espn_s2`, `SWID`). A league admin supplies them
-  when adding the league; they are stored encrypted at rest on that user's membership and decrypted
-  only on the provider call path. They are never committed, never logged, and never returned by the
-  API.
+  when adding the league. Credentials come only from a user's membership, where they are stored
+  encrypted at rest, and are decrypted only in the provider layer. They are never committed, never
+  logged, and never returned by the API.
 - Adding a league validates the credentials by constructing an ESPN league object before anything is
   stored; a failed validation stores nothing.
 - A league-wide refresh can be triggered from the UI by a member whose membership holds credentials.
   Refresh is rate limited per league and per user; members without credentials cannot refresh.
 - Historical seasons can be backfilled by specifying a season.
-- The environment-level `ESPN_S2`/`ESPN_SWID` path remains available for CLI and bootstrap use only.
 
 ### 4.2 Data storage
 
@@ -93,19 +92,26 @@ All ESPN-specific code lives behind a provider interface that returns normalized
 ### 4.4 Accounts and access
 
 - Accounts are invite-only: signing up requires a valid, unexpired shared invite code, which is
-  validated against its stored hash. Invites belong to a league, default to a 7-day expiry, and
-  carry either the **admin** or **member** role. The raw code is shown only once when an admin
-  creates the invite and is never retrievable afterwards; regenerating means creating a new invite.
+  validated against its stored hash. Every invite carries either the **admin** or **member** role.
+  **Admin invites** are league-less: they create an account that can then add any league through the
+  UI without another invite. **Member invites** are bound to exactly one league and grant that
+  membership automatically at signup; a member invite with no league, or an admin invite with a
+  league, is rejected at creation. Invites default to a 7-day expiry. The raw code is shown only
+  once when an admin creates the invite and is never retrievable afterwards; regenerating means
+  creating a new invite.
 - Users and leagues are many-to-many. A membership row links a user to a league, optionally records
   that user's owner (team) association, and stores that user's ESPN credentials, encrypted at rest.
 - An admin can add a league by providing `espn_league_id`, an optional season, and optional
-  ESPN_S2/ESPN_SWID. The backend validates by constructing an ESPN league object before storing
-  anything; on success it stores the league, the membership, the encrypted credentials, and syncs
-  the requested season. A member can add only an existing league by `espn_league_id` and joins
-  without credentials; a member supplying credentials is rejected.
+  ESPN_S2/ESPN_SWID; no invite is required. The backend validates by constructing an ESPN league
+  object before storing anything; on success it stores the league, the membership, the encrypted
+  credentials, and syncs the requested season.
+- A user who signs up with an admin invite has no league and must complete a mandatory "create your
+  league" step (ESPN league id, season, ESPN_S2, ESPN_SWID) before reaching standings. A user who
+  signs up with a member invite already has that league and goes straight in.
+- An existing member joins an additional league by redeeming a member invite code in the UI, not by
+  supplying a bare league id. Admins may add any league with credentials without an invite.
 - Credentials are encrypted at rest with AES-256-GCM under `LEAGUE_CREDENTIALS_KEY`, decrypted only
-  on the provider call path, and never logged or returned by the API. The environment
-  ESPN_S2/ESPN_SWID path remains for CLI and bootstrap use only.
+  in the provider layer, and never logged or returned by the API.
 - A member whose membership holds credentials can trigger a league-wide refresh from the UI; refresh
   is rate limited per league and per user. Members without credentials cannot refresh.
 - After joining, a user may associate their membership with one of that league's owners.

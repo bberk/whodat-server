@@ -127,10 +127,13 @@ default `member`; set from the invite at signup), `created_at`.
 There is no owner association on `app_user`; the optional association lives on the membership.
 
 ### `invite`
-`league_id` → league, `code_hash` (text, unique; a one-way hash of the raw invite code, never the raw
-code), `role` (text: `admin` or `member`), `expires_at` (timestamp, default 7 days after creation),
+`league_id` → league (nullable; required for `member` invites and null for `admin` invites),
+`code_hash` (text, unique; a one-way hash of the raw invite code, never the raw code), `role` (text:
+`admin` or `member`), `expires_at` (timestamp, default 7 days after creation),
 `created_at`/`updated_at`.
 Unique: (`code_hash`). Index: (`league_id`).
+Invariant: a `member` invite has a `league_id`; an `admin` invite has none. Creation rejects either
+mismatch.
 
 The raw invite code is shown only once by the admin CLI that creates it and is never retrievable
 afterwards; only its hash is stored. Regenerating an invite means creating a new one.
@@ -237,9 +240,10 @@ All endpoints are under `/api/v1`, JSON, cookie-session or bearer-token auth (ba
 | `POST /auth/signup` | none | Create account (email, password, `invite_code`) |
 | `POST /auth/login` | none | Log in |
 | `POST /auth/logout` | user | Log out |
-| `GET /me` | user | Current user (email, role) and memberships |
+| `GET /me` | user | Current user (email, role), memberships, and whether the user has any league (so the UI can force onboarding) |
 | `GET /me/leagues` | user | Leagues the current user is a member of |
-| `POST /leagues` | user | Add a league: an admin may include credentials; a member joins an existing league by `espn_league_id` only |
+| `POST /me/leagues/redeem-invite` | user | Redeem a member invite code, creating the membership for that invite's league |
+| `POST /leagues` | admin | Create/add a league with credentials (no invite required); admin only |
 | `GET /leagues/{league_id}/owners` | member | Owners available for the caller's owner association |
 | `PUT /me/leagues/{league_id}/owner` | member | Set the caller's own owner association within that league |
 | `GET /leagues/{league_id}/seasons` | member | Seasons with data |
@@ -248,12 +252,14 @@ All endpoints are under `/api/v1`, JSON, cookie-session or bearer-token auth (ba
 | `GET /leagues/{league_id}/seasons/{season}/vp-history` | member | Weekly and cumulative VP per team (for the chart) |
 
 "member" = authenticated user with a `user_league` membership in the league. League-scoped requests
-from non-members return 403 or 404, and unauthenticated requests return 401. Only admins may add
-league credentials; a member supplying credentials is rejected. A refresh requires a membership
-that holds credentials.
+from non-members return 403 or 404, and unauthenticated requests return 401. Only admins may add a
+league or league credentials; a member supplying `espn_league_id` or credentials is rejected, and a
+member joins only through a valid member invite. A refresh requires a membership that holds
+credentials.
 
 Invite creation is an admin CLI operation, not a public endpoint:
-`python -m app.cli create-invite --league <id> --role admin|member --expires 7d`.
+`python -m app.cli create-invite --role admin|member [--league <id>] --expires 7d`.
+`--league` is required for a member invite and rejected for an admin invite, which is league-less.
 The command prints the raw invite code once at creation; only its hash is stored, and the raw code
 is never retrievable afterwards.
 
@@ -302,12 +308,11 @@ VP and points are serialized as **strings** (decimal), so the frontend never rel
 All via environment variables, documented in `.env.example`:
 
 `DATABASE_URL` (default `sqlite:///./dev.db`), `SECRET_KEY`, `LEAGUE_CREDENTIALS_KEY` (32-byte key
-for AES-256-GCM), `ESPN_S2`, `ESPN_SWID` (CLI/bootstrap only), `CORS_ORIGINS`, `ENV`.
+for AES-256-GCM), `CORS_ORIGINS`, `ENV`.
 
-League credentials supplied by an admin are stored encrypted at rest with AES-256-GCM under
-`LEAGUE_CREDENTIALS_KEY`, decrypted only on the provider call path, never logged, and never returned
-by the API. The environment `ESPN_S2`/`ESPN_SWID` path remains available for CLI and bootstrap use
-only and is never read during API request handling.
+League credentials live only on memberships. They are stored encrypted at rest with AES-256-GCM
+under `LEAGUE_CREDENTIALS_KEY`, decrypted only on the provider call path, never logged, and never
+returned by the API. There is no environment `ESPN_S2`/`ESPN_SWID` credential path.
 
 ## 11. Testing strategy
 

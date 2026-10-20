@@ -105,19 +105,23 @@ Three tied teams each get exactly 1/3 high-score VP (tests must use exact fracti
 
 | ID | Criterion |
 |---|---|
-| AC-AU-01 | A visitor can sign up only with a valid, unexpired shared invite code. Signup validates the submitted code against the invite's stored hash (the raw code is never stored); an invite belongs to a league, defaults to a 7-day expiry, carries the role (`admin` or `member`) assigned to the new account, and can be used by multiple invitees while unexpired. The raw code is shown only once when an admin creates the invite and is never retrievable afterwards; regenerating means creating a new invite. Missing, unknown, or expired codes are rejected. |
+| AC-AU-01 | A visitor can sign up only with a valid, unexpired shared invite code. Signup validates the submitted code against the invite's stored hash (the raw code is never stored); every invite carries the role (`admin` or `member`) assigned to the new account and defaults to a 7-day expiry. An **admin** invite is league-less; a **member** invite is bound to exactly one league and grants that membership at signup. An invite can be used by multiple invitees while unexpired. The raw code is shown only once when an admin creates the invite and is never retrievable afterwards; regenerating means creating a new invite. Missing, unknown, or expired codes are rejected. |
 | AC-AU-02 | Duplicate emails are rejected case-insensitively (emails are stored lowercase). |
 | AC-AU-03 | Passwords are stored only as salted argon2id hashes; no plaintext password appears in the database or logs. |
 | AC-AU-04 | Valid credentials log the user in; invalid credentials return the same generic error for an unknown email and a wrong password (no user enumeration). |
-| AC-AU-05 | Users and leagues are many-to-many: a user can hold memberships in multiple leagues, a membership is unique per (user, league), and a duplicate join is rejected. |
-| AC-AU-06 | Only an admin can add a league with credentials. The admin supplies `espn_league_id`, an optional season, and optional ESPN_S2/ESPN_SWID; the backend validates by constructing an ESPN league object before storing anything. On success it stores the league, the membership, the encrypted credentials, and syncs the requested season; on validation failure it stores nothing. |
+| AC-AU-05 | Users and leagues are many-to-many: a user can hold memberships in multiple leagues, a membership is unique per (user, league), and a duplicate join is rejected. A member invite creates its membership automatically at signup; an existing member joins an additional league only by redeeming a valid member invite for that league, never by supplying a bare `espn_league_id`. |
+| AC-AU-06 | Only an admin can add a league with credentials, and no invite is required. The admin supplies `espn_league_id`, an optional season, and optional ESPN_S2/ESPN_SWID; the backend validates by constructing an ESPN league object before storing anything. On success it stores the league, the membership, the encrypted credentials, and syncs the requested season; on validation failure it stores nothing. |
 | AC-AU-07 | League credentials are encrypted at rest with AES-256-GCM under a key from `LEAGUE_CREDENTIALS_KEY`; they are decrypted only on the provider call path and are never returned by the API or written to logs or error messages. |
-| AC-AU-08 | A member can add an existing league with only `espn_league_id` and is associated without credentials. A non-admin attempt to supply credentials is rejected and stores nothing. |
+| AC-AU-08 | A member cannot add a league by `espn_league_id` and cannot supply credentials; such attempts are rejected and store nothing. A member joins a league only by redeeming a valid, unexpired member invite for that league. |
 | AC-AU-09 | A member whose membership holds credentials can trigger a league-wide refresh; refresh is rate limited per league and per user, and a member without credentials cannot refresh. |
 | AC-AU-10 | Every league-scoped endpoint enforces membership server-side: unauthenticated requests return 401, and a non-member requesting another league's data gets 403 or 404, never data. |
 | AC-AU-11 | Auth endpoints (signup and login) are rate limited; a test demonstrates throttling after repeated requests or failures. |
 | AC-AU-12 | After joining, a user can set the owner association only on their own membership, choosing from that league's owners; another user's membership cannot be changed. |
-| AC-AU-13 | The environment `ESPN_S2`/`ESPN_SWID` path is available only to CLI and bootstrap code; API request handling never reads those environment credentials. |
+| AC-AU-13 | League credentials exist only on a `user_league` membership; there is no environment `ESPN_S2`/`ESPN_SWID` credential path, and API request handling never reads credential environment variables. The CLI syncs using a member's stored credentials selected explicitly with `--as-email`. |
+| AC-AU-14 | A user who signs up with an admin invite has no league; the UI forces the mandatory create-your-league step (ESPN league id, season, ESPN_S2/ESPN_SWID) and standings are unreachable until it succeeds. Completing it creates the league and the user's membership. |
+| AC-AU-15 | A user who signs up with a member invite already holds that league's membership and reaches its standings without the create-league step. |
+| AC-AU-16 | Redeeming a member invite for an additional league creates exactly one membership; an expired, unknown, or wrong-role (admin) invite is rejected and creates nothing. |
+| AC-AU-17 | Invite creation rejects a member invite with no league and an admin invite with a league; the role/league invariant is enforced at creation. |
 
 ## 6. API
 
