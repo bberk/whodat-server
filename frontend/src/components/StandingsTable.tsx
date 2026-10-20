@@ -1,4 +1,4 @@
-import type { StandingsRow } from "../mocks/standings";
+import type { StandingsRow } from "../api/types";
 import { formatPoints, formatRecord, formatVP, vpTone, vpToneClass } from "./format";
 import { seriesStyle } from "./series";
 
@@ -123,7 +123,7 @@ export function StandingsTable({
                       <span>{row.team_name}</span>
                     </button>
                   </td>
-                  <td className={`${numCell} text-left text-gray-600`}>{row.owner_name}</td>
+                  <td className={`${numCell} text-left text-gray-600`}>{row.owner_name ?? "—"}</td>
                   <td className={`${numCell} font-bold ${vpToneClass(vpTone(row.victory_points))}`}>
                     {formatVP(row.victory_points)}
                   </td>

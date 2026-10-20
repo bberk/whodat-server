@@ -14,11 +14,13 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "gen:api": "openapi-typescript ../docs/openapi.json -o src/api/schema.d.ts && prettier --write src/api/schema.d.ts"
   },
   "dependencies": {
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "react-router-dom": "7.18.4"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
@@ -35,6 +37,7 @@
     "eslint-plugin-react-refresh": "^0.4.16",
     "globals": "^15.14.0",
     "jsdom": "^25.0.1",
+    "openapi-typescript": "7.13.0",
     "postcss": "^8.4.49",
     "prettier": "^3.4.2",
     "tailwindcss": "^3.4.17",

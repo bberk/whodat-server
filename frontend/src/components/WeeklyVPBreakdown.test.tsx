@@ -2,14 +2,15 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { mockStandingsBundle, weeklyBreakdownFor } from "../mocks/standings";
+import { weeklyBreakdownFor } from "../standings/model";
+import { historyResponse, standingsResponse } from "../test/fixtures";
 import { WeeklyVPBreakdown } from "./WeeklyVPBreakdown";
 
-const weeks = mockStandingsBundle.history.weeks;
-const week4 = weeklyBreakdownFor(mockStandingsBundle, 4);
+const weeks = historyResponse.weeks;
+const week4 = weeklyBreakdownFor(historyResponse, standingsResponse.overall, 4);
 
 describe("WeeklyVPBreakdown", () => {
-  it("renders the component columns and the week's totals", () => {
+  it("renders the week's VP and cumulative VP from the API values", () => {
     render(
       <WeeklyVPBreakdown
         weeks={weeks}
@@ -20,29 +21,31 @@ describe("WeeklyVPBreakdown", () => {
         selectedTeamId={null}
       />,
     );
-    for (const header of ["H2H", "Top half", "High score", "Low score", "Total VP"]) {
+    for (const header of ["Team", "Weekly VP", "Cumulative VP"]) {
       expect(screen.getByRole("columnheader", { name: header })).toBeInTheDocument();
     }
-    const table = screen.getByRole("table", { name: /week 4 victory point components/i });
+    const table = screen.getByRole("table", { name: /week 4 victory points per team/i });
     const bodyRows = within(table).getAllByRole("row").slice(1);
-    // ordered by that week's total VP: the three 2.33 rows come first
+    // ordered by that week's VP: the three 2.33 rows come first
     expect(within(bodyRows[0]).getByRole("rowheader")).toHaveTextContent("Alpha");
-    expect(within(bodyRows[3]).getByRole("rowheader")).toHaveTextContent("Charlie");
+    expect(within(bodyRows[2]).getByRole("rowheader")).toHaveTextContent("Echo");
     expect(within(bodyRows[5]).getByRole("rowheader")).toHaveTextContent("Foxtrot");
+    expect(within(bodyRows[0]).getByText("10.83")).toBeInTheDocument();
   });
 
-  it("shows the high-score split as 0.33 without rounding it away", () => {
+  it("keeps negative weekly VP and shows the cumulative total through the week", () => {
     render(
       <WeeklyVPBreakdown
         weeks={weeks}
-        selectedWeek={4}
+        selectedWeek={3}
         onSelectWeek={() => {}}
-        rows={week4.rows}
+        rows={weeklyBreakdownFor(historyResponse, standingsResponse.overall, 3).rows}
         note={null}
         selectedTeamId={null}
       />,
     );
-    expect(screen.getAllByText("0.33")).toHaveLength(3);
+    expect(screen.getAllByText("-0.5").length).toBeGreaterThan(0);
+    expect(screen.getByText("-2.5")).toBeInTheDocument();
   });
 
   it("marks the active week and reports selection changes", async () => {
@@ -54,7 +57,7 @@ describe("WeeklyVPBreakdown", () => {
         selectedWeek={4}
         onSelectWeek={onSelectWeek}
         rows={week4.rows}
-        note={week4.note}
+        note={null}
         selectedTeamId={null}
       />,
     );
@@ -64,18 +67,18 @@ describe("WeeklyVPBreakdown", () => {
     expect(onSelectWeek).toHaveBeenCalledWith(1);
   });
 
-  it("shows the callout note when there is one", () => {
+  it("shows a callout note when the data layer supplies one", () => {
     render(
       <WeeklyVPBreakdown
         weeks={weeks}
         selectedWeek={1}
         onSelectWeek={() => {}}
-        rows={weeklyBreakdownFor(mockStandingsBundle, 1).rows}
-        note={weeklyBreakdownFor(mockStandingsBundle, 1).note}
+        rows={weeklyBreakdownFor(historyResponse, standingsResponse.overall, 1).rows}
+        note="Cumulative VP is through week 1."
         selectedTeamId={null}
       />,
     );
-    expect(screen.getByText(/example A/i)).toBeInTheDocument();
+    expect(screen.getByText("Cumulative VP is through week 1.")).toBeInTheDocument();
   });
 
   it("renders no callout when the note is absent", () => {
@@ -84,11 +87,11 @@ describe("WeeklyVPBreakdown", () => {
         weeks={weeks}
         selectedWeek={2}
         onSelectWeek={() => {}}
-        rows={weeklyBreakdownFor(mockStandingsBundle, 2).rows}
+        rows={weeklyBreakdownFor(historyResponse, standingsResponse.overall, 2).rows}
         note={null}
         selectedTeamId={null}
       />,
     );
-    expect(screen.queryByText(/ACCEPTANCE.md/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/cumulative vp is through/i)).not.toBeInTheDocument();
   });
 });

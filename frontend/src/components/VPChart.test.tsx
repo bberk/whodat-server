@@ -2,16 +2,12 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { buildHistorySeries, mockStandingsBundle } from "../mocks/standings";
+import { buildHistorySeries } from "../standings/model";
+import { historyResponse } from "../test/fixtures";
 import { VPChart, type ChartSeries, type VPChartProps } from "./VPChart";
 
-const weeks = mockStandingsBundle.history.weeks;
-const series: ChartSeries[] = buildHistorySeries(mockStandingsBundle).map((entry) => ({
-  teamId: entry.teamId,
-  teamName: entry.teamName,
-  styleIndex: entry.styleIndex,
-  cumulative: entry.cumulative,
-}));
+const weeks = historyResponse.weeks;
+const series: ChartSeries[] = buildHistorySeries(historyResponse);
 
 function renderChart(overrides: Partial<VPChartProps> = {}) {
   return render(

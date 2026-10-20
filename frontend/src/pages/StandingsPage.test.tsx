@@ -1,36 +1,75 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { LeagueContextValue } from "../leagues/LeagueContext";
+import { LeagueContext } from "../leagues/LeagueContext";
 import {
-  createStandingsSource,
-  mockStandingsBundle,
-  type MockScenario,
-  type StandingsSource,
-} from "../mocks/standings";
+  emptyHistoryResponse,
+  emptyStandingsResponse,
+  errorResponse,
+  historyResponse,
+  jsonResponse,
+  leagueAlpha,
+  mockFetch,
+  requestPath,
+  standingsResponse,
+} from "../test/fixtures";
 import { StandingsPage } from "./StandingsPage";
 
-function renderScenario(scenario: MockScenario) {
-  return render(<StandingsPage source={createStandingsSource(scenario)} />);
+function contextValue(overrides: Partial<LeagueContextValue> = {}): LeagueContextValue {
+  return {
+    leagues: [leagueAlpha],
+    leaguesStatus: "ready",
+    leaguesError: null,
+    selectedLeague: leagueAlpha,
+    selectLeague: vi.fn(),
+    seasons: [2026],
+    seasonsStatus: "ready",
+    seasonsError: null,
+    season: 2026,
+    selectSeason: vi.fn(),
+    upsertLeague: vi.fn(),
+    reloadLeagues: vi.fn(),
+    dataVersion: 0,
+    notifyDataChanged: vi.fn(),
+    ...overrides,
+  };
 }
+
+function renderPage(value: LeagueContextValue = contextValue()) {
+  return render(
+    <LeagueContext.Provider value={value}>
+      <StandingsPage />
+    </LeagueContext.Provider>,
+  );
+}
+
+function readyFetch() {
+  return mockFetch((url) => {
+    const path = requestPath(url);
+    if (path.endsWith("/standings")) {
+      return jsonResponse(standingsResponse);
+    }
+    if (path.endsWith("/vp-history")) {
+      return jsonResponse(historyResponse);
+    }
+    return errorResponse(404, { code: "not_found", message: "Not found" });
+  });
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("StandingsPage", () => {
   it("renders the overall table, one table per division, the chart, and the weekly breakdown", async () => {
-    renderScenario("ready");
+    const user = userEvent.setup();
+    readyFetch();
+    renderPage();
     const overall = await screen.findByRole("table", { name: /overall 2026 standings/i });
     expect(within(overall).getByRole("columnheader", { name: "W-L" })).toBeInTheDocument();
-    expect(screen.getByRole("table", { name: /east division standings/i })).toBeInTheDocument();
-    expect(screen.getByRole("table", { name: /west division standings/i })).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: /cumulative victory points/i })).toBeInTheDocument();
-    expect(
-      screen.getByRole("table", { name: /week 4 victory point components/i }),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/4 completed weeks/i)).toBeInTheDocument();
-  });
-
-  it("shows overall league ranks in the division tables", async () => {
-    renderScenario("ready");
-    const east = await screen.findByRole("table", { name: /east division standings/i });
+    const east = screen.getByRole("table", { name: /east division standings/i });
     const west = screen.getByRole("table", { name: /west division standings/i });
     expect(
       within(east)
@@ -42,11 +81,38 @@ describe("StandingsPage", () => {
         .getAllByRole("rowheader")
         .map((cell) => cell.textContent),
     ).toEqual(["4", "5", "6"]);
+    expect(screen.getByRole("img", { name: /cumulative victory points/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("table", { name: /week 4 victory points per team/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/4 completed weeks/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "W1" }));
+    expect(
+      await screen.findByRole("table", { name: /week 1 victory points per team/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows W-L-T when a team recorded an H2H tie", async () => {
+    const tied = {
+      ...standingsResponse,
+      overall: standingsResponse.overall.map((row, index) =>
+        index === 0 ? { ...row, ties: 1 } : row,
+      ),
+    };
+    mockFetch((url) =>
+      requestPath(url).endsWith("/standings") ? jsonResponse(tied) : jsonResponse(historyResponse),
+    );
+    renderPage();
+    const overall = await screen.findByRole("table", { name: /overall 2026 standings/i });
+    expect(within(overall).getByRole("columnheader", { name: "W-L-T" })).toBeInTheDocument();
+    expect(within(overall).getByText("4-0-1")).toBeInTheDocument();
   });
 
   it("highlights the selected team in both the table and the chart", async () => {
+    readyFetch();
     const user = userEvent.setup();
-    const { container } = renderScenario("ready");
+    const { container } = renderPage();
     await screen.findByRole("table", { name: /overall 2026 standings/i });
     const alpha = screen.getAllByRole("button", { name: "Alpha" })[0];
     await user.click(alpha);
@@ -57,95 +123,60 @@ describe("StandingsPage", () => {
     );
   });
 
-  it("toggles a chart series off from the legend", async () => {
+  it("toggles a chart series off and back on from the legend", async () => {
+    readyFetch();
     const user = userEvent.setup();
-    const { container } = renderScenario("ready");
+    const { container } = renderPage();
     await screen.findByRole("img", { name: /cumulative victory points/i });
     const chip = screen.getByRole("button", { name: "Bravo 8.83" });
     await user.click(chip);
     expect(chip).toHaveAttribute("aria-pressed", "false");
     expect(container.querySelector('polyline[data-team-id="3"]')).not.toBeInTheDocument();
-    expect(screen.getByRole("img").getAttribute("aria-label")).not.toContain("Bravo");
-  });
-
-  it("re-shows a hidden team when it is selected from the table", async () => {
-    const user = userEvent.setup();
-    const { container } = renderScenario("ready");
-    await screen.findByRole("table", { name: /overall 2026 standings/i });
-    await user.click(screen.getByRole("button", { name: "Bravo 8.83" }));
-    expect(container.querySelector('polyline[data-team-id="3"]')).not.toBeInTheDocument();
-    await user.click(screen.getAllByRole("button", { name: "Bravo" })[0]);
+    await user.click(chip);
     expect(container.querySelector('polyline[data-team-id="3"]')).toBeInTheDocument();
   });
 
-  it("switches the weekly breakdown to the selected week", async () => {
-    const user = userEvent.setup();
-    renderScenario("ready");
-    await screen.findByRole("table", { name: /week 4 victory point components/i });
-    await user.click(screen.getByRole("button", { name: "W1" }));
-    expect(
-      await screen.findByRole("table", { name: /week 1 victory point components/i }),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/week 1 mirrors ACCEPTANCE.md example A/i)).toBeInTheDocument();
-  });
-
-  it("keeps the season picker controlled", async () => {
-    renderScenario("ready");
-    await screen.findByRole("table", { name: /overall 2026 standings/i });
-    const select = screen.getByLabelText("Season");
-    fireEvent.change(select, { target: { value: "2026" } });
-    expect(select).toHaveValue("2026");
-  });
-
-  it("offers the VP rules summary accessibly", async () => {
-    renderScenario("ready");
-    await screen.findByRole("table", { name: /overall 2026 standings/i });
-    expect(screen.getByRole("tooltip")).toHaveTextContent(/head-to-head win/i);
-  });
-
-  it("labels the data as illustrative and explains the mock source", async () => {
-    renderScenario("ready");
-    await screen.findByRole("table", { name: /overall 2026 standings/i });
-    expect(screen.getByRole("note")).toHaveTextContent(/illustrative data/i);
-    expect(screen.getByText(/mock data provenance/i)).toBeInTheDocument();
-  });
-
-  it("shows a loading state for every data view", () => {
-    renderScenario("loading");
+  it("shows loading, empty, and error states for every data view", async () => {
+    mockFetch(() => new Promise<Response>(() => {}));
+    const loading = renderPage();
     expect(screen.getAllByRole("status")).toHaveLength(4);
-    expect(screen.getByRole("status", { name: "Loading standings…" })).toBeInTheDocument();
-  });
+    loading.unmount();
 
-  it("shows an empty state for every data view", async () => {
-    renderScenario("empty");
+    mockFetch((url) =>
+      requestPath(url).endsWith("/standings")
+        ? jsonResponse(emptyStandingsResponse)
+        : jsonResponse(emptyHistoryResponse),
+    );
+    const empty = renderPage();
     await screen.findByText("No chart yet");
     expect(screen.getAllByText("No completed weeks yet")).toHaveLength(2);
     expect(screen.getByText("No weekly VP yet")).toBeInTheDocument();
+    empty.unmount();
+
+    mockFetch(() => errorResponse(500, { code: "boom", message: "The API is unavailable." }));
+    renderPage();
+    const alerts = await screen.findAllByRole("alert");
+    expect(alerts).toHaveLength(4);
+    expect(alerts[0]).toHaveTextContent("The API is unavailable.");
   });
 
-  it("shows an error state with a retry that reloads the data", async () => {
-    let calls = 0;
-    const source: StandingsSource = {
-      load: () => {
-        calls += 1;
-        return calls === 1
-          ? Promise.reject(new Error("boom"))
-          : Promise.resolve(mockStandingsBundle);
-      },
-    };
+  it("retries a failed load", async () => {
+    let standingsCalls = 0;
+    mockFetch((url) => {
+      if (!requestPath(url).endsWith("/standings")) {
+        return jsonResponse(historyResponse);
+      }
+      standingsCalls += 1;
+      return standingsCalls === 1
+        ? errorResponse(500, { code: "boom", message: "Boom" })
+        : jsonResponse(standingsResponse);
+    });
     const user = userEvent.setup();
-    render(<StandingsPage source={source} />);
+    renderPage();
     expect(await screen.findAllByRole("alert")).toHaveLength(4);
     await user.click(screen.getAllByRole("button", { name: "Retry" })[0]);
-    expect(
-      await screen.findByRole("table", { name: /overall 2026 standings/i }),
-    ).toBeInTheDocument();
-  });
-
-  it("defaults to the bundled mock source when none is injected", async () => {
-    render(<StandingsPage />);
-    expect(
-      await screen.findByRole("table", { name: /overall 2026 standings/i }),
-    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole("table", { name: /overall 2026 standings/i })).toBeInTheDocument();
+    });
   });
 });

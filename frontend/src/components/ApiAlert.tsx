@@ -1,0 +1,26 @@
+import type { DisplayError } from "../api/errors";
+
+/** Render a structured API failure, including 422 field messages and a 429 retry window. */
+export function ApiAlert({ error }: { error: DisplayError | null }) {
+  if (error === null) {
+    return null;
+  }
+  const fields = Object.entries(error.fieldErrors);
+  return (
+    <div
+      role="alert"
+      className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-800"
+    >
+      <p>{error.message}</p>
+      {fields.length === 0 ? null : (
+        <ul className="mt-1 list-inside list-disc">
+          {fields.map(([field, message]) => (
+            <li key={field}>
+              <span className="font-semibold">{field}</span>: {message}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}

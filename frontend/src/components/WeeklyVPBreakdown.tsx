@@ -1,4 +1,4 @@
-import type { WeeklyBreakdownRow } from "../mocks/standings";
+import type { WeeklyBreakdownRow } from "../standings/model";
 import { formatVP, vpTone, vpToneClass } from "./format";
 import { seriesStyle } from "./series";
 
@@ -15,7 +15,11 @@ const headCell =
   "whitespace-nowrap px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500";
 const numCell = "whitespace-nowrap px-3 py-2 text-right tabular-nums";
 
-/** Per-week VP components, so a reader can see why each team earned its weekly total. */
+/**
+ * One week's VP per team, plus the cumulative total through that week. The API exposes weekly and
+ * cumulative VP totals; it does not expose the per-component split, so this table shows exactly
+ * the values the server returns.
+ */
 export function WeeklyVPBreakdown({
   weeks,
   selectedWeek,
@@ -51,11 +55,11 @@ export function WeeklyVPBreakdown({
           className="relative overflow-x-auto rounded-xl border border-gray-200 bg-white"
           tabIndex={0}
           role="region"
-          aria-label={`Week ${selectedWeek} VP components, scrollable horizontally`}
+          aria-label={`Week ${selectedWeek} VP breakdown, scrollable horizontally`}
         >
-          <table className="w-full min-w-[600px] border-collapse text-sm">
+          <table className="w-full min-w-[420px] border-collapse text-sm">
             <caption className="sr-only">
-              Week {selectedWeek} victory point components per team.
+              Week {selectedWeek} victory points per team, with cumulative VP through that week.
             </caption>
             <thead>
               <tr className="border-b border-gray-300">
@@ -63,19 +67,10 @@ export function WeeklyVPBreakdown({
                   Team
                 </th>
                 <th scope="col" className={`${headCell} text-right`}>
-                  H2H
+                  Weekly VP
                 </th>
                 <th scope="col" className={`${headCell} text-right`}>
-                  Top half
-                </th>
-                <th scope="col" className={`${headCell} text-right`}>
-                  High score
-                </th>
-                <th scope="col" className={`${headCell} text-right`}>
-                  Low score
-                </th>
-                <th scope="col" className={`${headCell} text-right`}>
-                  Total VP
+                  Cumulative VP
                 </th>
               </tr>
             </thead>
@@ -107,21 +102,10 @@ export function WeeklyVPBreakdown({
                         {row.teamName}
                       </span>
                     </th>
-                    <td className={`${numCell} ${vpToneClass(vpTone(row.h2h))}`}>
-                      {formatVP(row.h2h)}
+                    <td className={`${numCell} font-bold ${vpToneClass(vpTone(row.weekly))}`}>
+                      {formatVP(row.weekly)}
                     </td>
-                    <td className={`${numCell} ${vpToneClass(vpTone(row.topHalf))}`}>
-                      {formatVP(row.topHalf)}
-                    </td>
-                    <td className={`${numCell} ${vpToneClass(vpTone(row.high))}`}>
-                      {formatVP(row.high)}
-                    </td>
-                    <td className={`${numCell} ${vpToneClass(vpTone(row.low))}`}>
-                      {formatVP(row.low)}
-                    </td>
-                    <td className={`${numCell} font-bold ${vpToneClass(vpTone(row.total))}`}>
-                      {formatVP(row.total)}
-                    </td>
+                    <td className={`${numCell} text-gray-600`}>{formatVP(row.cumulative)}</td>
                   </tr>
                 );
               })}

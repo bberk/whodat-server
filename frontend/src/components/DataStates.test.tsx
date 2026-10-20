@@ -2,8 +2,8 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { mockStandingsBundle } from "../mocks/standings";
-import type { StandingsState } from "./useStandingsData";
+import type { StandingsState } from "../standings/useStandingsData";
+import { historyResponse, standingsResponse } from "../test/fixtures";
 import { DataState, EmptyState, ErrorState, LoadingState } from "./DataStates";
 
 describe("LoadingState", () => {
@@ -26,8 +26,8 @@ describe("ErrorState", () => {
   it("is an alert and retries on demand", async () => {
     const onRetry = vi.fn();
     const user = userEvent.setup();
-    render(<ErrorState onRetry={onRetry} />);
-    expect(screen.getByRole("alert")).toBeInTheDocument();
+    render(<ErrorState onRetry={onRetry} message="The API is unavailable." />);
+    expect(screen.getByRole("alert")).toHaveTextContent("The API is unavailable.");
     await user.click(screen.getByRole("button", { name: "Retry" }));
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
@@ -48,7 +48,7 @@ describe("DataState", () => {
 
   it("renders the error placeholder", () => {
     render(<DataState {...base} state={{ status: "error", message: "boom" }} />);
-    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("boom");
   });
 
   it("renders the empty placeholder", () => {
@@ -57,7 +57,11 @@ describe("DataState", () => {
   });
 
   it("renders nothing once the view is ready", () => {
-    const ready: StandingsState = { status: "ready", bundle: mockStandingsBundle };
+    const ready: StandingsState = {
+      status: "ready",
+      standings: standingsResponse,
+      history: historyResponse,
+    };
     const { container } = render(<DataState {...base} state={ready} />);
     expect(container).toBeEmptyDOMElement();
   });
