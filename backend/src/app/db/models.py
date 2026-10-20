@@ -203,11 +203,12 @@ class AppUser(TimestampMixin, Base):
 
 
 class Invite(TimestampMixin, Base):
-    """A league invite that grants admin or member access until it expires.
+    """An invite that grants admin or member access until it expires.
 
-    Only a one-way hash of the raw code is stored. ``expires_at`` is supplied by the caller (the
-    admin CLI applies the documented seven-day default); the repository reports whether a stored
-    invite is still valid.
+    A member invite belongs to exactly one league; an admin invite may be league-less so the first
+    account can be created before any league exists. Only a one-way hash of the raw code is stored.
+    ``expires_at`` is supplied by the caller (the admin CLI applies the documented seven-day
+    default); the repository reports whether a stored invite is still valid.
     """
 
     __tablename__ = "invite"
@@ -217,15 +218,15 @@ class Invite(TimestampMixin, Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    league_id: Mapped[int] = mapped_column(
-        ForeignKey("league.id", name="fk_invite_league_id_league"), nullable=False
+    league_id: Mapped[int | None] = mapped_column(
+        ForeignKey("league.id", name="fk_invite_league_id_league"), nullable=True
     )
     code_hash: Mapped[str] = mapped_column(Text, nullable=False)
     role: Mapped[str] = mapped_column(
         Text, nullable=False, default=ROLE_MEMBER, server_default=ROLE_MEMBER
     )
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    league: Mapped[League] = relationship()
+    league: Mapped[League | None] = relationship()
 
     @validates("role")
     def _validate_role(self, _key: str, value: str) -> str:

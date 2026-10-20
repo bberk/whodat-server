@@ -3,8 +3,9 @@
 ``sync`` fetches a league season through the configured provider (ESPN in production) and writes
 normalized leagues, owners, teams, matchups, scores, and weekly Victory Points. ``recompute``
 rebuilds Victory Points from data already stored, without any provider calls. ``create-invite``
-mints a league invite and prints its raw code once; only the code hash is stored. ``create-user``
-remains a stub for the M4 auth work.
+mints an invite and prints its raw code once; only the code hash is stored. A member invite names
+its league, while an admin invite may be league-less so the first account can be created before any
+league exists. ``create-user`` remains a stub for the M4 auth work.
 
 Every real command owns its database transaction: it opens a session, runs the service or
 repository calls, and commits. Tests inject a ``ProviderRegistry`` (for example holding a
@@ -22,7 +23,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.auth_repositories import InviteRepository
-from app.db.models import VALID_ROLES
+from app.db.models import ROLE_ADMIN, ROLE_MEMBER, VALID_ROLES
 from app.db.repositories import SyncRepository
 from app.db.session import get_session_factory
 from app.providers.base import LeagueRef
@@ -142,8 +143,11 @@ def build_parser() -> argparse.ArgumentParser:
     recompute.add_argument("--league", required=True, help="league external id")
     recompute.add_argument("--season", type=int, required=True, help="season year")
 
-    create_invite = sub.add_parser("create-invite", help="create a league invite code")
-    create_invite.add_argument("--league", required=True, help="league external id")
+    create_invite = sub.add_parser("create-invite", help="create an invite code")
+    create_invite.add_argument(
+        "--league",
+        help="league external id (required for --role member; rejected for --role admin)",
+    )
     create_invite.add_argument(
         "--role", required=True, type=parse_role, help="role granted by the invite: admin or member"
     )
@@ -161,6 +165,19 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("create-user", help="create an application user")
 
     return parser
+
+
+def _validate_create_invite_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    """Enforce which roles may carry a league, reporting violations as usage errors.
+
+    Member access is always scoped to a league, while admin access may be granted before any league
+    exists. Both violations exit with code 2 before a database session is opened, so a rejected
+    invocation never writes an invite row.
+    """
+    if args.role == ROLE_MEMBER and args.league is None:
+        parser.error("create-invite --role member requires --league")
+    if args.role == ROLE_ADMIN and args.league is not None:
+        parser.error("create-invite --role admin does not accept --league")
 
 
 def _format_weeks(weeks: Sequence[int]) -> str:
@@ -244,22 +261,26 @@ def _run_create_invite(
 ) -> int:
     """Run ``create-invite`` and return a process exit code.
 
-    The league is resolved by its natural key through the repository layer, so no provider call or
-    network access happens here. The raw code is printed only after the invite row commits: a
-    failure returns a message on stderr without ever exposing an unpersisted or unprintable code.
+    A member invite resolves its league by natural key through the repository layer; an admin
+    invite is stored without a league and skips that lookup. No provider call or network access
+    happens here. The raw code is printed only after the invite row commits: a failure returns a
+    message on stderr without ever exposing an unpersisted or unprintable code.
     """
     with session_factory() as session:
-        league = SyncRepository(session).get_league(args.provider, args.league)
-        if league is None:
-            print(
-                f"error: no league stored for provider {args.provider!r} "
-                f"with external id {args.league!r}",
-                file=sys.stderr,
-            )
-            return 1
+        league_id: int | None = None
+        if args.league is not None:
+            league = SyncRepository(session).get_league(args.provider, args.league)
+            if league is None:
+                print(
+                    f"error: no league stored for provider {args.provider!r} "
+                    f"with external id {args.league!r}",
+                    file=sys.stderr,
+                )
+                return 1
+            league_id = league.id
         raw_code = generate_invite_code()
         InviteRepository(session).create(
-            league.id,
+            league_id,
             hash_invite_code(raw_code),
             clock() + args.expires,
             role=args.role,
@@ -285,7 +306,10 @@ def main(
     clock, while tests pass a registry holding a ``FakeProvider``, a factory bound to an isolated
     SQLite database, and a fixed clock.
     """
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.command == "create-invite":
+        _validate_create_invite_args(args, parser)
 
     if args.command == "create-user":
         # Auth arrives in M4; keep the documented stub until then.

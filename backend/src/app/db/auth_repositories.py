@@ -100,7 +100,7 @@ class UserRepository:
 
 
 class InviteRepository:
-    """Create and inspect league invites using a caller-owned session."""
+    """Create and inspect invites using a caller-owned session."""
 
     def __init__(self, session: Session) -> None:
         """Bind repository methods to a session without taking transaction ownership."""
@@ -108,15 +108,17 @@ class InviteRepository:
 
     def create(
         self,
-        league_id: int,
+        league_id: int | None,
         code_hash: str,
         expires_at: datetime,
         role: str = ROLE_MEMBER,
     ) -> Invite:
         """Create an invite from an already-hashed code.
 
-        The caller owns code generation, hashing, and the seven-day default expiry; this method
-        only persists the hash so the raw code is never stored here.
+        ``league_id`` is ``None`` for an admin invite that is not tied to a league; callers that
+        mint member invites pass the league. The caller owns code generation, hashing, and the
+        seven-day default expiry; this method only persists the hash so the raw code is never
+        stored here.
         """
         invite = Invite(
             league_id=league_id,

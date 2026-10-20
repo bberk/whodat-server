@@ -87,6 +87,47 @@ def test_invite_role_accepts_only_admin_and_member() -> None:
         Invite(league_id=1, code_hash="hash", role="owner", expires_at=datetime.now(UTC))
 
 
+def test_invite_league_is_nullable_in_the_model() -> None:
+    """An admin invite may be league-less; the code hash stays unique."""
+    assert Invite.__table__.c.league_id.nullable is True
+    assert Invite.__table__.c.code_hash.nullable is False
+
+
+def test_invite_repository_stores_an_admin_invite_without_a_league(session: Session) -> None:
+    """An admin invite created before any league exists persists a NULL league_id."""
+    repository = InviteRepository(session)
+    expires_at = datetime.now(UTC) + timedelta(days=7)
+    repository.create(None, "admin-no-league", expires_at, role="admin")
+    session.expire_all()
+
+    stored = repository.get_by_code_hash("admin-no-league")
+    assert stored is not None
+    assert stored.league_id is None
+    assert stored.role == "admin"
+
+
+def test_invite_repository_stores_the_league_on_a_member_invite(session: Session) -> None:
+    """A member invite persists the league it grants access to."""
+    league, _ = _seed_league(session)
+    repository = InviteRepository(session)
+    expires_at = datetime.now(UTC) + timedelta(days=7)
+    invite = repository.create(league.id, "member-league", expires_at)
+
+    assert invite.league_id == league.id
+    assert invite.role == "member"
+
+
+def test_invite_code_hash_is_unique_across_league_less_invites(session: Session) -> None:
+    """Making league_id optional does not weaken the unique code-hash constraint."""
+    league, _ = _seed_league(session)
+    repository = InviteRepository(session)
+    expires_at = datetime.now(UTC) + timedelta(days=7)
+    repository.create(None, "shared-hash", expires_at, role="admin")
+
+    with pytest.raises(IntegrityError), session.begin_nested():
+        repository.create(league.id, "shared-hash", expires_at, role="member")
+
+
 def test_user_repository_lowercases_email_and_rejects_duplicates(session: Session) -> None:
     """Email storage and lookup are case-insensitive (AC-AU-02)."""
     repository = UserRepository(session)
