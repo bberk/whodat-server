@@ -34,14 +34,12 @@ from app.providers.espn.credentials import create_espn_provider
 from app.services.league_service import (
     AdminRequiredError,
     AlreadyMemberError,
-    CredentialPermissionError,
     CredentialsRequiredError,
     EspnCredentials,
     IncompleteCredentialsError,
     InvalidLeagueRequestError,
     InviteNotRedeemableError,
     LeagueAccessError,
-    LeagueNotFoundError,
     LeagueProviderError,
     LeagueService,
     LeagueServiceError,
@@ -110,11 +108,6 @@ def _http_error(error: LeagueServiceError) -> HTTPException:
             detail=error_detail("rate_limited", "League refresh is rate limited"),
             headers={"Retry-After": str(error.retry_after)},
         )
-    if isinstance(error, CredentialPermissionError):
-        return HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=error_detail("forbidden", "Only an admin may add league credentials"),
-        )
     if isinstance(error, AdminRequiredError):
         return HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -130,7 +123,7 @@ def _http_error(error: LeagueServiceError) -> HTTPException:
             status_code=status.HTTP_403_FORBIDDEN,
             detail=error_detail("credentials_required", "This membership holds no credentials"),
         )
-    if isinstance(error, (NotAMemberError, LeagueNotFoundError, OwnerNotFoundError)):
+    if isinstance(error, (NotAMemberError, OwnerNotFoundError)):
         return HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=error_detail("not_found", "League or owner not found"),
