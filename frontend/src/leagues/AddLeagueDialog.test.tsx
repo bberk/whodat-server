@@ -12,6 +12,7 @@ import {
   errorResponse,
   jsonResponse,
   leagueAlpha,
+  leagueBeta,
   memberUser,
   mockFetch,
   requestBody,
@@ -98,6 +99,30 @@ describe("AddLeagueDialog", () => {
     await user.click(screen.getByRole("button", { name: "Add league" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Enter both ESPN_S2 and ESPN_SWID");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("never sends ESPN credentials when a member joins a league", async () => {
+    const user = userEvent.setup();
+    const league = leagueValue();
+    const joined = { ...leagueBeta, name: "Beta League" };
+    const fetchMock = mockFetch((url, init) => {
+      if (requestPath(url) === "/api/v1/leagues" && init.method === "POST") {
+        expect(requestBody(init)).toEqual({ espn_league_id: "222222" });
+        return jsonResponse({ league: joined, season: 2026, weeks_synced: [] }, { status: 201 });
+      }
+      return errorResponse(404, { code: "not_found", message: "unexpected" });
+    });
+
+    renderDialog({ user: memberUser, league });
+    await user.type(screen.getByLabelText("ESPN league id"), "222222");
+    await user.click(screen.getByRole("button", { name: "Join league" }));
+
+    await waitFor(() => {
+      expect(league.upsertLeague).toHaveBeenCalledWith(joined);
+    });
+    const body = requestBody(fetchMock.mock.calls[0][1] ?? {});
+    expect(body).not.toHaveProperty("espn_s2");
+    expect(body).not.toHaveProperty("espn_swid");
   });
 
   it("posts the league with optional season and credentials, then selects it", async () => {

@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { api } from "../api/endpoints";
 import {
   errorResponse,
   jsonResponse,
@@ -31,6 +32,9 @@ function Probe() {
       </button>
       <button type="button" onClick={() => void logout()}>
         logout
+      </button>
+      <button type="button" onClick={() => void api.myLeagues().catch(() => undefined)}>
+        load leagues
       </button>
     </div>
   );
@@ -97,6 +101,28 @@ describe("AuthProvider", () => {
     await waitFor(() => {
       expect(screen.getByTestId("status")).toHaveTextContent("signed-out");
     });
+  });
+
+  it("clears the session when a later API call returns 401", async () => {
+    const user = userEvent.setup();
+    mockFetch((url) => {
+      if (requestPath(url) === "/api/v1/me") {
+        return jsonResponse(memberUser);
+      }
+      return errorResponse(401, { code: "not_authenticated", message: "Authentication required" });
+    });
+    renderAuth();
+    await waitFor(() => {
+      expect(screen.getByTestId("status")).toHaveTextContent("signed-in");
+    });
+    expect(screen.getByTestId("user")).toHaveTextContent("member@example.com");
+
+    await user.click(screen.getByRole("button", { name: "load leagues" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("status")).toHaveTextContent("signed-out");
+    });
+    expect(screen.getByTestId("user")).toHaveTextContent("");
   });
 
   it("signs up with the invite code and exposes the new user", async () => {
