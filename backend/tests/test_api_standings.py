@@ -420,7 +420,7 @@ def test_AC_ST_06_division_rows_keep_the_overall_rank(
 
 
 # ---------------------------------------------------------------------------
-# AC-API-03: cumulative VP arithmetic and optional week cutoff
+# AC-API-03: cumulative VP arithmetic
 # ---------------------------------------------------------------------------
 
 
@@ -436,13 +436,11 @@ def test_AC_API_03_cumulative_equals_the_running_sum_of_weekly_vp(
     )
     user_id = _create_user(api, "member@example.com", league_id=league_id)
     _login(api, user_id)
-    path = _history_path(league_id)
 
-    full = api.client.get(path)
-    truncated = api.client.get(path, params={"week": 1})
+    response = api.client.get(_history_path(league_id))
 
-    assert full.status_code == 200
-    body = full.json()
+    assert response.status_code == 200
+    body = response.json()
     assert body["weeks"] == [1, 2]
     for team in body["teams"]:
         running: list[Decimal] = []
@@ -451,12 +449,6 @@ def test_AC_API_03_cumulative_equals_the_running_sum_of_weekly_vp(
             total += Decimal(value)
             running.append(total)
         assert team["cumulative"] == [format(value, "f") for value in running]
-
-    assert truncated.status_code == 200
-    assert truncated.json()["weeks"] == [1]
-    for team in truncated.json()["teams"]:
-        assert team["weekly"] == [team["weekly"][0]]
-        assert team["cumulative"] == [team["weekly"][0]]
 
 
 def test_AC_API_03_weekly_vp_is_trimmed_to_two_decimals(
@@ -507,28 +499,6 @@ def test_AC_API_04_unknown_season_returns_structured_404(
 
     assert response.status_code == 404
     assert response.json()["detail"]["code"] == "not_found"
-
-
-def test_AC_API_04_out_of_range_week_returns_a_structured_4xx(
-    api_factory: Callable[[], Api],
-) -> None:
-    api = api_factory()
-    league_id = _seed_league(
-        api,
-        team_specs=FOUR_TEAMS,
-        weeks=_fixture_weeks(),
-        regular_season_length=2,
-    )
-    user_id = _create_user(api, "member@example.com", league_id=league_id)
-    _login(api, user_id)
-    path = _history_path(league_id)
-
-    beyond_data = api.client.get(path, params={"week": 9})
-    below_range = api.client.get(path, params={"week": 0})
-
-    assert beyond_data.status_code == 400
-    assert beyond_data.json()["detail"]["code"] == "week_out_of_range"
-    assert below_range.status_code == 422
 
 
 @pytest.mark.parametrize("path_kind", ["standings", "history"])

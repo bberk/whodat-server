@@ -958,7 +958,7 @@
     },
     "/api/v1/leagues/{league_id}/seasons/{season}/vp-history": {
       "get": {
-        "description": "Return counted weeks and each team's weekly and cumulative VP series.\n\nAn optional ``week`` truncates every series at that week. A week beyond the completed data is\na structured 400 rather than an empty or partial chart.",
+        "description": "Return all completed regular-season weeks and each team's weekly and cumulative VP.",
         "operationId": "get_vp_history_api_v1_leagues__league_id__seasons__season__vp_history_get",
         "parameters": [
           {
@@ -977,25 +977,6 @@
             "schema": {
               "title": "Season",
               "type": "integer"
-            }
-          },
-          {
-            "description": "Limit the series to counted weeks up to this week.",
-            "in": "query",
-            "name": "week",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "minimum": 1,
-                  "type": "integer"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Limit the series to counted weeks up to this week.",
-              "title": "Week"
             }
           }
         ],
