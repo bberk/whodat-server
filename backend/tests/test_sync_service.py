@@ -231,8 +231,8 @@ def test_AC_DB_01_fresh_sync_populates_every_entity(session: Session) -> None:
     assert league.name == "VP League"
     assert summary.league_id == league.id
     assert summary.league_changed is True
-    # Verify the default provider_config_ref "env:default" is persisted
-    assert league.provider_config_ref == "env:default"
+    # Verify the legacy provider_config_ref marker "membership" is persisted.
+    assert league.provider_config_ref == "membership"
 
     owners = list(session.scalars(select(Owner).where(Owner.league_id == league.id)).all())
     assert len(owners) == 4

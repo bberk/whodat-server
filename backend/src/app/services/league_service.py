@@ -41,7 +41,12 @@ from app.db.repositories import SyncRepository
 from app.providers.base import LeagueDTO, LeagueProvider, LeagueRef
 from app.security.crypto import CredentialCryptoError, encrypt
 from app.security.invite_codes import hash_invite_code, invite_code_matches
-from app.services.sync_service import SyncError, SyncService, SyncSummary
+from app.services.sync_service import (
+    PROVIDER_CONFIG_REF,
+    SyncError,
+    SyncService,
+    SyncSummary,
+)
 
 #: The only provider the HTTP API currently stores leagues for.
 PROVIDER_ID = "espn"
@@ -519,7 +524,7 @@ class LeagueService:
                     external_id=league_dto.external_id,
                     name=league_dto.name,
                     league_metadata=dict(league_dto.metadata),
-                    provider_config_ref="env:default",
+                    provider_config_ref=PROVIDER_CONFIG_REF,
                 ).row
                 membership = self._create_membership(user.user_id, league.id)
                 if encrypted is not None:

@@ -8,6 +8,17 @@ Follow the format used below. Newest entries at the top.
 
 ---
 
+## OQ-0012 — `provider_config_ref` is a legacy pointer whose value is "membership"
+
+- **Found:** `ARCHITECTURE.md` §4 describes `provider_config_ref` as a pointer to environment-level
+  bootstrap credentials. League credentials now come from memberships, where they are encrypted, so
+  no environment-level pointer is used.
+- **Decision:** keep the column and store the fixed non-secret value `"membership"` as a legacy
+  marker that credentials come from memberships. The schema is unchanged and no migration is needed.
+- **In the meantime:** league sync and league creation write `"membership"`.
+
+---
+
 ## OQ-0011 — The API does not expose weekly VP components for the breakdown table
 
 - **Found:** The existing standings UI showed a weekly VP breakdown with H2H, top-half, high-score,
