@@ -1,4 +1,4 @@
-import type { StandingsState } from "./useStandingsData";
+import type { StandingsState } from "../standings/useStandingsData";
 
 const card =
   "mt-3 rounded-xl border border-dashed border-gray-300 bg-white p-6 text-center text-gray-700";
@@ -29,7 +29,7 @@ export function EmptyState({ title, detail }: { title: string; detail: string })
   );
 }
 
-export function ErrorState({ onRetry }: { onRetry: () => void }) {
+export function ErrorState({ onRetry, message }: { onRetry: () => void; message?: string }) {
   return (
     <div role="alert" className={card}>
       <div
@@ -38,8 +38,10 @@ export function ErrorState({ onRetry }: { onRetry: () => void }) {
       >
         !
       </div>
-      <p className="text-sm font-semibold text-gray-700">We couldn&rsquo;t load standings</p>
-      <p className="mt-1 text-[13px] text-gray-500">Check your connection and try again.</p>
+      <p className="text-sm font-semibold text-gray-700">We couldn&rsquo;t load this view</p>
+      <p className="mt-1 text-[13px] text-gray-500">
+        {message ?? "Check your connection and try again."}
+      </p>
       <button
         type="button"
         onClick={onRetry}
@@ -71,7 +73,7 @@ export function DataState({
     return <LoadingState label={loadingLabel} />;
   }
   if (state.status === "error") {
-    return <ErrorState onRetry={onRetry} />;
+    return <ErrorState onRetry={onRetry} message={state.message} />;
   }
   if (state.status === "empty") {
     return <EmptyState title={emptyTitle} detail={emptyDetail} />;

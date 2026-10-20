@@ -8,6 +8,26 @@ Follow the format used below. Newest entries at the top.
 
 ---
 
+## OQ-0011 — The API does not expose weekly VP components for the breakdown table
+
+- **Found:** The existing standings UI showed a weekly VP breakdown with H2H, top-half, high-score,
+  and low-score components. `docs/openapi.json` (`GET .../standings` and `GET .../vp-history`)
+  exposes only each team's weekly VP totals and cumulative VP; it has no per-component fields, and
+  the old values lived only in the isolated frontend mock.
+- **Options:**
+  1. Add weekly component fields to the standings or VP-history response. That changes the shared
+     API contract and needs human approval.
+  2. Keep the weekly breakdown as a week selector with each team's weekly VP and cumulative VP,
+     using only fields the API returns.
+  3. Remove the weekly breakdown section until components are exposed.
+- **Recommendation:** option 2 now; option 1 later if users need to see why a week's VP was
+  awarded.
+- **In the meantime:** the frontend integrates against the real API and shows the weekly and
+  cumulative totals in the breakdown. No component value is invented, and the section keeps its
+  week selector, sticky team column, and empty/loading/error states.
+
+---
+
 ## OQ-0010 — Shared-rank gap semantics for the M4 standings engine
 
 - **Found:** `SPEC.md` §3.2 and AC-ST-05 say teams tied on all three keys "share the same rank

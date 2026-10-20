@@ -2,12 +2,13 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { mockStandingsBundle, seriesIndexByTeamId } from "../mocks/standings";
+import { seriesIndexByTeamId } from "../standings/model";
+import { historyResponse, standingsResponse } from "../test/fixtures";
 import { StandingsTable } from "./StandingsTable";
 
-const rows = mockStandingsBundle.standings.overall;
-const weeks = mockStandingsBundle.history.weeks;
-const styles = seriesIndexByTeamId(mockStandingsBundle);
+const rows = standingsResponse.overall;
+const weeks = historyResponse.weeks;
+const styles = seriesIndexByTeamId(historyResponse);
 
 function renderTable(overrides: Partial<Parameters<typeof StandingsTable>[0]> = {}) {
   return render(
@@ -34,7 +35,7 @@ describe("StandingsTable", () => {
     expect(screen.getByRole("columnheader", { name: "Week 1 VP" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Week 4 VP" })).toBeInTheDocument();
     expect(screen.getByRole("rowheader", { name: "1" })).toBeInTheDocument();
-    expect(screen.getAllByText("495.00")).toHaveLength(1);
+    expect(screen.getByText("495.00")).toBeInTheDocument();
     expect(screen.getByText("10.83")).toBeInTheDocument();
   });
 
@@ -90,5 +91,10 @@ describe("StandingsTable", () => {
       "aria-pressed",
       "true",
     );
+  });
+
+  it("renders an em dash when the API reports no owner", () => {
+    renderTable();
+    expect(screen.getByText("—")).toBeInTheDocument();
   });
 });
