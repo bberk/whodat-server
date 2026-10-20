@@ -17,6 +17,10 @@ from app.domain.types import TeamWeek
 from app.domain.vp_engine import compute_week_vp
 from app.providers.base import LeagueProvider, LeagueRef, MatchupDTO
 
+#: Fixed non-secret value stored in ``league.provider_config_ref``. The column is a legacy pointer:
+#: league credentials come from memberships, not from an environment-level bootstrap secret.
+PROVIDER_CONFIG_REF = "membership"
+
 
 @dataclass(frozen=True)
 class SyncSummary:
@@ -123,8 +127,9 @@ class SyncService:
     ) -> SyncSummary:
         """Fetch, upsert, and compute VP for a league season.
 
-        The league's provider_config_ref is stored as the fixed non-secret value "env:default",
-        indicating that credentials are read from process environment variables (ESPN_S2/ESPN_SWID).
+        The league's ``provider_config_ref`` is the fixed non-secret value
+        :data:`PROVIDER_CONFIG_REF` (``"membership"``), a legacy pointer recording that league
+        credentials come from memberships rather than from an environment-level bootstrap.
         ESPN cookies are never written to DTOs or the database.
 
         The provider's per-season settings (``LeagueDTO.metadata``: regular season length, team
@@ -158,7 +163,7 @@ class SyncService:
             external_id=league_dto.external_id,
             name=league_dto.name,
             league_metadata=dict(league_dto.metadata),
-            provider_config_ref="env:default",
+            provider_config_ref=PROVIDER_CONFIG_REF,
         )
         league_id = league_result.row.id
         league_changed = league_result.changed

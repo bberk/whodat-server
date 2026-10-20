@@ -315,7 +315,7 @@ def test_cli_sync_uses_the_members_stored_credentials_and_reports_a_summary(
     with session_factory() as session:
         league = session.scalar(select(League).where(League.provider == SYNC_PROVIDER))
         assert league is not None
-        assert league.provider_config_ref == "env:default"
+        assert league.provider_config_ref == "membership"
         assert _score_count(session) == 4
 
 
