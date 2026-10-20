@@ -1,17 +1,19 @@
 """Command-line entry point (sync, recompute, create-invite, create-user).
 
-``sync`` fetches a league season through the configured provider (ESPN in production) and writes
-normalized leagues, owners, teams, matchups, scores, and weekly Victory Points. ``recompute``
-rebuilds Victory Points from data already stored, without any provider calls. ``create-invite``
-mints an invite and prints its raw code once; only the code hash is stored. A member invite names
-its league, while an admin invite may be league-less so the first account can be created before any
-league exists. ``create-user`` remains a stub for the M4 auth work.
+``sync`` fetches a league season through the ESPN provider and writes normalized leagues, owners,
+teams, matchups, scores, and weekly Victory Points. It requires ``--as-email`` and uses only that
+member's stored, encrypted league credentials; there is no environment credential path and no
+fallback to another member. ``recompute`` rebuilds Victory Points from data already stored, without
+any provider calls. ``create-invite`` mints an invite and prints its raw code once; only the code
+hash is stored. A member invite names its league, while an admin invite may be league-less so the
+first account can be created before any league exists. ``create-user`` remains a stub for the M4
+auth work.
 
 Every real command owns its database transaction: it opens a session, runs the service or
-repository calls, and commits. Tests inject a ``ProviderRegistry`` (for example holding a
-``FakeProvider``), a session factory bound to a throwaway database, and a clock through
-:func:`main`'s keyword arguments, so no test touches ESPN, the network, or the configured
-development database.
+repository calls, and commits. Tests inject a provider factory (for example returning a
+``FakeProvider`` after checking the decrypted cookies), a session factory bound to a throwaway
+database, and a clock through :func:`main`'s keyword arguments, so no test touches ESPN, the
+network, or the configured development database.
 """
 
 import argparse
@@ -22,17 +24,18 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.db.auth_repositories import InviteRepository
+from app.db.auth_repositories import InviteRepository, MembershipRepository, UserRepository
 from app.db.models import ROLE_ADMIN, ROLE_MEMBER, VALID_ROLES
 from app.db.repositories import SyncRepository
 from app.db.session import get_session_factory
 from app.providers.base import LeagueRef
-from app.providers.espn.adapter import ESPNLeagueProvider
-from app.providers.registry import ProviderRegistry
+from app.providers.espn.credentials import create_espn_provider
+from app.security.crypto import CredentialCryptoError
 from app.security.invite_codes import generate_invite_code, hash_invite_code
+from app.services.league_service import ProviderFactory
 from app.services.sync_service import SyncError, SyncService
 
-# Production sync always reads through the ESPN provider registered by build_provider_registry.
+# The provider natural key used for stored leagues and the sync rows.
 DEFAULT_PROVIDER_ID = "espn"
 
 # The documented default invite lifetime (AC-AU-01).
@@ -112,18 +115,6 @@ def parse_role(value: str) -> str:
     return value
 
 
-def build_provider_registry() -> ProviderRegistry:
-    """Return the production provider registry with the ESPN adapter registered.
-
-    Constructing the adapter reads the provider-local ESPN settings from the environment (or
-    ``.env``); that read happens here, is cached, and makes no network call. Cookies are used only
-    inside the ESPN provider and are never stored in DTOs or the database.
-    """
-    registry = ProviderRegistry()
-    registry.register(ESPNLeagueProvider())
-    return registry
-
-
 def build_parser() -> argparse.ArgumentParser:
     """Build the argument parser with sync, recompute, create-invite, and create-user commands."""
     parser = argparse.ArgumentParser(prog="python -m app.cli")
@@ -132,6 +123,12 @@ def build_parser() -> argparse.ArgumentParser:
     sync = sub.add_parser("sync", help="sync a league season from the provider")
     sync.add_argument("--league", required=True, help="league external id")
     sync.add_argument("--season", type=int, required=True, help="season year")
+    sync.add_argument(
+        "--as-email",
+        required=True,
+        metavar="EMAIL",
+        help="email of the member whose stored league credentials are used",
+    )
     sync.add_argument(
         "--weeks",
         type=parse_week_range,
@@ -187,27 +184,83 @@ def _format_weeks(weeks: Sequence[int]) -> str:
 
 def _run_sync(
     args: argparse.Namespace,
-    registry: ProviderRegistry,
     session_factory: sessionmaker[Session],
     provider_id: str,
+    provider_factory: ProviderFactory,
 ) -> int:
-    """Run ``sync`` and return a process exit code, reporting failures on stderr."""
-    try:
-        provider = registry.get(provider_id)
-    except KeyError:
-        print(f"error: no provider registered for {provider_id!r}", file=sys.stderr)
-        return 1
+    """Run ``sync`` with one member's stored credentials and return a process exit code.
 
-    try:
-        league_ref = LeagueRef(external_id=args.league)
-        with session_factory() as session:
+    The member is selected explicitly with ``--as-email``. Their membership in the stored league
+    must hold both encrypted ESPN cookies; the provider factory decrypts them behind the provider
+    boundary and builds the adapter. There is no environment credential path and no fallback to
+    another member's credentials. Every expected failure prints a fixed error code and message on
+    stderr and exits 1 without exposing cookie values or ciphertext.
+    """
+    with session_factory() as session:
+        try:
+            user = UserRepository(session).get_by_email(args.as_email)
+        except ValueError:
+            user = None
+        if user is None:
+            print(
+                f"error: user_not_found: no account exists for {args.as_email!r}",
+                file=sys.stderr,
+            )
+            return 1
+
+        league = SyncRepository(session).get_league(provider_id, args.league)
+        if league is None:
+            print(
+                f"error: league_not_found: no league stored for provider {provider_id!r} "
+                f"with external id {args.league!r}",
+                file=sys.stderr,
+            )
+            return 1
+
+        membership = MembershipRepository(session).get(user.id, league.id)
+        if membership is None:
+            print(
+                f"error: not_a_member: {args.as_email!r} is not a member of league {args.league!r}",
+                file=sys.stderr,
+            )
+            return 1
+
+        espn_s2_encrypted = membership.espn_s2_encrypted
+        espn_swid_encrypted = membership.espn_swid_encrypted
+        if not espn_s2_encrypted or not espn_swid_encrypted:
+            print(
+                f"error: credentials_missing: the membership for {args.as_email!r} in league "
+                f"{args.league!r} has no stored ESPN credentials",
+                file=sys.stderr,
+            )
+            return 1
+
+        try:
+            provider = provider_factory(
+                espn_s2_encrypted=espn_s2_encrypted,
+                espn_swid_encrypted=espn_swid_encrypted,
+            )
+        except CredentialCryptoError:
+            print(
+                "error: credentials_unavailable: stored league credentials could not be decrypted",
+                file=sys.stderr,
+            )
+            return 1
+
+        try:
             summary = SyncService(provider, session).sync_league(
-                league_ref, provider_id, args.season, weeks=args.weeks
+                LeagueRef(external_id=args.league),
+                provider_id,
+                args.season,
+                weeks=args.weeks,
             )
             session.commit()
-    except SyncError as error:
-        print(f"error: {error}", file=sys.stderr)
-        return 1
+        except SyncError as error:
+            print(f"error: sync_failed: {error}", file=sys.stderr)
+            return 1
+        except Exception:
+            print("error: sync_failed: league data could not be synced", file=sys.stderr)
+            return 1
 
     print(
         f"sync: league={summary.league_id} season={summary.season} "
@@ -294,17 +347,18 @@ def _run_create_invite(
 def main(
     argv: Sequence[str] | None = None,
     *,
-    registry: ProviderRegistry | None = None,
+    provider_factory: ProviderFactory = create_espn_provider,
     session_factory: sessionmaker[Session] | None = None,
     provider_id: str = DEFAULT_PROVIDER_ID,
     clock: Callable[[], datetime] | None = None,
 ) -> int:
     """Parse arguments, run the requested command, and return a process exit code.
 
-    ``registry``, ``session_factory``, and ``clock`` are dependency-injection seams: production
-    callers leave them unset and get the ESPN registry, the configured database, and the real UTC
-    clock, while tests pass a registry holding a ``FakeProvider``, a factory bound to an isolated
-    SQLite database, and a fixed clock.
+    ``provider_factory``, ``session_factory``, and ``clock`` are dependency-injection seams:
+    production callers leave them unset and get the ESPN credential factory (decryption stays
+    behind the provider boundary), the configured database, and the real UTC clock, while tests
+    pass a fake provider factory, a factory bound to an isolated SQLite database, and a fixed
+    clock.
     """
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -319,8 +373,7 @@ def main(
     factory = session_factory if session_factory is not None else get_session_factory()
 
     if args.command == "sync":
-        active_registry = registry if registry is not None else build_provider_registry()
-        return _run_sync(args, active_registry, factory, provider_id)
+        return _run_sync(args, factory, provider_id, provider_factory)
 
     if args.command == "recompute":
         return _run_recompute(args, factory, provider_id)

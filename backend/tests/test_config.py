@@ -25,6 +25,19 @@ def test_league_credentials_key_reads_the_environment(monkeypatch: pytest.Monkey
     assert Settings(_env_file=None).league_credentials_key == "test-only-placeholder"
 
 
+def test_settings_do_not_expose_espn_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC-AU-13: application settings have no environment ESPN credential path."""
+    monkeypatch.setenv("ESPN_S2", "environment-s2-must-be-ignored")
+    monkeypatch.setenv("ESPN_SWID", "environment-swid-must-be-ignored")
+
+    settings = Settings(_env_file=None)
+
+    assert "espn_s2" not in Settings.model_fields
+    assert "espn_swid" not in Settings.model_fields
+    assert "espn_s2" not in settings.model_dump()
+    assert "espn_swid" not in settings.model_dump()
+
+
 def test_create_app_refuses_insecure_default_secret_outside_local(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

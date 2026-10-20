@@ -12,7 +12,6 @@ import pytest
 
 from app.providers.base import LeagueRef
 from app.providers.espn import ESPNLeagueProvider
-from app.providers.espn.settings import ESPNSettings
 from tests.espn_fixtures import create_fake_league
 
 
@@ -286,6 +285,24 @@ class TestESPNLeagueProviderCredentials:
         assert received_kwargs["espn_s2"] == "test_s2_value"
         assert received_kwargs["swid"] == "test_swid_value"
 
+    def test_AC_AU_13_adapter_never_reads_environment_credentials(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """ESPN_S2/ESPN_SWID in the environment never reach the league factory implicitly."""
+        monkeypatch.setenv("ESPN_S2", "environment-s2-must-be-ignored")
+        monkeypatch.setenv("ESPN_SWID", "environment-swid-must-be-ignored")
+        received_kwargs = {}
+
+        def capturing_factory(*args, **kwargs):
+            received_kwargs.update(kwargs)
+            return create_fake_league("league_basic.json")
+
+        provider = ESPNLeagueProvider(league_factory=capturing_factory)
+        provider.fetch_league(LeagueRef(external_id="12345"), 2024)
+
+        assert "espn_s2" not in received_kwargs
+        assert "swid" not in received_kwargs
+
     def test_AC_DB_08_credentials_not_in_error_messages(self) -> None:
         """If the league factory raises, credentials are not in the error."""
 
@@ -303,53 +320,6 @@ class TestESPNLeagueProviderCredentials:
         error_message = str(exc_info.value)
         assert "secret_s2" not in error_message
         assert "secret_swid" not in error_message
-
-
-class TestESPNSettingsNormalization:
-    """Credential normalization handles the common .env formatting mistakes."""
-
-    @pytest.mark.parametrize(
-        ("raw", "expected"),
-        [
-            pytest.param("  ABC123  ", "ABC123", id="surrounding-whitespace"),
-            pytest.param("   ", "", id="whitespace-only"),
-            pytest.param("", "", id="empty"),
-        ],
-    )
-    def test_normalization_trims_whitespace(self, raw: str, expected: str) -> None:
-        """Leading/trailing whitespace is stripped; whitespace-only becomes empty."""
-        settings = ESPNSettings(espn_s2=raw, espn_swid=raw)
-        assert settings.espn_s2 == expected
-        assert settings.espn_swid == expected
-
-    @pytest.mark.parametrize(
-        ("raw", "expected"),
-        [
-            pytest.param('"ABC123"', "ABC123", id="double-quotes"),
-            pytest.param("'ABC123'", "ABC123", id="single-quotes"),
-            pytest.param('  "ABC123"  ', "ABC123", id="whitespace-then-quotes"),
-        ],
-    )
-    def test_normalization_strips_one_matching_quote_pair(self, raw: str, expected: str) -> None:
-        """One matching outer quote pair is removed, after whitespace is stripped."""
-        settings = ESPNSettings(espn_s2=raw, espn_swid=raw)
-        assert settings.espn_s2 == expected
-        assert settings.espn_swid == expected
-
-    @pytest.mark.parametrize(
-        ("raw", "expected"),
-        [
-            pytest.param('ABC"123"DEF', 'ABC"123"DEF', id="interior-quotes"),
-            pytest.param("\"ABC123'", "\"ABC123'", id="mismatched-quotes"),
-        ],
-    )
-    def test_normalization_preserves_interior_and_mismatched_quotes(
-        self, raw: str, expected: str
-    ) -> None:
-        """Interior quotes and unmatched outer quotes are preserved verbatim."""
-        settings = ESPNSettings(espn_s2=raw, espn_swid=raw)
-        assert settings.espn_s2 == expected
-        assert settings.espn_swid == expected
 
 
 class TestESPNLeagueProviderEdgeCases:

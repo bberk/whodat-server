@@ -1,10 +1,13 @@
 """CLI behavior tests for `app.cli`: sync, recompute, week parsing, and errors.
 
-Every test injects a `FakeProvider`-backed `ProviderRegistry` and a session factory bound to an
-isolated in-memory SQLite database, so nothing here touches ESPN, the live network, or the
-configured development database (AC-DB-07).
+Every sync test injects a credential-checking provider factory returning a `FakeProvider` and a
+session factory bound to an isolated in-memory SQLite database, so nothing here touches ESPN, the
+live network, or the configured development database (AC-DB-07). Stored cookies are real
+ciphertext produced by the security layer under a test-only key (AC-AU-13).
 """
 
+import base64
+import inspect
 import runpy
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
@@ -17,29 +20,36 @@ from sqlalchemy.pool import StaticPool
 
 from app.cli import (
     DEFAULT_PROVIDER_ID,
-    build_provider_registry,
     main,
     parse_week_range,
 )
+from app.config import get_settings
+from app.db.auth_repositories import MembershipRepository, UserRepository
 from app.db.base import Base
-from app.db.models import Invite, League, Score
+from app.db.models import ROLE_MEMBER, Invite, League, Score
 from app.db.repositories import SyncRepository
 from app.providers.base import (
     LeagueDTO,
+    LeagueRef,
     MatchupDTO,
     MatchupSideDTO,
     OwnerDTO,
     TeamDTO,
     WeekStatus,
 )
-from app.providers.espn.settings import ESPNSettings
+from app.providers.espn.credentials import create_espn_provider
 from app.providers.fake import FakeProvider
-from app.providers.registry import ProviderRegistry
+from app.security.crypto import CredentialDecryptionError, decrypt, encrypt
 from app.security.invite_codes import hash_invite_code, invite_code_matches
 
 LEAGUE_EXTERNAL_ID = "699385"
 SEASON = 2026
+MEMBER_EMAIL = "member@example.com"
+SYNC_PROVIDER = "fake"
+CREDENTIAL_S2 = "cli-s2-cookie"
+CREDENTIAL_SWID = "{CLI-SWID}"
 INVITE_NOW = datetime(2026, 10, 19, 12, 0, tzinfo=UTC)
+_KEY = bytes(range(32))
 type FakeSeed = tuple[
     LeagueDTO,
     list[OwnerDTO],
@@ -51,6 +61,15 @@ type FakeSeed = tuple[
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _configured_key(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Give every test a valid credential key and never leave cached settings behind."""
+    monkeypatch.setenv("LEAGUE_CREDENTIALS_KEY", base64.b64encode(_KEY).decode("ascii"))
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 @pytest.fixture
@@ -116,10 +135,58 @@ def _seed(
     }
 
 
-def _registry(seed: dict[tuple[str, int], FakeSeed] | None = None) -> ProviderRegistry:
-    registry = ProviderRegistry()
-    registry.register(FakeProvider(seed if seed is not None else _seed()))
-    return registry
+class RecordingFactory:
+    """A provider factory that records the decrypted cookies it is trusted with.
+
+    It returns a ``FakeProvider`` so no network is involved. An optional error is raised instead,
+    which lets a test exercise the CLI's credential-failure path.
+    """
+
+    def __init__(
+        self,
+        seed: dict[tuple[str, int], FakeSeed] | None = None,
+        *,
+        error: Exception | None = None,
+    ) -> None:
+        self._provider = FakeProvider(seed if seed is not None else _seed())
+        self._error = error
+        self.calls: list[tuple[str, str]] = []
+        self.decrypted: list[tuple[str, str]] = []
+
+    def __call__(
+        self,
+        *,
+        espn_s2_encrypted: str | None = None,
+        espn_swid_encrypted: str | None = None,
+    ) -> FakeProvider:
+        if self._error is not None:
+            raise self._error
+        assert espn_s2_encrypted is not None
+        assert espn_swid_encrypted is not None
+        self.calls.append((espn_s2_encrypted, espn_swid_encrypted))
+        self.decrypted.append((decrypt(espn_s2_encrypted), decrypt(espn_swid_encrypted)))
+        return self._provider
+
+
+def _sync_argv(
+    *,
+    email: str = MEMBER_EMAIL,
+    season: int = SEASON,
+    weeks: str | None = None,
+) -> list[str]:
+    """Build a sync invocation for the stored CLI league."""
+    argv = [
+        "sync",
+        "--league",
+        LEAGUE_EXTERNAL_ID,
+        "--season",
+        str(season),
+        "--as-email",
+        email,
+    ]
+    if weeks is not None:
+        argv.extend(["--weeks", weeks])
+    return argv
 
 
 def _score_count(session: Session) -> int:
@@ -163,6 +230,58 @@ def _seed_league(
     return league_id
 
 
+def _create_user(
+    session_factory: sessionmaker[Session],
+    *,
+    email: str = MEMBER_EMAIL,
+    role: str = ROLE_MEMBER,
+) -> int:
+    """Store an account and return its id."""
+    with session_factory() as session:
+        user = UserRepository(session).create(email, "unused-password-hash", role=role)
+        session.commit()
+        return user.id
+
+
+def _grant_membership(
+    session_factory: sessionmaker[Session],
+    *,
+    user_id: int,
+    league_id: int,
+    credentials: bool = True,
+) -> None:
+    """Create a membership and optionally store encrypted ESPN cookies on it."""
+    with session_factory() as session:
+        memberships = MembershipRepository(session)
+        memberships.create(user_id, league_id)
+        if credentials:
+            memberships.set_credentials(
+                user_id,
+                league_id,
+                espn_s2_encrypted=encrypt(CREDENTIAL_S2),
+                espn_swid_encrypted=encrypt(CREDENTIAL_SWID),
+            )
+        session.commit()
+
+
+def _seed_sync_member(
+    session_factory: sessionmaker[Session],
+    *,
+    email: str = MEMBER_EMAIL,
+    credentials: bool = True,
+    provider: str = SYNC_PROVIDER,
+) -> None:
+    """Store a league, an account, and a credentialed membership for CLI sync tests."""
+    league_id = _seed_league(session_factory, provider=provider)
+    user_id = _create_user(session_factory, email=email)
+    _grant_membership(
+        session_factory,
+        user_id=user_id,
+        league_id=league_id,
+        credentials=credentials,
+    )
+
+
 def _invite_count(session: Session) -> int:
     return session.scalar(select(func.count()).select_from(Invite)) or 0
 
@@ -172,42 +291,81 @@ def _invite_count(session: Session) -> int:
 # ---------------------------------------------------------------------------
 
 
-def test_cli_sync_writes_the_league_and_reports_a_summary(
+def test_cli_sync_uses_the_members_stored_credentials_and_reports_a_summary(
     session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A CLI sync persists rows and prints the weeks it synced and recomputed."""
+    """AC-AU-13: sync builds its provider from the selected member's encrypted credentials."""
+    _seed_sync_member(session_factory)
+    factory = RecordingFactory()
+
     code = main(
-        ["sync", "--league", LEAGUE_EXTERNAL_ID, "--season", str(SEASON)],
-        registry=_registry(),
+        _sync_argv(),
+        provider_factory=factory,
         session_factory=session_factory,
-        provider_id="fake",
+        provider_id=SYNC_PROVIDER,
     )
 
     assert code == 0
     out = capsys.readouterr().out
     assert "weeks_synced=1,2" in out
     assert "weeks_with_vp_recomputed=1,2" in out
+    assert factory.decrypted == [(CREDENTIAL_S2, CREDENTIAL_SWID)]
+    assert factory.calls[0][0] != CREDENTIAL_S2
 
     with session_factory() as session:
-        league = session.scalar(select(League).where(League.provider == "fake"))
+        league = session.scalar(select(League).where(League.provider == SYNC_PROVIDER))
         assert league is not None
         assert league.provider_config_ref == "env:default"
         assert _score_count(session) == 4
+
+
+def test_cli_sync_requires_as_email(
+    session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Sync without --as-email is a usage error and writes nothing."""
+    _seed_sync_member(session_factory)
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(
+            ["sync", "--league", LEAGUE_EXTERNAL_ID, "--season", str(SEASON)],
+            session_factory=session_factory,
+            provider_id=SYNC_PROVIDER,
+        )
+
+    assert excinfo.value.code == 2
+    assert "--as-email" in capsys.readouterr().err
 
 
 def test_cli_sync_is_idempotent_when_repeated(
     session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A second identical sync writes nothing new and reports no changes."""
-    registry = _registry()
-    argv = ["sync", "--league", LEAGUE_EXTERNAL_ID, "--season", str(SEASON)]
-    assert main(argv, registry=registry, session_factory=session_factory, provider_id="fake") == 0
+    _seed_sync_member(session_factory)
+    factory = RecordingFactory()
+    argv = _sync_argv()
+    assert (
+        main(
+            argv,
+            provider_factory=factory,
+            session_factory=session_factory,
+            provider_id=SYNC_PROVIDER,
+        )
+        == 0
+    )
     with session_factory() as session:
         counts_before = _score_count(session)
         vp_before = _vp_snapshot(session)
 
     capsys.readouterr()
-    assert main(argv, registry=registry, session_factory=session_factory, provider_id="fake") == 0
+    assert (
+        main(
+            argv,
+            provider_factory=factory,
+            session_factory=session_factory,
+            provider_id=SYNC_PROVIDER,
+        )
+        == 0
+    )
     out = capsys.readouterr().out
     assert "league_changed=false" in out
     assert "weeks_with_vp_recomputed=-" in out
@@ -221,12 +379,13 @@ def test_cli_sync_without_weeks_uses_completed_weeks(
     session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
 ) -> None:
     """With no --weeks, only weeks up to the last completed week are stored."""
+    _seed_sync_member(session_factory)
     seed = _seed(weeks=(1, 2, 3), last_completed_week=2, regular_season_length=3)
     code = main(
-        ["sync", "--league", LEAGUE_EXTERNAL_ID, "--season", str(SEASON)],
-        registry=_registry(seed),
+        _sync_argv(),
+        provider_factory=RecordingFactory(seed),
         session_factory=session_factory,
-        provider_id="fake",
+        provider_id=SYNC_PROVIDER,
     )
 
     assert code == 0
@@ -239,12 +398,13 @@ def test_cli_sync_accepts_an_inclusive_week_range(
     session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
 ) -> None:
     """--weeks 1-2 syncs weeks 1 through 2 inclusive even with no completed week reported."""
+    _seed_sync_member(session_factory)
     seed = _seed(weeks=(1, 2, 3), last_completed_week=None, regular_season_length=3)
     code = main(
-        ["sync", "--league", LEAGUE_EXTERNAL_ID, "--season", str(SEASON), "--weeks", "1-2"],
-        registry=_registry(seed),
+        _sync_argv(weeks="1-2"),
+        provider_factory=RecordingFactory(seed),
         session_factory=session_factory,
-        provider_id="fake",
+        provider_id=SYNC_PROVIDER,
     )
 
     assert code == 0
@@ -257,13 +417,14 @@ def test_cli_sync_supports_historical_seasons(
     session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The same league can be backfilled season by season with independent rows."""
-    registry = _registry({**_seed(season=2025), **_seed(season=2026)})
+    _seed_sync_member(session_factory)
+    factory = RecordingFactory({**_seed(season=2025), **_seed(season=2026)})
     for season in (2025, 2026):
         code = main(
-            ["sync", "--league", LEAGUE_EXTERNAL_ID, "--season", str(season)],
-            registry=registry,
+            _sync_argv(season=season),
+            provider_factory=factory,
             session_factory=session_factory,
-            provider_id="fake",
+            provider_id=SYNC_PROVIDER,
         )
         assert code == 0
         capsys.readouterr()
@@ -275,36 +436,209 @@ def test_cli_sync_supports_historical_seasons(
         assert len(scores) == 8
 
 
-def test_cli_sync_unknown_league_reports_a_structured_error(
+def test_cli_sync_unknown_user_exits_nonzero_without_syncing(
     session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A league the provider does not know exits non-zero with a message, not a traceback."""
+    """An email with no account is a clear error and never calls the provider factory."""
+    _seed_league(session_factory, provider=SYNC_PROVIDER)
+    factory = RecordingFactory()
+
     code = main(
-        ["sync", "--league", "does-not-exist", "--season", str(SEASON)],
-        registry=_registry(),
+        _sync_argv(email="nobody@example.com"),
+        provider_factory=factory,
         session_factory=session_factory,
-        provider_id="fake",
+        provider_id=SYNC_PROVIDER,
     )
 
     assert code == 1
     err = capsys.readouterr().err
-    assert err.startswith("error:")
-    assert "does-not-exist" in err
+    assert "user_not_found" in err
+    assert factory.calls == []
+    with session_factory() as session:
+        assert _score_count(session) == 0
 
 
-def test_cli_sync_unknown_provider_reports_a_structured_error(
+def test_cli_sync_blank_email_is_treated_as_an_unknown_user(
     session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A provider id missing from the registry is reported instead of raising KeyError."""
+    """A blank --as-email is rejected as an unknown user rather than raising ValueError."""
+    _seed_league(session_factory, provider=SYNC_PROVIDER)
+
     code = main(
-        ["sync", "--league", LEAGUE_EXTERNAL_ID, "--season", str(SEASON)],
-        registry=_registry(),
+        _sync_argv(email=""),
+        provider_factory=RecordingFactory(),
         session_factory=session_factory,
-        provider_id="sleeper",
+        provider_id=SYNC_PROVIDER,
     )
 
     assert code == 1
-    assert "no provider registered" in capsys.readouterr().err
+    assert "user_not_found" in capsys.readouterr().err
+
+
+def test_cli_sync_unknown_league_exits_nonzero_without_syncing(
+    session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A league that is not stored cannot resolve a membership; nothing is written."""
+    _create_user(session_factory)
+    factory = RecordingFactory()
+
+    code = main(
+        _sync_argv(),
+        provider_factory=factory,
+        session_factory=session_factory,
+        provider_id=SYNC_PROVIDER,
+    )
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "league_not_found" in err
+    assert factory.calls == []
+    with session_factory() as session:
+        assert _score_count(session) == 0
+
+
+def test_cli_sync_non_member_exits_nonzero_without_syncing(
+    session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A known user without a membership in the league cannot sync it."""
+    _seed_league(session_factory, provider=SYNC_PROVIDER)
+    _create_user(session_factory)
+    factory = RecordingFactory()
+
+    code = main(
+        _sync_argv(),
+        provider_factory=factory,
+        session_factory=session_factory,
+        provider_id=SYNC_PROVIDER,
+    )
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "not_a_member" in err
+    assert factory.calls == []
+    with session_factory() as session:
+        assert _score_count(session) == 0
+
+
+def test_cli_sync_membership_without_credentials_exits_nonzero(
+    session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A membership with no stored cookies is rejected before any provider is built."""
+    _seed_sync_member(session_factory, credentials=False)
+    factory = RecordingFactory()
+
+    code = main(
+        _sync_argv(),
+        provider_factory=factory,
+        session_factory=session_factory,
+        provider_id=SYNC_PROVIDER,
+    )
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "credentials_missing" in err
+    assert factory.calls == []
+    with session_factory() as session:
+        assert _score_count(session) == 0
+
+
+def test_cli_sync_never_falls_back_to_another_members_credentials(
+    session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Only the selected member's membership is consulted, even when another one has cookies."""
+    _seed_sync_member(session_factory, email="with-creds@example.com")
+    without = _create_user(session_factory, email="no-creds@example.com")
+    league_id = _seed_league(session_factory, provider=SYNC_PROVIDER)
+    _grant_membership(
+        session_factory,
+        user_id=without,
+        league_id=league_id,
+        credentials=False,
+    )
+    factory = RecordingFactory()
+
+    code = main(
+        _sync_argv(email="no-creds@example.com"),
+        provider_factory=factory,
+        session_factory=session_factory,
+        provider_id=SYNC_PROVIDER,
+    )
+
+    assert code == 1
+    assert "credentials_missing" in capsys.readouterr().err
+    assert factory.calls == []
+
+
+def test_cli_sync_undecryptable_credentials_exit_cleanly_without_secrets(
+    session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A decryption failure is reported by code without echoing cookies or ciphertext."""
+    _seed_sync_member(session_factory)
+    factory = RecordingFactory(error=CredentialDecryptionError("token could not be decrypted"))
+
+    code = main(
+        _sync_argv(),
+        provider_factory=factory,
+        session_factory=session_factory,
+        provider_id=SYNC_PROVIDER,
+    )
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "credentials_unavailable" in err
+    assert CREDENTIAL_S2 not in err
+    assert CREDENTIAL_SWID not in err
+    assert "token could not be decrypted" not in err
+
+
+def test_cli_sync_provider_unknown_league_reports_a_structured_error(
+    session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The stored league missing from the provider is a sync failure, not a traceback."""
+    _seed_sync_member(session_factory)
+
+    code = main(
+        _sync_argv(),
+        provider_factory=RecordingFactory({}),
+        session_factory=session_factory,
+        provider_id=SYNC_PROVIDER,
+    )
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error: sync_failed:")
+    assert LEAGUE_EXTERNAL_ID in err
+
+
+def test_cli_sync_provider_failure_hides_exception_details(
+    session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An unexpected provider exception is replaced by a fixed message, not echoed."""
+
+    class ExplodingProvider(FakeProvider):
+        def fetch_league(self, league_ref: LeagueRef, season: int) -> LeagueDTO:
+            raise RuntimeError("raw provider text that must not be printed")
+
+    def exploding_factory(
+        *,
+        espn_s2_encrypted: str | None = None,
+        espn_swid_encrypted: str | None = None,
+    ) -> FakeProvider:
+        return ExplodingProvider({})
+
+    _seed_sync_member(session_factory)
+
+    code = main(
+        _sync_argv(),
+        provider_factory=exploding_factory,
+        session_factory=session_factory,
+        provider_id=SYNC_PROVIDER,
+    )
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "sync_failed: league data could not be synced" in err
+    assert "raw provider text" not in err
 
 
 # ---------------------------------------------------------------------------
@@ -316,12 +650,13 @@ def test_cli_recompute_rebuilds_vp_from_stored_rows(
     session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Recompute restores stored VP without any provider call and reports its weeks."""
+    _seed_sync_member(session_factory)
     assert (
         main(
-            ["sync", "--league", LEAGUE_EXTERNAL_ID, "--season", str(SEASON)],
-            registry=_registry(),
+            _sync_argv(),
+            provider_factory=RecordingFactory(),
             session_factory=session_factory,
-            provider_id="fake",
+            provider_id=SYNC_PROVIDER,
         )
         == 0
     )
@@ -413,17 +748,14 @@ def test_invalid_week_ranges_are_structured_argparse_errors(
     value: str, session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Bad --weeks values exit with argparse's usage error (code 2) and name the argument."""
-    argv = [
-        "sync",
-        "--league",
-        LEAGUE_EXTERNAL_ID,
-        "--season",
-        str(SEASON),
-        "--weeks",
-        value,
-    ]
+    argv = _sync_argv(weeks=value)
     with pytest.raises(SystemExit) as excinfo:
-        main(argv, registry=_registry(), session_factory=session_factory, provider_id="fake")
+        main(
+            argv,
+            provider_factory=RecordingFactory(),
+            session_factory=session_factory,
+            provider_id=SYNC_PROVIDER,
+        )
 
     assert excinfo.value.code == 2
     assert "--weeks" in capsys.readouterr().err
@@ -707,14 +1039,9 @@ def test_cli_module_entry_point(monkeypatch: pytest.MonkeyPatch) -> None:
     assert excinfo.value.code == 0
 
 
-def test_build_provider_registry_registers_espn(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Production wiring registers exactly the ESPN provider under its provider id."""
-    monkeypatch.setattr(
-        "app.providers.espn.adapter.get_espn_settings",
-        lambda: ESPNSettings(_env_file=None, espn_s2="", espn_swid=""),
-    )
-
-    registry = build_provider_registry()
+def test_main_defaults_to_the_espn_credential_factory() -> None:
+    """Production wiring builds sync providers through the decrypting ESPN factory."""
+    default = inspect.signature(main).parameters["provider_factory"].default
 
     assert DEFAULT_PROVIDER_ID == "espn"
-    assert registry.get(DEFAULT_PROVIDER_ID).provider_id == "espn"
+    assert default is create_espn_provider
