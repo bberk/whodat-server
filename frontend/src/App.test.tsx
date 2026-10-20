@@ -121,8 +121,13 @@ describe("App routing", () => {
     await user.type(screen.getByLabelText("Password"), "password");
     await user.click(screen.getByRole("button", { name: "Log in" }));
 
+    // The league shell remounts its outlet when the selected season arrives, so wait for the
+    // final season before asserting the routed page to avoid reading a soon-detached heading.
+    await waitFor(() => {
+      expect(screen.getByLabelText("Season")).toHaveValue("2026");
+    });
     expect(
-      await screen.findByRole("heading", { level: 1, name: "Owner · Alpha League" }),
+      screen.getByRole("heading", { level: 1, name: "Owner · Alpha League" }),
     ).toBeInTheDocument();
   });
 
