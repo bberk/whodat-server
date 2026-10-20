@@ -8,6 +8,8 @@ here; only the head DDL and the single linear chain are checked.
 """
 
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -79,6 +81,51 @@ def _column_names(database_url: str, table_name: str) -> set[str]:
         engine.dispose()
 
 
+def _column_is_nullable(database_url: str, table_name: str, column_name: str) -> bool:
+    """Return the reflected nullability of one column in a migrated database."""
+    engine = create_engine(database_url)
+    try:
+        with engine.connect() as connection:
+            columns = inspect(connection).get_columns(table_name)
+    finally:
+        engine.dispose()
+    return next(column["nullable"] for column in columns if column["name"] == column_name)
+
+
+def _assert_invite_league_keeps_its_fk_and_index(database_url: str) -> None:
+    """The nullable league column keeps the foreign key and index that 0004 created."""
+    engine = create_engine(database_url)
+    try:
+        with engine.connect() as connection:
+            inspector = inspect(connection)
+            foreign_keys = inspector.get_foreign_keys("invite")
+            indexes = inspector.get_indexes("invite")
+    finally:
+        engine.dispose()
+    assert any(
+        foreign_key["name"] == "fk_invite_league_id_league"
+        and foreign_key["constrained_columns"] == ["league_id"]
+        for foreign_key in foreign_keys
+    )
+    assert any(index["name"] == "ix_invite_league_id" for index in indexes)
+
+
+def _assert_nullable_invite_league_round_trip(database_url: str) -> None:
+    """0005 makes league_id nullable and 0004-era downgrades restore NOT NULL."""
+    config = _config(database_url)
+
+    command.upgrade(config, "0005_invite_optional_league")
+    assert _column_is_nullable(database_url, "invite", "league_id") is True
+    _assert_invite_league_keeps_its_fk_and_index(database_url)
+
+    command.downgrade(config, "0004_auth_memberships")
+    assert _column_is_nullable(database_url, "invite", "league_id") is False
+    _assert_invite_league_keeps_its_fk_and_index(database_url)
+
+    command.upgrade(config, "0005_invite_optional_league")
+    assert _column_is_nullable(database_url, "invite", "league_id") is True
+
+
 def _assert_migrated_ddl(database_url: str) -> None:
     """Assert the migrated head DDL has the application tables and their required columns."""
     assert _table_names(database_url) >= APPLICATION_TABLES
@@ -107,6 +154,35 @@ def test_AC_DB_06_migration_round_trips_on_sqlite(tmp_path: Path) -> None:
     _round_trip(f"sqlite:///{tmp_path / 'migrate.db'}")
 
 
+def test_invite_league_nullability_round_trips_on_sqlite(tmp_path: Path) -> None:
+    """0005 makes invite.league_id nullable and its downgrade restores NOT NULL on SQLite."""
+    _assert_nullable_invite_league_round_trip(f"sqlite:///{tmp_path / 'invite-optional.db'}")
+
+
+def test_invite_league_downgrade_rejects_rows_without_a_league(tmp_path: Path) -> None:
+    """The downgrade fails cleanly while a null-league invite would violate NOT NULL."""
+    database_url = f"sqlite:///{tmp_path / 'invite-null-downgrade.db'}"
+    command.upgrade(_config(database_url), "0005_invite_optional_league")
+
+    engine = create_engine(database_url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO invite "
+                    "(league_id, code_hash, role, expires_at, created_at, updated_at) "
+                    "VALUES (NULL, 'admin-no-league', 'admin', CURRENT_TIMESTAMP, "
+                    "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                )
+            )
+    finally:
+        engine.dispose()
+
+    with pytest.raises(RuntimeError, match="invite row\\(s\\) have no league_id"):
+        command.downgrade(_config(database_url), "0004_auth_memberships")
+    assert _column_is_nullable(database_url, "invite", "league_id") is True
+
+
 def test_migration_chain_is_a_single_linear_head() -> None:
     """The chain has exactly one head and one parent per revision, so it never branches."""
     script = ScriptDirectory.from_config(_config("sqlite://"))
@@ -129,6 +205,21 @@ def _configured_postgres_admin_url() -> URL | None:
     return configured
 
 
+@contextmanager
+def _temporary_postgres_database(admin_url: URL) -> Iterator[str]:
+    """Create a throwaway database for one migration test and drop it afterwards."""
+    database_name = f"whodat_migration_{uuid.uuid4().hex[:12]}"
+    admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+    try:
+        with admin_engine.connect() as connection:
+            connection.execute(text(f'CREATE DATABASE "{database_name}"'))
+        yield admin_url.set(database=database_name).render_as_string(hide_password=False)
+    finally:
+        with admin_engine.connect() as connection:
+            connection.execute(text(f'DROP DATABASE IF EXISTS "{database_name}" WITH (FORCE)'))
+        admin_engine.dispose()
+
+
 @pytest.mark.postgres
 def test_AC_DB_06_migration_round_trips_on_postgres() -> None:
     """The same head round trip holds on a throwaway database in the configured Postgres."""
@@ -136,17 +227,19 @@ def test_AC_DB_06_migration_round_trips_on_postgres() -> None:
     if admin_url is None:
         pytest.skip("configured DATABASE_URL is not Postgres")
 
-    database_name = f"whodat_migration_{uuid.uuid4().hex[:12]}"
-    admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
-    try:
-        with admin_engine.connect() as connection:
-            connection.execute(text(f'CREATE DATABASE "{database_name}"'))
-        database_url = admin_url.set(database=database_name).render_as_string(hide_password=False)
+    with _temporary_postgres_database(admin_url) as database_url:
         _round_trip(database_url)
-    finally:
-        with admin_engine.connect() as connection:
-            connection.execute(text(f'DROP DATABASE IF EXISTS "{database_name}" WITH (FORCE)'))
-        admin_engine.dispose()
+
+
+@pytest.mark.postgres
+def test_invite_league_nullability_round_trips_on_postgres() -> None:
+    """0005's upgrade and downgrade behave the same on Postgres as on SQLite."""
+    admin_url = _configured_postgres_admin_url()
+    if admin_url is None:
+        pytest.skip("configured DATABASE_URL is not Postgres")
+
+    with _temporary_postgres_database(admin_url) as database_url:
+        _assert_nullable_invite_league_round_trip(database_url)
 
 
 def test_import_boundary_modules_load() -> None:

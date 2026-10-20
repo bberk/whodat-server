@@ -437,11 +437,12 @@ def test_invalid_week_ranges_are_structured_argparse_errors(
 def test_cli_create_invite_stores_only_the_hash_and_prints_the_raw_code_once(
     session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """AC-AU-01: creation stores the hash plus role/expiry and prints the raw code exactly once."""
-    league_id = _seed_league(session_factory)
+    """AC-AU-01: creation stores the hash plus role/expiry and prints the raw code exactly once.
 
+    An admin invite has no league, so it is created before any league row exists.
+    """
     code = main(
-        ["create-invite", "--league", LEAGUE_EXTERNAL_ID, "--role", "admin"],
+        ["create-invite", "--role", "admin"],
         session_factory=session_factory,
         clock=_fixed_clock,
     )
@@ -454,12 +455,50 @@ def test_cli_create_invite_stores_only_the_hash_and_prints_the_raw_code_once(
     with session_factory() as session:
         invite = session.scalar(select(Invite))
         assert invite is not None
-        assert invite.league_id == league_id
+        assert invite.league_id is None
         assert invite.code_hash == hash_invite_code(raw_code)
         assert invite.role == "admin"
         assert _as_utc(invite.expires_at) == INVITE_NOW + timedelta(days=7)
         # The printed code is the only thing that can produce the stored digest.
         assert invite_code_matches(raw_code, invite.code_hash)
+
+
+def test_cli_create_invite_member_without_a_league_is_a_usage_error(
+    session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A member invite must name a league; the missing flag exits 2 and writes nothing."""
+    with pytest.raises(SystemExit) as excinfo:
+        main(
+            ["create-invite", "--role", "member"],
+            session_factory=session_factory,
+            clock=_fixed_clock,
+        )
+
+    assert excinfo.value.code == 2
+    err = capsys.readouterr().err
+    assert "--league" in err
+    assert "member" in err
+    with session_factory() as session:
+        assert _invite_count(session) == 0
+
+
+def test_cli_create_invite_admin_with_a_league_is_a_usage_error(
+    session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An admin invite is league-less; supplying --league exits 2 and writes nothing."""
+    with pytest.raises(SystemExit) as excinfo:
+        main(
+            ["create-invite", "--league", LEAGUE_EXTERNAL_ID, "--role", "admin"],
+            session_factory=session_factory,
+            clock=_fixed_clock,
+        )
+
+    assert excinfo.value.code == 2
+    err = capsys.readouterr().err
+    assert "--league" in err
+    assert "admin" in err
+    with session_factory() as session:
+        assert _invite_count(session) == 0
 
 
 @pytest.mark.parametrize(
@@ -526,7 +565,7 @@ def test_cli_create_invite_unknown_league_exits_nonzero_without_writing(
 ) -> None:
     """A league not stored for the provider is a clear error and leaves no invite row."""
     code = main(
-        ["create-invite", "--league", "does-not-exist", "--role", "admin"],
+        ["create-invite", "--league", "does-not-exist", "--role", "member"],
         session_factory=session_factory,
         clock=_fixed_clock,
     )
@@ -551,7 +590,7 @@ def test_cli_create_invite_unknown_provider_exits_nonzero_without_writing(
             "--league",
             LEAGUE_EXTERNAL_ID,
             "--role",
-            "admin",
+            "member",
             "--provider",
             "sleeper",
         ],
@@ -601,7 +640,7 @@ def test_cli_create_invite_invalid_duration_is_a_usage_error(
                 "--league",
                 LEAGUE_EXTERNAL_ID,
                 "--role",
-                "admin",
+                "member",
                 "--expires",
                 expires,
             ],
@@ -631,7 +670,7 @@ def test_cli_create_invite_oversized_duration_is_a_usage_error(
                 "--league",
                 LEAGUE_EXTERNAL_ID,
                 "--role",
-                "admin",
+                "member",
                 "--expires",
                 expires,
             ],
