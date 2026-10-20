@@ -36,7 +36,9 @@ async function expectPageDoesNotScrollSideways(page: Page): Promise<void> {
   );
 }
 
-test("sign up, join, set owner, and read the seeded standings", async ({ page }, testInfo) => {
+test("sign up with a member invite, set owner, and read the seeded standings", async ({
+  page,
+}, testInfo) => {
   const email = `e2e-member-${testInfo.project.name}-${Date.now()}@example.com`;
 
   // AC-FE-08: an unauthenticated visit is redirected, and login/signup returns there afterwards.
@@ -53,14 +55,8 @@ test("sign up, join, set owner, and read the seeded standings", async ({ page },
   await page.getByLabel("Invite code", { exact: true }).fill(fixture.inviteCodes.member);
   await page.getByRole("button", { name: "Create account" }).click();
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole("main").getByText("No leagues yet", { exact: true })).toBeVisible();
-
-  // Join the stored league by its external id, then select it through the normal league list.
-  await page.getByRole("button", { name: "Add league" }).click();
-  await expect(page.getByRole("dialog")).toBeVisible();
-  await page.getByLabel("ESPN league id").fill(fixture.league.externalId);
-  await page.getByRole("button", { name: "Join league" }).click();
-  await expect(page.getByRole("dialog")).toBeHidden();
+  // AC-AU-15: the member invite already grants the fixture league, so the member lands on it
+  // without the create-or-join step.
   await expect(
     page.getByRole("heading", { level: 1, name: new RegExp(fixture.league.name) }),
   ).toBeVisible();
