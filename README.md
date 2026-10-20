@@ -127,9 +127,17 @@ pnpm test:coverage
 pnpm lint
 pnpm typecheck
 
+# End-to-end (Playwright at 360, 768, and 1280; migrates, seeds, and starts both servers)
+pnpm e2e:install   # once per machine
+pnpm e2e
+
 # Everything, exactly as CI runs it
 pre-commit run --all-files
 ```
+
+The e2e suite uses `e2e/seed.py` and `e2e/fixture.json` to build a deterministic league through
+the real services and the `FakeProvider`. It never calls ESPN and talks only to the local API and
+frontend servers.
 
 Coverage gates: backend total ≥ 85%, the VP engine (`backend/src/app/domain/`) 100% lines and
 branches, and the frontend thresholds in `frontend/vitest.config.ts`.
@@ -205,7 +213,8 @@ a host-run backend.
 
 ```text
 backend/     FastAPI app (src/app), migrations (alembic), tests
-frontend/    React + TypeScript SPA (src), vitest/eslint config
+frontend/    React + TypeScript SPA (src), vitest/eslint config, Playwright specs
+e2e/         deterministic e2e seeder, shared fixture, and backend start script
 .opencode/   Author and reviewer agent instructions
 docs/        GITHUB_SETUP.md, OPEN_QUESTIONS.md, fixtures
 scripts/     ship.sh, cleanup.sh, review.sh, merge.sh, setup-github.sh, dev-postgres.sh,

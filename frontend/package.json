@@ -12,10 +12,15 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.e2e.json",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "gen:api": "openapi-typescript ../docs/openapi.json -o src/api/schema.d.ts && prettier --write src/api/schema.d.ts"
+    "gen:api": "openapi-typescript ../docs/openapi.json -o src/api/schema.d.ts && prettier --write src/api/schema.d.ts",
+    "e2e": "playwright test",
+    "e2e:headed": "playwright test --headed",
+    "e2e:install": "playwright install chromium",
+    "e2e:seed": "cd ../backend && uv run python ../e2e/seed.py",
+    "e2e:report": "playwright show-report"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -23,10 +28,13 @@
     "react-router-dom": "7.18.4"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
     "@eslint/js": "^9.17.0",
+    "@playwright/test": "1.63.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
     "@testing-library/user-event": "^14.5.2",
+    "@types/node": "26.6.3",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",

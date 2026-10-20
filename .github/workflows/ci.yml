@@ -127,6 +127,96 @@ jobs:
           name: coverage-frontend
           path: frontend/coverage/coverage-summary.json
 
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+          POSTGRES_DB: app
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U app"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://app:app@localhost:5432/app
+      CORS_ORIGINS: http://localhost:4173
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: frontend/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: uv sync --frozen
+        working-directory: backend
+      - run: pnpm install --frozen-lockfile
+        working-directory: frontend
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+        working-directory: frontend
+      - name: Apply migrations (Postgres)
+        run: uv run alembic upgrade head
+        working-directory: backend
+      - name: Seed deterministic e2e data
+        run: uv run python ../e2e/seed.py
+        working-directory: backend
+      - name: Start backend
+        working-directory: backend
+        run: |
+          nohup uv run uvicorn app.api.main:app --host 127.0.0.1 --port 8000 \
+            > "$RUNNER_TEMP/backend.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/backend.pid"
+      - name: Wait for backend
+        run: |
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://localhost:8000/health > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/backend.log"
+          exit 1
+      - name: Build frontend
+        run: pnpm build
+        working-directory: frontend
+      - name: Start frontend
+        working-directory: frontend
+        run: |
+          nohup pnpm preview --host localhost --port 4173 --strictPort \
+            > "$RUNNER_TEMP/frontend.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/frontend.pid"
+      - name: Wait for frontend
+        run: |
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://localhost:4173/ > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/frontend.log"
+          exit 1
+      - name: Run Playwright at 360, 768, and 1280 with axe
+        run: pnpm e2e
+        working-directory: frontend
+      - name: Upload traces, screenshots, and server logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-e2e
+          path: |
+            frontend/test-results
+            frontend/playwright-report
+            ${{ runner.temp }}/backend.log
+            ${{ runner.temp }}/frontend.log
+          if-no-files-found: ignore
+          retention-days: 7
+
   # Posts (and keeps updating) a single combined coverage comment on the PR.
   coverage-report:
     needs: [backend, frontend]
@@ -178,5 +268,3 @@ jobs:
             } else {
               await github.rest.issues.createComment({ owner, repo, issue_number, body });
             }
-
-  # An end-to-end (Playwright) job is added in milestone M6.
