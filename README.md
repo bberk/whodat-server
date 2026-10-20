@@ -17,8 +17,9 @@ later without changing the VP engine, database, API, or frontend.
 
 ## Status
 
-`0.x` — under active development. See the milestones in `SPEC.md` (section 8). Production
-deployment is **not implemented yet**; see [Deploy to production](#deploy-to-production).
+`0.x` — under active development. See the milestones in `SPEC.md` (section 8). A single-host
+Docker Compose stack exists, but there is no supported hosting target yet; see
+[Deploy to production](#deploy-to-production).
 
 ## Documentation
 
@@ -81,6 +82,12 @@ cd frontend
 pnpm dev
 ```
 
+Or run the whole stack in Docker, with the built frontend on `http://localhost:8080`:
+
+```bash
+docker compose up -d --build
+```
+
 Apply database migrations before first use:
 
 ```bash
@@ -129,9 +136,70 @@ branches, and the frontend thresholds in `frontend/vitest.config.ts`.
 
 ## Deploy to production
 
-Not implemented yet. When deployment lands, this section will document the target host, the
-production `DATABASE_URL`, migration and release steps, and the environment variables required.
-Until then there is no supported production deployment.
+The repository provides a production-style Compose stack, but **no hosting target**: there is no
+TLS terminator, managed database, registry, or orchestrator configuration here. The supported path
+is a single host where you supply those pieces and run the two images yourself.
+
+Build both images. The API origin is compiled into the frontend bundle, so set
+`VITE_API_BASE_URL` before building and rebuild whenever it changes:
+
+```bash
+export VITE_API_BASE_URL=https://api.example.com
+docker compose build
+```
+
+Set the required environment variables (Compose reads them from the shell or a repo-root `.env`;
+never commit real values):
+
+| Variable | Purpose |
+|---|---|
+| `ENV` | Deployment label; set `production`. The app refuses to start with the default secret when `ENV` is not `local` or `test`. |
+| `SECRET_KEY` | Signs session cookies. Required; generate with `openssl rand -hex 32`. |
+| `LEAGUE_CREDENTIALS_KEY` | Encrypts stored league credentials (base64-encoded 32 bytes). Required when members save ESPN credentials; generate with `openssl rand -base64 32`. |
+| `DATABASE_URL` | SQLAlchemy URL for Postgres, for example `postgresql+psycopg://user:password@db-host:5432/whodat`. Defaults to the Compose Postgres service. |
+| `CORS_ORIGINS` | Comma-separated browser origins allowed to send the session cookie, for example `https://standings.example.com`. Defaults to `http://localhost:5173,http://localhost:8080`. |
+| `VITE_API_BASE_URL` | Browser-facing API origin, baked in at frontend build time. Defaults to `http://localhost:8000`. |
+
+```bash
+export ENV=production
+export SECRET_KEY="$(openssl rand -hex 32)"
+export LEAGUE_CREDENTIALS_KEY="$(openssl rand -base64 32)"
+export DATABASE_URL='postgresql+psycopg://user:password@db-host:5432/whodat'
+export CORS_ORIGINS='https://standings.example.com'
+```
+
+Apply migrations before starting the new API version. The backend container also runs
+`alembic upgrade head` on startup, so this step is safe to run first and idempotent:
+
+```bash
+cd backend
+uv run alembic upgrade head
+cd ..
+```
+
+Start the stack and check it:
+
+```bash
+docker compose up -d
+curl http://localhost:8000/health   # {"status":"ok"}
+curl -I http://localhost:8080/      # frontend index
+```
+
+`docker compose` publishes the API on port 8000 and the frontend on port 8080, both plain HTTP.
+
+Known limitations of this path (not provided, and not planned as part of this stack):
+
+- **No TLS terminator or reverse proxy.** Put a TLS-terminating proxy in front of ports 8000 and
+  8080, or terminate TLS elsewhere, before exposing the app to the internet.
+- **No managed database, backups, or HA.** The bundled `postgres` service is a single container with
+  a local volume. For real data, use an external Postgres and point `DATABASE_URL` at it.
+- **Single instance only.** Rate limiting is in-process, so it does not coordinate across replicas;
+  run one backend process. Migrations also assume a single deployer.
+- **No registry or rollout automation.** `docker compose build` builds on the host; pushing images
+  and rolling them out is left to your infrastructure.
+
+Local development is unchanged: `docker compose up -d postgres` still starts just the database for
+a host-run backend.
 
 ## Repository layout
 

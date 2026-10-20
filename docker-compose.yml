@@ -1,9 +1,10 @@
-# Local development stack. Frontend dev server runs on the host via `pnpm dev`.
+# Docker Compose stack for local development and single-host deployment.
 #
-#   docker compose up -d postgres   # just the database
-#   docker compose up               # database + backend API on http://localhost:8000
+#   docker compose up -d postgres   # just the database for a host-run backend
+#   docker compose up -d            # database + backend API + built frontend
 #
-# See README.md for running the backend/frontend directly on the host.
+# Production values come from the environment (see README, "Deploy to production"); the
+# defaults below keep local development working.
 services:
   postgres:
     image: postgres:18
@@ -28,16 +29,43 @@ services:
   backend:
     build: ./backend
     environment:
-      DATABASE_URL: postgresql+psycopg://app:app@postgres:5432/app
-      ENV: local
+      DATABASE_URL: "${DATABASE_URL:-postgresql+psycopg://app:app@postgres:5432/app}"
+      ENV: "${ENV:-local}"
+      SECRET_KEY: "${SECRET_KEY:-dev-insecure-change-me}"
+      LEAGUE_CREDENTIALS_KEY: "${LEAGUE_CREDENTIALS_KEY:-}"
+      # The browser origin(s) allowed to send the session cookie. Includes both the Vite dev
+      # server and the composed frontend.
+      CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:5173,http://localhost:8080}"
     ports:
       - "8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import urllib.request;
+          urllib.request.urlopen('http://localhost:8000/health', timeout=3)"
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
     command: >
       sh -c "uv run alembic upgrade head &&
              uv run uvicorn app.api.main:app --host 0.0.0.0 --port 8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Baked into the bundle at build time; must be an origin the browser can reach.
+        VITE_API_BASE_URL: "${VITE_API_BASE_URL:-http://localhost:8000}"
+    ports:
+      - "8080:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
 
 volumes:
   pgdata:
