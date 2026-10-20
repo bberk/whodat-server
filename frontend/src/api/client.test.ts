@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, apiRequest, isUnauthorized } from "./client";
+import { ApiError, apiRequest, isUnauthorized, onUnauthorized } from "./client";
 import { errorResponse, jsonResponse, mockFetch, requestPath } from "../test/fixtures";
 
 afterEach(() => {
@@ -61,6 +61,58 @@ describe("apiRequest", () => {
     );
     const unauthorized = await apiRequest("/api/v1/me").catch((failure: unknown) => failure);
     expect(isUnauthorized(unauthorized)).toBe(true);
+  });
+
+  it("falls back to the status for an empty error body", async () => {
+    mockFetch(() => new Response("", { status: 500 }));
+    const failure = await apiRequest("/api/v1/me").catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(ApiError);
+    expect((failure as ApiError).status).toBe(500);
+    expect((failure as ApiError).message).toBe("Request failed (500)");
+  });
+
+  it("falls back to the status for a non-JSON error body", async () => {
+    mockFetch(() => new Response("upstream is down", { status: 502 }));
+    const failure = await apiRequest("/api/v1/me").catch((error: unknown) => error);
+    expect((failure as ApiError).message).toBe("Request failed (502)");
+  });
+
+  it("uses a detail string as the message", async () => {
+    mockFetch(() => jsonResponse({ detail: "upstream is down" }, { status: 502 }));
+    const failure = await apiRequest("/api/v1/me").catch((error: unknown) => error);
+    expect((failure as ApiError).message).toBe("upstream is down");
+    expect((failure as ApiError).code).toBeNull();
+  });
+
+  it("falls back to the status for an unstructured detail object", async () => {
+    mockFetch(() => jsonResponse({ detail: { unexpected: true } }, { status: 500 }));
+    const failure = await apiRequest("/api/v1/me").catch((error: unknown) => error);
+    expect((failure as ApiError).message).toBe("Request failed (500)");
+    expect((failure as ApiError).code).toBeNull();
+  });
+
+  it("notifies unauthorized listeners until they unsubscribe", async () => {
+    mockFetch(() =>
+      errorResponse(401, { code: "not_authenticated", message: "Authentication required" }),
+    );
+    const listener = vi.fn();
+    const unsubscribe = onUnauthorized(listener);
+
+    await apiRequest("/api/v1/me").catch(() => undefined);
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    unsubscribe();
+    await apiRequest("/api/v1/me").catch(() => undefined);
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it("rethrows an aborted request instead of reporting a network failure", async () => {
+    const abort = new DOMException("Aborted", "AbortError");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(abort)),
+    );
+    await expect(apiRequest("/api/v1/me")).rejects.toBe(abort);
   });
 
   it("reports a network failure as a status-0 ApiError", async () => {
