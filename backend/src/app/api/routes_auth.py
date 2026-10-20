@@ -16,8 +16,11 @@ from app.api.deps import enforce_auth_rate_limit, get_auth_service, get_current_
 from app.api.schemas_auth import (
     LoginRequest,
     LogoutResponse,
+    MeResponse,
     PublicUser,
+    SignupLeague,
     SignupRequest,
+    SignupResponse,
     error_detail,
 )
 from app.api.session import clear_session, set_session
@@ -26,6 +29,7 @@ from app.services.auth_service import (
     EmailAlreadyRegisteredError,
     InvalidCredentialsError,
     InviteError,
+    LeagueReference,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["auth"])
@@ -39,9 +43,21 @@ _EMAIL_TAKEN = error_detail("email_taken", "An account with this email already e
 _INVALID_CREDENTIALS = error_detail("invalid_credentials", "Invalid email or password")
 
 
+def _signup_league(reference: LeagueReference | None) -> SignupLeague | None:
+    """Project the service's league reference into the public signup shape."""
+    if reference is None:
+        return None
+    return SignupLeague(
+        league_id=reference.league_id,
+        provider=reference.provider,
+        external_id=reference.external_id,
+        name=reference.name,
+    )
+
+
 @router.post(
     "/auth/signup",
-    response_model=PublicUser,
+    response_model=SignupResponse,
     status_code=status.HTTP_201_CREATED,
 )
 def signup(
@@ -49,14 +65,16 @@ def signup(
     response: Response,
     _rate_limit: RateLimitDep,
     service: AuthServiceDep,
-) -> PublicUser:
+) -> SignupResponse:
     """Create an account from a valid invite, set the session cookie, and return the public user.
 
-    Unknown and expired invite codes share one 400 response so the endpoint does not help a caller
-    distinguish which part failed. A taken email returns 409.
+    A member invite also creates its league membership in the same transaction, so the response
+    includes that league; an admin invite returns ``league: null`` and the account must complete
+    onboarding. Unknown and expired invite codes share one 400 response so the endpoint does not
+    help a caller distinguish which part failed. A taken email returns 409.
     """
     try:
-        user = service.signup(
+        result = service.signup(
             payload.email,
             payload.password.get_secret_value(),
             payload.invite_code.get_secret_value(),
@@ -73,8 +91,13 @@ def signup(
             detail=_EMAIL_TAKEN,
         ) from None
 
-    set_session(response, user.id)
-    return PublicUser(id=user.id, email=user.email, role=user.role)
+    set_session(response, result.user.id)
+    return SignupResponse(
+        id=result.user.id,
+        email=result.user.email,
+        role=result.user.role,
+        league=_signup_league(result.league),
+    )
 
 
 @router.post("/auth/login", response_model=PublicUser)
@@ -112,7 +135,16 @@ def logout(response: Response) -> LogoutResponse:
     return LogoutResponse(status="ok")
 
 
-@router.get("/me", response_model=PublicUser)
-def me(current_user: CurrentUserDep) -> PublicUser:
-    """Return the account tied to the session cookie, or 401 when unauthenticated."""
-    return current_user
+@router.get("/me", response_model=MeResponse)
+def me(current_user: CurrentUserDep, service: AuthServiceDep) -> MeResponse:
+    """Return the signed-in account and whether it already holds a league, or 401.
+
+    ``has_league`` is the mandatory onboarding gate: false means the UI must route the account to
+    create-its-league, true means standings are reachable.
+    """
+    return MeResponse(
+        id=current_user.id,
+        email=current_user.email,
+        role=current_user.role,
+        has_league=service.user_has_league(current_user.id),
+    )

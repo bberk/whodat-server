@@ -3,7 +3,7 @@
     "schemas": {
       "AddLeagueRequest": {
         "additionalProperties": false,
-        "description": "Add a league with admin credentials or join an existing league without them.",
+        "description": "Add a league with admin credentials (or a public league without them).",
         "properties": {
           "espn_league_id": {
             "maxLength": 128,
@@ -214,6 +214,35 @@
         "title": "LogoutResponse",
         "type": "object"
       },
+      "MeResponse": {
+        "description": "The signed-in account plus the flag the onboarding gate needs.",
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "has_league": {
+            "title": "Has League",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "role",
+          "has_league"
+        ],
+        "title": "MeResponse",
+        "type": "object"
+      },
       "OwnerSummary": {
         "description": "A league owner the caller may associate with their membership.",
         "properties": {
@@ -312,6 +341,38 @@
         "title": "PublicUser",
         "type": "object"
       },
+      "RedeemInviteRequest": {
+        "additionalProperties": false,
+        "description": "Redeem a member invite to join its league.",
+        "properties": {
+          "invite_code": {
+            "format": "password",
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Invite Code",
+            "type": "string",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "invite_code"
+        ],
+        "title": "RedeemInviteRequest",
+        "type": "object"
+      },
+      "RedeemInviteResponse": {
+        "description": "The membership created by redeeming a member invite.",
+        "properties": {
+          "league": {
+            "$ref": "#/components/schemas/LeagueSummary"
+          }
+        },
+        "required": [
+          "league"
+        ],
+        "title": "RedeemInviteResponse",
+        "type": "object"
+      },
       "RefreshResponse": {
         "description": "Summary of one league-wide refresh.",
         "properties": {
@@ -364,6 +425,35 @@
         "title": "SeasonsResponse",
         "type": "object"
       },
+      "SignupLeague": {
+        "description": "The league granted by a member invite, with no membership or credential material.",
+        "properties": {
+          "external_id": {
+            "title": "External Id",
+            "type": "string"
+          },
+          "league_id": {
+            "title": "League Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "league_id",
+          "provider",
+          "external_id",
+          "name"
+        ],
+        "title": "SignupLeague",
+        "type": "object"
+      },
       "SignupRequest": {
         "description": "Create an account from an invite code.",
         "properties": {
@@ -396,6 +486,41 @@
           "invite_code"
         ],
         "title": "SignupRequest",
+        "type": "object"
+      },
+      "SignupResponse": {
+        "description": "A newly created account and the league its invite granted, if any.",
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "league": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SignupLeague"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "role",
+          "league"
+        ],
+        "title": "SignupResponse",
         "type": "object"
       },
       "StandingsResponse": {
@@ -693,7 +818,7 @@
     },
     "/api/v1/auth/signup": {
       "post": {
-        "description": "Create an account from a valid invite, set the session cookie, and return the public user.\n\nUnknown and expired invite codes share one 400 response so the endpoint does not help a caller\ndistinguish which part failed. A taken email returns 409.",
+        "description": "Create an account from a valid invite, set the session cookie, and return the public user.\n\nA member invite also creates its league membership in the same transaction, so the response\nincludes that league; an admin invite returns ``league: null`` and the account must complete\nonboarding. Unknown and expired invite codes share one 400 response so the endpoint does not\nhelp a caller distinguish which part failed. A taken email returns 409.",
         "operationId": "signup_api_v1_auth_signup_post",
         "requestBody": {
           "content": {
@@ -710,7 +835,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PublicUser"
+                  "$ref": "#/components/schemas/SignupResponse"
                 }
               }
             },
@@ -735,7 +860,7 @@
     },
     "/api/v1/leagues": {
       "post": {
-        "description": "Add a league with admin credentials or join an already-stored league as a member.",
+        "description": "Add a league as an admin; members join only by redeeming a member invite.",
         "operationId": "add_league_api_v1_leagues_post",
         "requestBody": {
           "content": {
@@ -1010,14 +1135,14 @@
     },
     "/api/v1/me": {
       "get": {
-        "description": "Return the account tied to the session cookie, or 401 when unauthenticated.",
+        "description": "Return the signed-in account and whether it already holds a league, or 401.\n\n``has_league`` is the mandatory onboarding gate: false means the UI must route the account to\ncreate-its-league, true means standings are reachable.",
         "operationId": "me_api_v1_me_get",
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PublicUser"
+                  "$ref": "#/components/schemas/MeResponse"
                 }
               }
             },
@@ -1051,6 +1176,48 @@
           }
         },
         "summary": "List My Leagues",
+        "tags": [
+          "leagues"
+        ]
+      }
+    },
+    "/api/v1/me/leagues/redeem-invite": {
+      "post": {
+        "description": "Join the league named by a valid member invite, creating exactly one membership.\n\nUnknown, expired, admin-role, and league-less invites share one structured 400 so the endpoint\ndoes not reveal which part failed; a duplicate membership returns 409. The submitted code is\nnever echoed in the response or an error message.",
+        "operationId": "redeem_invite_api_v1_me_leagues_redeem_invite_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RedeemInviteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RedeemInviteResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Redeem Invite",
         "tags": [
           "leagues"
         ]

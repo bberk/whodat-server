@@ -103,19 +103,25 @@ def _seed_invite(
     role: str = "member",
     expires_at: datetime | None = None,
 ) -> str:
-    """Create a league and an invite, returning the raw code."""
+    """Create a role-appropriate invite, returning the raw code.
+
+    Member invites are bound to a league; admin invites are league-less (AC-AU-17).
+    """
     with factory() as session:
-        league = League(
-            provider="fake",
-            external_id=f"league-{code}",
-            name="League",
-            league_metadata={},
-            provider_config_ref="ref",
-        )
-        session.add(league)
-        session.flush()
+        league_id = None
+        if role == "member":
+            league = League(
+                provider="fake",
+                external_id=f"league-{hash_invite_code(code)[:16]}",
+                name="League",
+                league_metadata={},
+                provider_config_ref="ref",
+            )
+            session.add(league)
+            session.flush()
+            league_id = league.id
         InviteRepository(session).create(
-            league.id,
+            league_id,
             hash_invite_code(code),
             expires_at or (datetime.now(UTC) + timedelta(days=7)),
             role=role,
@@ -149,9 +155,10 @@ def test_AC_AU_01_signup_returns_201_public_user_and_session_cookie(
 
     assert response.status_code == 201
     body = response.json()
-    assert set(body) == {"id", "email", "role"}
+    assert set(body) == {"id", "email", "role", "league"}
     assert body["email"] == "fan@example.com"
     assert body["role"] == "admin"
+    assert body["league"] is None
 
     header = response.headers["set-cookie"]
     assert header.startswith(f"{SESSION_COOKIE_NAME}=v1.")
@@ -166,6 +173,36 @@ def test_AC_AU_01_signup_returns_201_public_user_and_session_cookie(
         assert user.email == "fan@example.com"
         assert verify_password(PASSWORD, user.password_hash) is True
     assert _count(api.factory, UserLeague) == 0
+
+
+def test_AC_AU_01_member_signup_returns_the_league_and_creates_the_membership(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    code = _seed_invite(api.factory, code="member-code")
+    with api.factory() as session:
+        league = session.scalar(select(League))
+        assert league is not None
+        league_id = league.id
+
+    response = _signup(api.client, code)
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["role"] == "member"
+    assert body["league"] == {
+        "league_id": league_id,
+        "provider": "fake",
+        "external_id": f"league-{hash_invite_code(code)[:16]}",
+        "name": "League",
+    }
+    assert code not in response.text
+    with api.factory() as session:
+        membership = session.scalar(select(UserLeague))
+        assert membership is not None
+        assert membership.league_id == league_id
+        assert membership.espn_s2_encrypted is None
+        assert membership.espn_swid_encrypted is None
 
 
 def test_AC_AU_02_duplicate_email_returns_409_case_insensitively(
@@ -373,9 +410,35 @@ def test_me_returns_the_current_user_and_401_without_a_session(
     unauthenticated = api.client.get("/api/v1/me")
 
     assert authenticated.status_code == 200
-    assert authenticated.json() == created
+    body = authenticated.json()
+    assert body == {
+        "id": created["id"],
+        "email": created["email"],
+        "role": created["role"],
+        "has_league": True,
+    }
     assert unauthenticated.status_code == 401
     assert unauthenticated.json()["detail"]["code"] == "not_authenticated"
+
+
+def test_AC_AU_14_me_has_league_is_false_only_until_a_league_is_held(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    admin_code = _seed_invite(api.factory, code="admin-code", role="admin")
+    member_code = _seed_invite(api.factory, code="member-code")
+
+    assert _signup(api.client, admin_code, "admin@example.com").status_code == 201
+    onboarding = api.client.get("/api/v1/me").json()
+
+    assert onboarding["role"] == "admin"
+    assert onboarding["has_league"] is False
+
+    assert _signup(api.client, member_code, "member@example.com").status_code == 201
+    onboarded = api.client.get("/api/v1/me").json()
+
+    assert onboarded["role"] == "member"
+    assert onboarded["has_league"] is True
 
 
 def test_me_rejects_a_tampered_cookie(api_factory: Callable[..., Api]) -> None:

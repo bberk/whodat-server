@@ -48,25 +48,37 @@ def _seed_invite(
     role: str = "member",
     expires_at: datetime | None = None,
 ) -> str:
-    """Store a league invite for ``code`` and return the raw code."""
-    league = League(
-        provider="fake",
-        external_id=f"league-{code}",
-        name="League",
-        league_metadata={},
-        provider_config_ref="ref",
-    )
-    session.add(league)
-    session.flush()
+    """Store an invite for ``code`` and return the raw code.
+
+    Member invites are bound to a league; admin invites are league-less (AC-AU-17).
+    """
+    league_id = None
+    if role == "member":
+        league = League(
+            provider="fake",
+            external_id=f"league-{code}",
+            name="League",
+            league_metadata={},
+            provider_config_ref="ref",
+        )
+        session.add(league)
+        session.flush()
+        league_id = league.id
     expiry = expires_at or (datetime.now(UTC) + timedelta(days=7))
     InviteRepository(session).create(
-        league.id,
+        league_id,
         hash_invite_code(code),
         expiry,
         role=role,
     )
     session.commit()
     return code
+
+
+def _only_league(session: Session) -> League:
+    league = session.scalar(select(League))
+    assert league is not None
+    return league
 
 
 def _count(session: Session, model: type[Base]) -> int:
@@ -77,14 +89,84 @@ def test_AC_AU_01_signup_creates_an_account_from_an_invite(session: Session) -> 
     code = _seed_invite(session, role="admin")
     service = AuthService(session)
 
-    user = service.signup("  Fan@Example.COM ", PASSWORD, code)
+    result = service.signup("  Fan@Example.COM ", PASSWORD, code)
+    user = result.user
 
     assert user.id is not None
     assert user.email == "fan@example.com"
     assert user.role == "admin"
     assert user.password_hash.startswith("$argon2id$")
     assert verify_password(PASSWORD, user.password_hash) is True
-    # Membership and credential handling is intentionally outside this service.
+    # An admin invite is league-less: onboarding adds the first league later.
+    assert result.league is None
+    assert _count(session, UserLeague) == 0
+
+
+def test_AC_AU_01_signup_with_a_member_invite_creates_the_membership_and_returns_its_league(
+    session: Session,
+) -> None:
+    code = _seed_invite(session, code="member-code")
+    league = _only_league(session)
+    service = AuthService(session)
+
+    result = service.signup("fan@example.com", PASSWORD, code)
+    service.commit()
+
+    assert result.user.role == "member"
+    assert result.league is not None
+    assert result.league.league_id == league.id
+    assert result.league.external_id == league.external_id
+    assert result.league.name == league.name
+    membership = session.scalar(select(UserLeague))
+    assert membership is not None
+    assert membership.user_id == result.user.id
+    assert membership.league_id == league.id
+    assert membership.espn_s2_encrypted is None
+    assert membership.espn_swid_encrypted is None
+
+
+def test_AC_AU_01_member_invite_without_a_league_is_rejected_without_storing(
+    session: Session,
+) -> None:
+    InviteRepository(session).create(
+        None,
+        hash_invite_code("league-less-member"),
+        datetime.now(UTC) + timedelta(days=7),
+        role="member",
+    )
+    session.commit()
+
+    with pytest.raises(InviteError, match="invalid"):
+        AuthService(session).signup("fan@example.com", PASSWORD, "league-less-member")
+
+    assert _count(session, AppUser) == 0
+    assert _count(session, UserLeague) == 0
+
+
+def test_AC_AU_01_admin_invite_with_a_league_is_rejected_without_storing(
+    session: Session,
+) -> None:
+    league = League(
+        provider="fake",
+        external_id="admin-league",
+        name="League",
+        league_metadata={},
+        provider_config_ref="ref",
+    )
+    session.add(league)
+    session.flush()
+    InviteRepository(session).create(
+        league.id,
+        hash_invite_code("admin-with-league"),
+        datetime.now(UTC) + timedelta(days=7),
+        role="admin",
+    )
+    session.commit()
+
+    with pytest.raises(InviteError, match="invalid"):
+        AuthService(session).signup("fan@example.com", PASSWORD, "admin-with-league")
+
+    assert _count(session, AppUser) == 0
     assert _count(session, UserLeague) == 0
 
 
@@ -120,7 +202,7 @@ def test_AC_AU_01_invite_is_valid_until_the_expiry_instant(session: Session) -> 
     code = _seed_invite(session, expires_at=expiry)
     just_before = AuthService(session, clock=lambda: expiry - timedelta(seconds=1))
 
-    user = just_before.signup("fan@example.com", PASSWORD, code)
+    user = just_before.signup("fan@example.com", PASSWORD, code).user
     assert user.email == "fan@example.com"
 
 
@@ -138,7 +220,7 @@ def test_AC_AU_02_duplicate_email_is_case_insensitive_and_keeps_one_account(
 ) -> None:
     code = _seed_invite(session)
     service = AuthService(session)
-    first = service.signup("Fan@Example.com", PASSWORD, code)
+    first = service.signup("Fan@Example.com", PASSWORD, code).user
 
     with pytest.raises(EmailAlreadyRegisteredError, match="already exists"):
         service.signup("fan@example.COM", PASSWORD, code)
@@ -171,7 +253,7 @@ def test_AC_AU_02_duplicate_from_a_concurrent_insert_is_rolled_back_and_reported
 
 def test_AC_AU_03_password_is_not_stored_or_returned_in_plaintext(session: Session) -> None:
     code = _seed_invite(session)
-    user = AuthService(session).signup("fan@example.com", PASSWORD, code)
+    user = AuthService(session).signup("fan@example.com", PASSWORD, code).user
 
     assert PASSWORD not in user.password_hash
     assert PASSWORD not in repr(user)
@@ -183,19 +265,22 @@ def test_service_does_not_commit_writes_on_its_own(session: Session) -> None:
 
     service.signup("fan@example.com", PASSWORD, code)
     assert _count(session, AppUser) == 1
+    assert _count(session, UserLeague) == 1
 
     with Session(session.get_bind()) as other:
         assert _count(other, AppUser) == 0
+        assert _count(other, UserLeague) == 0
 
     service.commit()
     with Session(session.get_bind()) as other:
         assert _count(other, AppUser) == 1
+        assert _count(other, UserLeague) == 1
 
 
 def test_AC_AU_04_valid_credentials_authenticate(session: Session) -> None:
     code = _seed_invite(session)
     service = AuthService(session)
-    created = service.signup("Fan@Example.com", PASSWORD, code)
+    created = service.signup("Fan@Example.com", PASSWORD, code).user
     service.commit()
 
     authenticated = service.authenticate("FAN@EXAMPLE.COM", PASSWORD)
@@ -237,7 +322,7 @@ def test_AC_AU_04_unknown_email_still_verifies_a_dummy_hash(session: Session) ->
 def test_AC_AU_04_wrong_password_verifies_the_stored_hash(session: Session) -> None:
     code = _seed_invite(session)
     service = AuthService(session)
-    created = service.signup("fan@example.com", PASSWORD, code)
+    created = service.signup("fan@example.com", PASSWORD, code).user
     service.commit()
 
     with (
@@ -268,7 +353,7 @@ def test_AC_AU_04_missing_password_hash_fails_generically(session: Session) -> N
 def test_get_active_user_returns_the_account(session: Session) -> None:
     code = _seed_invite(session)
     service = AuthService(session)
-    created = service.signup("fan@example.com", PASSWORD, code)
+    created = service.signup("fan@example.com", PASSWORD, code).user
     service.commit()
 
     assert service.get_active_user(created.id).email == "fan@example.com"
@@ -279,6 +364,18 @@ def test_get_active_user_rejects_a_missing_account(session: Session) -> None:
         AuthService(session).get_active_user(999_999)
 
     assert error.value.user_id == 999_999
+
+
+def test_user_has_league_reports_the_onboarding_gate(session: Session) -> None:
+    member_code = _seed_invite(session, code="member-code")
+    admin_code = _seed_invite(session, code="admin-code", role="admin")
+    service = AuthService(session)
+    member = service.signup("member@example.com", PASSWORD, member_code).user
+    admin = service.signup("admin@example.com", PASSWORD, admin_code).user
+    service.commit()
+
+    assert service.user_has_league(member.id) is True
+    assert service.user_has_league(admin.id) is False
 
 
 def test_auth_errors_never_echo_passwords_or_invite_codes(session: Session) -> None:
