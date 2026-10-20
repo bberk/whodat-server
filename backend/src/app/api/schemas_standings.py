@@ -126,27 +126,16 @@ def to_standings_response(standings: ServiceStandings) -> StandingsResponse:
     )
 
 
-def to_vp_history_response(
-    history: ServiceVpHistory,
-    *,
-    last_week: int | None = None,
-) -> VpHistoryResponse:
-    """Build the wire response, optionally limited to counted weeks up to ``last_week``.
-
-    ``last_week`` is validated by the route against the completed weeks before this function is
-    called, so every included series and the ``weeks`` list always have the same length.
-    """
-    count = len(history.weeks)
-    if last_week is not None:
-        count = sum(1 for week in history.weeks if week <= last_week)
+def to_vp_history_response(history: ServiceVpHistory) -> VpHistoryResponse:
+    """Build the wire response for all completed regular-season weeks."""
     return VpHistoryResponse(
-        weeks=list(history.weeks[:count]),
+        weeks=list(history.weeks),
         teams=[
             TeamVpHistory(
                 team_id=team.team_id,
                 team_name=team.team_name,
-                weekly=[format_vp(value) for value in team.weekly[:count]],
-                cumulative=[format_vp(value) for value in team.cumulative[:count]],
+                weekly=[format_vp(value) for value in team.weekly],
+                cumulative=[format_vp(value) for value in team.cumulative],
             )
             for team in history.teams
         ],

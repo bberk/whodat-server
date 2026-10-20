@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Annotated, Never
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -30,7 +30,6 @@ from app.services.standings_service import (
     SeasonNotFoundError,
     StandingsService,
     StandingsServiceError,
-    VpHistory,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["standings"])
@@ -81,20 +80,6 @@ def _raise_standings_error(error: StandingsServiceError) -> Never:
     ) from None
 
 
-def _bounded_history(history: VpHistory, last_week: int | None) -> VpHistory:
-    """Reject a week past the completed data and otherwise leave the history unchanged.
-
-    The response projection performs the truncation; this check only decides whether the
-    requested week refers to a completed week at all.
-    """
-    if last_week is not None and (not history.weeks or last_week > history.weeks[-1]):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error_detail("week_out_of_range", "The week is outside the completed weeks"),
-        )
-    return history
-
-
 @router.get(
     "/leagues/{league_id}/seasons/{season}/standings",
     response_model=StandingsResponse,
@@ -122,18 +107,10 @@ def get_vp_history(
     season: int,
     _member: MemberDep,
     service: StandingsServiceDep,
-    week: Annotated[
-        int | None,
-        Query(ge=1, description="Limit the series to counted weeks up to this week."),
-    ] = None,
 ) -> VpHistoryResponse:
-    """Return counted weeks and each team's weekly and cumulative VP series.
-
-    An optional ``week`` truncates every series at that week. A week beyond the completed data is
-    a structured 400 rather than an empty or partial chart.
-    """
+    """Return all completed regular-season weeks and each team's weekly and cumulative VP."""
     try:
-        history = _bounded_history(service.get_vp_history(league_id, season), week)
+        history = service.get_vp_history(league_id, season)
     except StandingsServiceError as error:
         _raise_standings_error(error)
-    return to_vp_history_response(history, last_week=week)
+    return to_vp_history_response(history)
