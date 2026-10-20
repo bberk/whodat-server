@@ -66,6 +66,10 @@ pre-commit install --hook-type pre-commit --hook-type pre-push
 cp .env.example .env   # then edit values as needed
 ```
 
+ESPN credentials are **not** environment variables. A league admin enters the league's `ESPN_S2`
+and `ESPN_SWID` cookies with the league in the UI; they are stored encrypted per membership (under
+`LEAGUE_CREDENTIALS_KEY`) and never logged or returned by the API.
+
 ## Run the server locally
 
 Backend API (default `http://localhost:8000`; interactive docs at `/docs`):
@@ -167,6 +171,9 @@ never commit real values):
 | `DATABASE_URL` | SQLAlchemy URL for Postgres, for example `postgresql+psycopg://user:password@db-host:5432/whodat`. Defaults to the Compose Postgres service. |
 | `CORS_ORIGINS` | Comma-separated browser origins allowed to send the session cookie, for example `https://standings.example.com`. Defaults to `http://localhost:5173,http://localhost:8080`. |
 | `VITE_API_BASE_URL` | Browser-facing API origin, baked in at frontend build time. Defaults to `http://localhost:8000`. |
+
+ESPN cookies are entered per league in the UI and stored encrypted on the member's membership;
+there is no environment `ESPN_S2`/`ESPN_SWID` setting to deploy.
 
 ```bash
 export ENV=production

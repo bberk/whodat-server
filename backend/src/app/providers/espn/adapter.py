@@ -24,7 +24,6 @@ from app.providers.espn.mappers import (
     map_owners,
     map_teams,
 )
-from app.providers.espn.settings import get_espn_settings
 
 
 class ESPNLeagueProvider:
@@ -34,8 +33,9 @@ class ESPNLeagueProvider:
     In production, this creates real espn_api.football.League objects. In
     tests, it returns pre-built fakes with fixture data.
 
-    ESPN credentials (espn_s2, swid) are read from provider-local settings
-    or can be passed explicitly for testing.
+    Credentials are always supplied explicitly by the credential factory in
+    :mod:`app.providers.espn.credentials`. The adapter never reads them from the
+    environment, so an omitted cookie stays empty (a public league).
     """
 
     provider_id = "espn"
@@ -52,19 +52,11 @@ class ESPNLeagueProvider:
         Args:
             league_factory: Callable that creates league objects. If None,
                 imports espn_api.football.League on first use.
-            espn_s2: ESPN S2 cookie for private leagues. If None, reads from
-                provider-local settings.
-            swid: ESPN SWID cookie for private leagues. If None, reads from
-                provider-local settings.
+            espn_s2: ESPN S2 cookie for private leagues, or None for no cookie.
+            swid: ESPN SWID cookie for private leagues, or None for no cookie.
         """
-        # Read credentials if not provided
-        if espn_s2 is None or swid is None:
-            settings = get_espn_settings()
-            self._espn_s2 = espn_s2 if espn_s2 is not None else settings.espn_s2
-            self._swid = swid if swid is not None else settings.espn_swid
-        else:
-            self._espn_s2 = espn_s2
-            self._swid = swid
+        self._espn_s2 = espn_s2 or ""
+        self._swid = swid or ""
 
         self._league_factory = league_factory
         # Cache: (external_id, season) -> league object
