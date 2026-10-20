@@ -179,4 +179,55 @@ describe("StandingsPage", () => {
       expect(screen.getByRole("table", { name: /overall 2026 standings/i })).toBeInTheDocument();
     });
   });
+
+  it("explains league and season errors and empty notices", () => {
+    mockFetch(() => new Promise<Response>(() => {}));
+
+    const leaguesError = renderPage(contextValue({ leaguesStatus: "error", leaguesError: null }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Check your connection and try again.");
+    leaguesError.unmount();
+
+    const noLeagues = renderPage(contextValue({ leagues: [], selectedLeague: null }));
+    expect(screen.getByText("No leagues yet")).toBeInTheDocument();
+    noLeagues.unmount();
+
+    const seasonsError = renderPage(contextValue({ seasonsStatus: "error", seasonsError: null }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Check your connection and try again.");
+    seasonsError.unmount();
+
+    renderPage(contextValue({ season: null }));
+    expect(screen.getByText("No seasons yet")).toBeInTheDocument();
+  });
+
+  it("handles unnamed divisions and a season with no completed weeks", async () => {
+    mockFetch((url) =>
+      requestPath(url).endsWith("/standings")
+        ? jsonResponse({
+            ...standingsResponse,
+            divisions: [{ name: null, standings: standingsResponse.overall }],
+          })
+        : jsonResponse(historyResponse),
+    );
+    const unnamed = renderPage();
+    expect(await screen.findByText("Division 1")).toBeInTheDocument();
+    unnamed.unmount();
+
+    mockFetch((url) =>
+      requestPath(url).endsWith("/standings")
+        ? jsonResponse({ ...standingsResponse, divisions: [] })
+        : jsonResponse(historyResponse),
+    );
+    const noDivisions = renderPage();
+    expect(await screen.findByText("No divisions")).toBeInTheDocument();
+    noDivisions.unmount();
+
+    mockFetch((url) =>
+      requestPath(url).endsWith("/standings")
+        ? jsonResponse(standingsResponse)
+        : jsonResponse(emptyHistoryResponse),
+    );
+    renderPage();
+    expect(await screen.findByText("No chart yet")).toBeInTheDocument();
+    expect(screen.getByText("No weekly VP yet")).toBeInTheDocument();
+  });
 });

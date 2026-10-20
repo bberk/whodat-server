@@ -155,4 +155,22 @@ describe("AddLeagueDialog", () => {
     expect(league.notifyDataChanged).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it("validates the season and shows an API error from the add request", async () => {
+    const user = userEvent.setup();
+    const fetchMock = mockFetch(() =>
+      errorResponse(409, { code: "already_member", message: "You already belong to this league" }),
+    );
+    renderDialog();
+    await user.type(screen.getByLabelText("ESPN league id"), "333");
+    await user.type(screen.getByLabelText(/Season/), "1990");
+    await user.click(screen.getByRole("button", { name: "Add league" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Season must be a whole year between");
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await user.clear(screen.getByLabelText(/Season/));
+    await user.click(screen.getByRole("button", { name: "Add league" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("already belong to this league");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });

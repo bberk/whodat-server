@@ -73,4 +73,63 @@ describe("apiRequest", () => {
     expect((failure as ApiError).status).toBe(0);
     expect((failure as ApiError).message).toMatch(/could not reach the api/i);
   });
+
+  it("returns null for an empty success body and text for a non-JSON body", async () => {
+    mockFetch(() => new Response("", { status: 200 }));
+    await expect(apiRequest("/api/v1/me")).resolves.toBeNull();
+
+    mockFetch(() => new Response("ok", { status: 200 }));
+    await expect(apiRequest("/api/v1/me")).resolves.toBe("ok");
+  });
+
+  it("uses a string detail as the message and ignores an invalid Retry-After", async () => {
+    mockFetch(
+      () =>
+        new Response(JSON.stringify({ detail: "Maintenance window" }), {
+          status: 503,
+          headers: { "Retry-After": "later" },
+        }),
+    );
+    const failure = await apiRequest("/api/v1/me").catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(ApiError);
+    expect((failure as ApiError).message).toBe("Maintenance window");
+    expect((failure as ApiError).retryAfter).toBeNull();
+  });
+
+  it("falls back through the code and generic message for an unknown error body", async () => {
+    mockFetch(() => jsonResponse({ detail: { code: "teapot" } }, { status: 418 }));
+    const coded = await apiRequest("/api/v1/me").catch((error: unknown) => error);
+    expect((coded as ApiError).message).toBe("teapot");
+    expect((coded as ApiError).code).toBe("teapot");
+
+    mockFetch(() => jsonResponse({ detail: { other: true } }, { status: 418 }));
+    const generic = await apiRequest("/api/v1/me").catch((error: unknown) => error);
+    expect((generic as ApiError).message).toBe("Request failed (418)");
+  });
+
+  it("skips malformed validation entries and keeps usable field errors", async () => {
+    mockFetch(() =>
+      errorResponse(422, [
+        null,
+        { loc: [], msg: "Lost" },
+        { loc: ["body", "name"] },
+        { loc: ["body", 0, "team_id"], msg: "Not yours", type: "value_error" },
+      ]),
+    );
+    const failure = await apiRequest("/api/v1/me").catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(ApiError);
+    expect((failure as ApiError).fieldErrors).toEqual([
+      { field: "name", message: "Invalid value" },
+      { field: "team_id", message: "Not yours" },
+    ]);
+  });
+
+  it("rethrows an aborted request instead of reporting a network failure", async () => {
+    const abort = new DOMException("The operation was aborted.", "AbortError");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(abort)),
+    );
+    await expect(apiRequest("/api/v1/me")).rejects.toBe(abort);
+  });
 });
