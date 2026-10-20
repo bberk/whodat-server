@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { api } from "../api/endpoints";
-import { isUnauthorized } from "../api/client";
+import { isUnauthorized, onUnauthorized } from "../api/client";
 import type { PublicUser } from "../api/types";
 import { AuthContext, type AuthStatus } from "./AuthContext";
 
@@ -17,8 +17,9 @@ const SIGNED_OUT: AuthState = { status: "signed-out", user: null, bootError: nul
  * Load `GET /me` once, then expose login, signup, and logout.
  *
  * A 401 from `/me` (or from any auth action) means signed out rather than an error, so an expired
- * cookie lands the visitor on the login page. Other boot failures keep the visitor signed out and
- * surface a message on the login page.
+ * cookie lands the visitor on the login page. A 401 from any later API call while signed in also
+ * clears the session, so an expired cookie cannot leave a broken signed-in shell behind. Other
+ * boot failures keep the visitor signed out and surface a message on the login page.
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ status: "loading", user: null, bootError: null });
@@ -44,6 +45,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       controller.abort();
     };
   }, []);
+
+  useEffect(
+    () =>
+      onUnauthorized(() => {
+        setState((current) => (current.status === "signed-in" ? SIGNED_OUT : current));
+      }),
+    [],
+  );
 
   const login = useCallback(async (email: string, password: string) => {
     const user = await api.login({ email, password });

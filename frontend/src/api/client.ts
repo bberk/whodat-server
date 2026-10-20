@@ -44,6 +44,28 @@ export function isUnauthorized(error: unknown): boolean {
   return error instanceof ApiError && error.status === 401;
 }
 
+type UnauthorizedListener = () => void;
+
+const unauthorizedListeners = new Set<UnauthorizedListener>();
+
+/**
+ * Run `listener` whenever any API request returns 401, so the auth layer can drop a session that
+ * expired mid-visit. Returns a function that unsubscribes. A 401 from the initial `/me` call is
+ * included; the auth layer decides whether it was signed in at the time.
+ */
+export function onUnauthorized(listener: UnauthorizedListener): () => void {
+  unauthorizedListeners.add(listener);
+  return () => {
+    unauthorizedListeners.delete(listener);
+  };
+}
+
+function notifyUnauthorized(): void {
+  for (const listener of unauthorizedListeners) {
+    listener();
+  }
+}
+
 /** The configured API origin, without a trailing slash. */
 export function apiBaseUrl(): string {
   const configured = import.meta.env.VITE_API_BASE_URL as string | undefined;
@@ -161,6 +183,9 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
 
   const payload = await readBody(response);
   if (!response.ok) {
+    if (response.status === 401) {
+      notifyUnauthorized();
+    }
     throw parseError(response.status, response.headers, payload);
   }
   return payload as T;
