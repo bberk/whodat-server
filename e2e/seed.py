@@ -125,12 +125,15 @@ def _provider(fixture: dict[str, Any]) -> FakeProvider:
 def _ensure_invite(
     session: Session,
     *,
-    league_id: int,
+    league_id: int | None,
     code: str,
     role: str,
     now: datetime,
 ) -> None:
-    """Create the invite or refresh its role, league, and expiry so reruns stay valid."""
+    """Create the invite or refresh its role, league, and expiry so reruns stay valid.
+
+    A member invite names its league; an admin invite is league-less (AC-AU-17).
+    """
     repository = InviteRepository(session)
     code_hash = hash_invite_code(code)
     invite = repository.get_by_code_hash(code_hash)
@@ -251,7 +254,7 @@ def seed() -> int:
 
         _ensure_invite(
             session,
-            league_id=summary.league_id,
+            league_id=None,
             code=fixture["inviteCodes"]["admin"],
             role=ROLE_ADMIN,
             now=now,
