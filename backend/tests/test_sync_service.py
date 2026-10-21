@@ -28,6 +28,7 @@ from app.providers.base import (
 )
 from app.providers.fake import FakeProvider
 from app.services.sync_service import (
+    PROVIDER_CONFIG_REF,
     LeagueNotFoundError,
     MissingRegularSeasonLengthError,
     SyncError,
@@ -1061,7 +1062,7 @@ def test_recompute_without_a_league_season_row_raises(session: Session) -> None:
         external_id="league-1",
         name="VP League",
         league_metadata={},
-        provider_config_ref="env:default",
+        provider_config_ref=PROVIDER_CONFIG_REF,
     ).row
     session.commit()
     assert repo.get_league_season(league.id, 2026) is None

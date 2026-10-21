@@ -61,6 +61,7 @@ from app.services.league_service import (
     RefreshRateLimitedError,
     RefreshRateLimiter,
 )
+from app.services.sync_service import PROVIDER_CONFIG_REF
 
 SEASON = 2026
 LEAGUE_EXTERNAL = "espn-league-1"
@@ -278,7 +279,7 @@ def _seed_league(
             external_id=external_id,
             name="Stored League",
             league_metadata={"teams": owners},
-            provider_config_ref="env:default",
+            provider_config_ref=PROVIDER_CONFIG_REF,
         ).row
         if with_season:
             repository.upsert_league_season(league.id, season, {"regular_season_length": 1})

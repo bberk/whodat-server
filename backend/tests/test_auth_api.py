@@ -17,7 +17,7 @@ import pytest
 from fastapi import Response
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
-from sqlalchemy import Engine, create_engine, func, select
+from sqlalchemy import Engine, create_engine, event, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api import deps
@@ -31,6 +31,7 @@ from app.db.models import AppUser, League, UserLeague
 from app.db.session import get_session as db_get_session
 from app.security.invite_codes import hash_invite_code
 from app.security.passwords import verify_password
+from app.services.sync_service import PROVIDER_CONFIG_REF
 
 PASSWORD = "correct-horse-battery"
 NEW_PASSWORD = "another-strong-password"
@@ -439,6 +440,54 @@ def test_AC_AU_14_me_has_league_is_false_only_until_a_league_is_held(
 
     assert onboarded["role"] == "member"
     assert onboarded["has_league"] is True
+
+
+def test_AC_AU_14_me_with_two_memberships_uses_one_existence_check(
+    api_factory: Callable[..., Api],
+) -> None:
+    """A second membership must not turn has_league into a per-league query."""
+    api = api_factory()
+    member_code = _seed_invite(api.factory, code="member-code")
+    assert _signup(api.client, member_code, "member@example.com").status_code == 201
+
+    with api.factory() as session:
+        user = session.scalar(select(AppUser).where(AppUser.email == "member@example.com"))
+        assert user is not None
+        second_league = League(
+            provider="fake",
+            external_id="second-league",
+            name="Second League",
+            league_metadata={},
+            provider_config_ref=PROVIDER_CONFIG_REF,
+        )
+        session.add(second_league)
+        session.flush()
+        session.add(UserLeague(user_id=user.id, league_id=second_league.id))
+        session.commit()
+
+    statements: list[str] = []
+
+    def capture(
+        _conn: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        statements.append(statement)
+
+    event.listen(api.engine, "before_cursor_execute", capture)
+    try:
+        response = api.client.get("/api/v1/me")
+    finally:
+        event.remove(api.engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 200
+    assert response.json()["has_league"] is True
+    existence_checks = [sql for sql in statements if "FROM user_league" in sql]
+    assert len(existence_checks) == 1
+    assert "LIMIT" in existence_checks[0]
 
 
 def test_me_rejects_a_tampered_cookie(api_factory: Callable[..., Api]) -> None:
