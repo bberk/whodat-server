@@ -1022,22 +1022,28 @@ def test_cli_create_invite_oversized_duration_is_a_usage_error(
 
 
 # ---------------------------------------------------------------------------
-# create-user stub and module entry point
+# Parser surface and module entry point
 # ---------------------------------------------------------------------------
 
 
-def test_cli_create_user_is_still_a_stub(capsys: pytest.CaptureFixture[str]) -> None:
-    """create-user stays an explicit no-op until M4 implements auth."""
-    assert main(["create-user"]) == 0
-    assert "not implemented yet" in capsys.readouterr().out
+def test_cli_unknown_subcommand_is_rejected(capsys: pytest.CaptureFixture[str]) -> None:
+    """An unknown subcommand (including the removed create-user) exits 2, not 0."""
+    with pytest.raises(SystemExit) as excinfo:
+        main(["create-user"])
+
+    assert excinfo.value.code == 2
+    assert "invalid choice" in capsys.readouterr().err
 
 
-def test_cli_module_entry_point(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`python -m app.cli create-user` exits 0 through the module entry point."""
-    monkeypatch.setattr("sys.argv", ["app.cli", "create-user"])
+def test_cli_module_entry_point(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`python -m app.cli --help` exits 0 through the module entry point."""
+    monkeypatch.setattr("sys.argv", ["app.cli", "--help"])
     with pytest.raises(SystemExit) as excinfo:
         runpy.run_module("app.cli", run_name="__main__")
     assert excinfo.value.code == 0
+    assert "create-invite" in capsys.readouterr().out
 
 
 def test_main_defaults_to_the_espn_credential_factory() -> None:

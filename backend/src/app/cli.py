@@ -1,4 +1,4 @@
-"""Command-line entry point (sync, recompute, create-invite, create-user).
+"""Command-line entry point (sync, recompute, create-invite).
 
 ``sync`` fetches a league season through the ESPN provider and writes normalized leagues, owners,
 teams, matchups, scores, and weekly Victory Points. It requires ``--as-email`` and uses only that
@@ -6,8 +6,8 @@ member's stored, encrypted league credentials; there is no environment credentia
 fallback to another member. ``recompute`` rebuilds Victory Points from data already stored, without
 any provider calls. ``create-invite`` mints an invite and prints its raw code once; only the code
 hash is stored. A member invite names its league, while an admin invite may be league-less so the
-first account can be created before any league exists. ``create-user`` remains a stub for the M4
-auth work.
+first account can be created before any league exists. Accounts are invite-only: there is no
+command that creates a user directly.
 
 Every real command owns its database transaction: it opens a session, runs the service or
 repository calls, and commits. Tests inject a provider factory (for example returning a
@@ -116,7 +116,7 @@ def parse_role(value: str) -> str:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build the argument parser with sync, recompute, create-invite, and create-user commands."""
+    """Build the argument parser with the sync, recompute, and create-invite commands."""
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -158,8 +158,6 @@ def build_parser() -> argparse.ArgumentParser:
     create_invite.add_argument(
         "--provider", default=DEFAULT_PROVIDER_ID, help="provider id (default: espn)"
     )
-
-    sub.add_parser("create-user", help="create an application user")
 
     return parser
 
@@ -364,11 +362,6 @@ def main(
     args = parser.parse_args(argv)
     if args.command == "create-invite":
         _validate_create_invite_args(args, parser)
-
-    if args.command == "create-user":
-        # Auth arrives in M4; keep the documented stub until then.
-        print("not implemented yet")
-        return 0
 
     factory = session_factory if session_factory is not None else get_session_factory()
 
