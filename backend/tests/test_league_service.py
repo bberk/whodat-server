@@ -55,7 +55,7 @@ from app.services.league_service import (
     RefreshRateLimitedError,
     RefreshRateLimiter,
 )
-from app.services.sync_service import SyncError, SyncService
+from app.services.sync_service import PROVIDER_CONFIG_REF, SyncError, SyncService
 
 SEASON = 2026
 LEAGUE_EXTERNAL = "espn-league-1"
@@ -200,7 +200,7 @@ def _seed_existing_league(
         external_id=external_id,
         name="Stored League",
         league_metadata={"teams": 2},
-        provider_config_ref="env:default",
+        provider_config_ref=PROVIDER_CONFIG_REF,
     ).row
     repository.upsert_league_season(league.id, season, {"regular_season_length": 1})
     session.commit()
@@ -783,7 +783,7 @@ def test_refresh_falls_back_to_the_current_year_without_a_stored_season(
             external_id=LEAGUE_EXTERNAL,
             name="No Season Yet",
             league_metadata={},
-            provider_config_ref="env:default",
+            provider_config_ref=PROVIDER_CONFIG_REF,
         )
         .row
     )

@@ -41,6 +41,7 @@ from app.providers.espn.credentials import create_espn_provider
 from app.providers.fake import FakeProvider
 from app.security.crypto import CredentialDecryptionError, decrypt, encrypt
 from app.security.invite_codes import hash_invite_code, invite_code_matches
+from app.services.sync_service import PROVIDER_CONFIG_REF
 
 LEAGUE_EXTERNAL_ID = "699385"
 SEASON = 2026
@@ -223,7 +224,7 @@ def _seed_league(
             external_id=external_id,
             name="CLI League",
             league_metadata={},
-            provider_config_ref="env:default",
+            provider_config_ref=PROVIDER_CONFIG_REF,
         )
         league_id = result.row.id
         session.commit()
@@ -708,7 +709,7 @@ def test_cli_recompute_season_without_a_league_season_row_exits_nonzero(
             external_id=LEAGUE_EXTERNAL_ID,
             name="CLI League",
             league_metadata={},
-            provider_config_ref="env:default",
+            provider_config_ref=PROVIDER_CONFIG_REF,
         )
         session.commit()
 
