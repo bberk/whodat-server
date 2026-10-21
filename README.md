@@ -42,7 +42,7 @@ Postgres in CI and production. React + TypeScript + Vite + Tailwind on the front
 |---|---|---|
 | [uv](https://docs.astral.sh/uv/) | Python deps and commands | `brew install uv` |
 | [pnpm](https://pnpm.io/) | Frontend deps and commands | `brew install pnpm` (or `corepack enable`) |
-| Node.js 26 | Frontend runtime | `brew install node@26` |
+| Node.js 26.12.1 or newer | Frontend runtime | `brew install node@26` |
 | [pre-commit](https://pre-commit.com/) | Git hooks | `uv tool install pre-commit` |
 | `gh` | PR/merge automation | `brew install gh` then `gh auth login` |
 | [gitleaks](https://github.com/gitleaks/gitleaks) | Secret scanning hook | `brew install gitleaks` |
@@ -113,6 +113,52 @@ uv run alembic upgrade head
 several checkouts can run Postgres at once without clobbering each other. `scripts/dev-postgres.sh
 down` stops it and deletes this worktree's data. The plain `docker compose up -d postgres` stack
 (port 5432) is fine for a single checkout.
+
+## First run: accounts and leagues
+
+There are no seeded users and no self-service signup: every account is created by redeeming an
+invite code at `/signup`. Create the first (admin) invite on the host:
+
+```bash
+cd backend
+uv run python -m app.cli create-invite --role admin
+```
+
+The command prints the raw code once — save it now; only its hash is stored and the code cannot be
+shown again. Invites expire after 7 days by default; pass `--expires 24h` (or another `Nd`/`Nh`
+duration, up to 3650 days) to change that.
+
+When the stack runs in Docker, run the same command inside the backend container:
+
+```bash
+docker compose exec backend uv run python -m app.cli create-invite --role admin
+```
+
+Sign up at `http://localhost:5173/signup` for the dev servers, or
+`http://localhost:8080/signup` for the Docker stack. An admin invite is league-less, so signup
+then forces the **create your league** step: enter the ESPN league id, season, `ESPN_S2`, and
+`ESPN_SWID`. Standings stay unreachable until that step succeeds.
+
+To invite a member, create a member invite bound to the league's ESPN id (an admin must have
+stored that league first):
+
+```bash
+cd backend
+uv run python -m app.cli create-invite --role member --league <espn-league-id>
+```
+
+A member invite is bound to exactly one league, so the new account lands directly in that league at
+signup. An existing member joins an additional league from the UI's **Join league** action with a
+member invite code; joining is never done by typing a bare league id. Admins need no invite: they
+add any league from the UI with its ESPN id and credentials.
+
+`create-invite` enforces the role/league pairing: `--role member` requires `--league`, and
+`--role admin` rejects it.
+
+Credentials are per membership. Members enter the league's `ESPN_S2` and `ESPN_SWID` in the UI;
+they are stored encrypted under `LEAGUE_CREDENTIALS_KEY` and never returned by the API. A refresh
+uses the caller's own stored credentials and is rate limited (one league-wide refresh every five
+minutes, and three per user per hour).
 
 ## Run the tests
 
