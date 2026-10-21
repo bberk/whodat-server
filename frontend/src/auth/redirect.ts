@@ -55,3 +55,13 @@ export function redirectTarget(state: unknown): string {
   const target = `${pathname}${typeof search === "string" ? search : ""}`;
   return isSameOriginPath(target) ? target : "/";
 }
+
+/**
+ * Where a freshly authenticated account may go.
+ *
+ * A league-bound account keeps the requested route (AC-FE-08). An account with no league is sent
+ * to mandatory onboarding instead, even when it asked for a standings route (AC-AU-14).
+ */
+export function afterAuthTarget(user: { has_league: boolean }, requested: string): string {
+  return user.has_league ? requested : "/onboarding";
+}

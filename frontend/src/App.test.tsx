@@ -6,11 +6,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { App, AppRoutes } from "./App";
 import {
   adminUser,
+  adminWithoutLeague,
   errorResponse,
   historyResponse,
   jsonResponse,
   leagueAlpha,
   leagueBeta,
+  memberUser,
   mockFetch,
   owners,
   requestBody,
@@ -205,18 +207,25 @@ describe("App routing", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Try again in 30 seconds");
   });
 
-  it("signs up and lands on the standings", async () => {
+  it("signs up with a member invite and lands on the league standings without onboarding", async () => {
     const user = userEvent.setup();
+    let signedIn = false;
     mockFetch((url) => {
       const path = requestPath(url);
       if (path === "/api/v1/auth/signup") {
-        return jsonResponse(adminUser, { status: 201 });
+        signedIn = true;
+        return jsonResponse(
+          { id: 2, email: "new@example.com", role: "member", league: leagueAlpha },
+          { status: 201 },
+        );
       }
       if (path === "/api/v1/me") {
-        return errorResponse(401, {
-          code: "not_authenticated",
-          message: "Authentication required",
-        });
+        return signedIn
+          ? jsonResponse(memberUser)
+          : errorResponse(401, {
+              code: "not_authenticated",
+              message: "Authentication required",
+            });
       }
       if (path === "/api/v1/me/leagues") {
         return jsonResponse([leagueAlpha]);
@@ -237,8 +246,121 @@ describe("App routing", () => {
     await user.type(screen.getByLabelText("Password"), "password");
     await user.type(screen.getByLabelText("Invite code"), "invite-code");
     await user.click(screen.getByRole("button", { name: "Create account" }));
+    // AC-AU-15: a member invite already carries the membership, so no onboarding step appears.
     expect(
       await screen.findByRole("heading", { level: 1, name: "Alpha League — standings" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { level: 1, name: "Add your ESPN league" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("forces onboarding and hides standings for an account without a league", async () => {
+    const fetchMock = mockFetch((url) => {
+      const path = requestPath(url);
+      if (path === "/api/v1/me") {
+        return jsonResponse(adminWithoutLeague);
+      }
+      return errorResponse(404, { code: "not_found", message: path });
+    });
+    renderAt("/");
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Add your ESPN league" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 1, name: /standings/i })).not.toBeInTheDocument();
+    const paths = fetchMock.mock.calls.map(([url]) => requestPath(String(url)));
+    expect(paths).not.toContain("/api/v1/me/leagues");
+  });
+
+  it("redirects every protected route to onboarding while the account has no league", async () => {
+    mockFetch((url) => {
+      const path = requestPath(url);
+      if (path === "/api/v1/me") {
+        return jsonResponse(adminWithoutLeague);
+      }
+      return errorResponse(404, { code: "not_found", message: path });
+    });
+    renderAt("/leagues/1/owner");
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Add your ESPN league" }),
+    ).toBeInTheDocument();
+  });
+
+  it("sends a league-bound account away from the onboarding route", async () => {
+    signedInFetch();
+    renderAt("/onboarding");
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Alpha League — standings" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { level: 1, name: "Add your ESPN league" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("signs up with an admin invite and is forced to onboarding", async () => {
+    const user = userEvent.setup();
+    let signedIn = false;
+    const fetchMock = mockFetch((url) => {
+      const path = requestPath(url);
+      if (path === "/api/v1/auth/signup") {
+        signedIn = true;
+        return jsonResponse(
+          { id: 3, email: "new-admin@example.com", role: "admin", league: null },
+          { status: 201 },
+        );
+      }
+      if (path === "/api/v1/me") {
+        return signedIn
+          ? jsonResponse(adminWithoutLeague)
+          : errorResponse(401, {
+              code: "not_authenticated",
+              message: "Authentication required",
+            });
+      }
+      return errorResponse(404, { code: "not_found", message: path });
+    });
+    renderAt("/signup");
+    await screen.findByRole("heading", { level: 1, name: "Create an account" });
+    await user.type(screen.getByLabelText("Email"), "new-admin@example.com");
+    await user.type(screen.getByLabelText("Password"), "password");
+    await user.type(screen.getByLabelText("Invite code"), "admin-invite");
+    await user.click(screen.getByRole("button", { name: "Create account" }));
+
+    // AC-AU-14: the admin invite is league-less, so signup lands on onboarding, not standings.
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Add your ESPN league" }),
+    ).toBeInTheDocument();
+    const paths = fetchMock.mock.calls.map(([url]) => requestPath(String(url)));
+    expect(paths).not.toContain("/api/v1/me/leagues");
+  });
+
+  it("sends an account without a league to onboarding after login", async () => {
+    const user = userEvent.setup();
+    let signedIn = false;
+    mockFetch((url) => {
+      const path = requestPath(url);
+      if (path === "/api/v1/auth/login") {
+        signedIn = true;
+        return jsonResponse({ id: 3, email: "new-admin@example.com", role: "admin" });
+      }
+      if (path === "/api/v1/me") {
+        return signedIn
+          ? jsonResponse(adminWithoutLeague)
+          : errorResponse(401, {
+              code: "not_authenticated",
+              message: "Authentication required",
+            });
+      }
+      return errorResponse(404, { code: "not_found", message: path });
+    });
+    renderAt("/login");
+    await screen.findByRole("heading", { level: 1, name: "Log in" });
+    await user.type(screen.getByLabelText("Email"), "new-admin@example.com");
+    await user.type(screen.getByLabelText("Password"), "password");
+    await user.click(screen.getByRole("button", { name: "Log in" }));
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Add your ESPN league" }),
     ).toBeInTheDocument();
   });
 

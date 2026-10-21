@@ -13,9 +13,17 @@ export type LoginRequest = components["schemas"]["LoginRequest"];
 export type SignupRequest = components["schemas"]["SignupRequest"];
 export type LogoutResponse = components["schemas"]["LogoutResponse"];
 
+/** The signed-in account plus `has_league`, which gates the mandatory onboarding step. */
+export type MeResponse = components["schemas"]["MeResponse"];
+/** The league a member invite granted at signup, with no credential material. */
+export type SignupLeague = components["schemas"]["SignupLeague"];
+export type SignupResponse = components["schemas"]["SignupResponse"];
+
 export type LeagueSummary = components["schemas"]["LeagueSummary"];
 export type AddLeagueRequest = components["schemas"]["AddLeagueRequest"];
 export type AddLeagueResponse = components["schemas"]["AddLeagueResponse"];
+export type RedeemInviteRequest = components["schemas"]["RedeemInviteRequest"];
+export type RedeemInviteResponse = components["schemas"]["RedeemInviteResponse"];
 
 export type OwnerSummary = components["schemas"]["OwnerSummary"];
 export type OwnersResponse = components["schemas"]["OwnersResponse"];

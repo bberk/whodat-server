@@ -6,11 +6,11 @@ import { ApiAlert } from "../components/ApiAlert";
 import { inputClass, labelClass, primaryButtonClass } from "../components/formStyles";
 import { AuthLayout } from "./AuthLayout";
 import { useAuth } from "./AuthContext";
-import { redirectTarget } from "./redirect";
+import { afterAuthTarget, redirectTarget } from "./redirect";
 
 /** Invite-gated signup. The invite code is required and never echoed back by the API. */
 export function SignupPage() {
-  const { status, signup } = useAuth();
+  const { status, user, signup } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const target = redirectTarget(location.state);
@@ -21,7 +21,7 @@ export function SignupPage() {
   const [submitting, setSubmitting] = useState(false);
 
   if (status === "signed-in") {
-    return <Navigate to={target} replace />;
+    return <Navigate to={user === null ? target : afterAuthTarget(user, target)} replace />;
   }
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -29,8 +29,8 @@ export function SignupPage() {
     setError(null);
     setSubmitting(true);
     try {
-      await signup(email.trim(), password, inviteCode.trim());
-      navigate(target, { replace: true });
+      const signedIn = await signup(email.trim(), password, inviteCode.trim());
+      navigate(afterAuthTarget(signedIn, target), { replace: true });
     } catch (failure) {
       setError(toDisplayError(failure));
     } finally {

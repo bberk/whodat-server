@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AuthContextValue } from "../auth/AuthContext";
 import { AuthContext } from "../auth/AuthContext";
-import type { PublicUser } from "../api/types";
+import type { MeResponse } from "../api/types";
 import {
   adminUser,
   errorResponse,
@@ -17,18 +17,19 @@ import {
 import { useLeague } from "./LeagueContext";
 import { LeagueProvider } from "./LeagueProvider";
 
-function authValue(user: PublicUser | null): AuthContextValue {
+function authValue(user: MeResponse | null): AuthContextValue {
   return {
     status: user === null ? "signed-out" : "signed-in",
     user,
     bootError: null,
     login: vi.fn(),
     signup: vi.fn(),
+    refreshUser: vi.fn(),
     logout: vi.fn(),
   };
 }
 
-function wrapperFor(user: PublicUser | null) {
+function wrapperFor(user: MeResponse | null) {
   return function Wrapper({ children }: { children: ReactNode }) {
     return (
       <AuthContext.Provider value={authValue(user)}>

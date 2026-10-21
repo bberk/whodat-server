@@ -1,16 +1,21 @@
 import { createContext, useContext } from "react";
 
-import type { PublicUser } from "../api/types";
+import type { MeResponse } from "../api/types";
 
 export type AuthStatus = "loading" | "signed-in" | "signed-out";
 
 export interface AuthContextValue {
   status: AuthStatus;
-  user: PublicUser | null;
+  /** The `GET /me` shape, including `has_league`, which gates onboarding. */
+  user: MeResponse | null;
   /** A non-401 failure while loading the session, if any. */
   bootError: string | null;
-  login: (email: string, password: string) => Promise<void>;
-  signup: (email: string, password: string, inviteCode: string) => Promise<void>;
+  /** Log in, then replace the partial login payload with a fresh `GET /me`. */
+  login: (email: string, password: string) => Promise<MeResponse>;
+  /** Sign up, then replace the signup payload with a fresh `GET /me`. */
+  signup: (email: string, password: string, inviteCode: string) => Promise<MeResponse>;
+  /** Re-read `GET /me` after onboarding so `has_league` reflects the new membership. */
+  refreshUser: () => Promise<MeResponse>;
   logout: () => Promise<void>;
 }
 

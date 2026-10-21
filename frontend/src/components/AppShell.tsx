@@ -93,7 +93,7 @@ export function AppShell() {
             />
             <div className="flex-1" />
             <button type="button" onClick={() => setAddOpen(true)} className={secondaryButtonClass}>
-              Add league
+              {user?.role === "admin" ? "Add league" : "Join league"}
             </button>
           </div>
         </div>
