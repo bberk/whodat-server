@@ -66,9 +66,9 @@ pre-commit install --hook-type pre-commit --hook-type pre-push
 cp .env.example .env   # then edit values as needed
 ```
 
-ESPN credentials are **not** environment variables. A league admin enters the league's `ESPN_S2`
-and `ESPN_SWID` cookies with the league in the UI; they are stored encrypted per membership (under
-`LEAGUE_CREDENTIALS_KEY`) and never logged or returned by the API.
+ESPN credentials are **not** environment variables. Each member enters the league's `ESPN_S2`
+and `ESPN_SWID` cookies for that membership in the UI; they are stored encrypted per membership
+(under `LEAGUE_CREDENTIALS_KEY`) and never logged or returned by the API.
 
 ## Run the server locally
 
