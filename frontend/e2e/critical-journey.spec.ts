@@ -149,3 +149,64 @@ test("sign up with a member invite, set owner, and read the seeded standings", a
     contentType: "image/png",
   });
 });
+
+test("sign up with an admin invite and get forced through onboarding", async ({
+  page,
+}, testInfo) => {
+  const email = `e2e-admin-${testInfo.project.name}-${Date.now()}@example.com`;
+  const addLeagueRequests: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().includes("/api/v1/leagues")) {
+      addLeagueRequests.push(request.url());
+    }
+  });
+
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/login$/);
+
+  await page.getByRole("link", { name: "Create an account" }).click();
+  await expect(page).toHaveURL(/\/signup$/);
+  await expect(page.getByRole("heading", { level: 1, name: "Create an account" })).toBeVisible();
+  await page.getByLabel("Email", { exact: true }).fill(email);
+  await page.getByLabel("Password", { exact: true }).fill(fixture.users.memberPassword);
+  await page.getByLabel("Invite code", { exact: true }).fill(fixture.inviteCodes.admin);
+  await page.getByRole("button", { name: "Create account" }).click();
+
+  // AC-AU-14: an admin invite carries no league, so the account lands on mandatory onboarding.
+  await expect(page).toHaveURL(/\/onboarding$/);
+  await expect(page.getByRole("heading", { level: 1, name: "Add your ESPN league" })).toBeVisible();
+  await expect(page.getByLabel("ESPN league id")).toBeVisible();
+  await expect(page.getByLabel("Season")).toHaveValue(String(new Date().getFullYear()));
+
+  // Standings stay unreachable until a league is added.
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/onboarding$/);
+  await page.goto("/leagues/1/owner");
+  await expect(page).toHaveURL(/\/onboarding$/);
+
+  // Client-side validation stops every incomplete submit before it reaches the API, so the suite
+  // never depends on a real ESPN call the e2e backend cannot make.
+  await page.getByRole("button", { name: "Add league and continue" }).click();
+  await expect(page.getByRole("alert")).toContainText("Enter your ESPN league id.");
+
+  await page.getByLabel("ESPN league id").fill("123456");
+  await page.getByLabel("Season").fill("1999");
+  await page.getByRole("button", { name: "Add league and continue" }).click();
+  await expect(page.getByRole("alert")).toContainText(
+    "Season must be a whole year between 2000 and 2100.",
+  );
+
+  await page.getByLabel("Season").fill(String(new Date().getFullYear()));
+  await page.getByRole("button", { name: "Add league and continue" }).click();
+  await expect(page.getByRole("alert")).toContainText("Enter both ESPN_S2 and ESPN_SWID.");
+  expect(addLeagueRequests).toEqual([]);
+
+  // AC-FE-05 and AC-FE-07: the onboarding page fits the 360px body and has no blocking axe issues.
+  await expectPageDoesNotScrollSideways(page);
+  await expectNoBlockingAxeViolations(page, "onboarding");
+
+  await testInfo.attach(`onboarding-${testInfo.project.name}`, {
+    body: await page.screenshot({ fullPage: true }),
+    contentType: "image/png",
+  });
+});

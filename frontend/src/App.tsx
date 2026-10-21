@@ -2,10 +2,11 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import { AuthProvider } from "./auth/AuthProvider";
 import { LoginPage } from "./auth/LoginPage";
-import { ProtectedRoute } from "./auth/ProtectedRoute";
+import { OnboardingRoute, ProtectedRoute } from "./auth/ProtectedRoute";
 import { SignupPage } from "./auth/SignupPage";
 import { AppShell } from "./components/AppShell";
 import { LeagueProvider } from "./leagues/LeagueProvider";
+import { OnboardingPage } from "./pages/OnboardingPage";
 import { OwnerPage } from "./pages/OwnerPage";
 import { StandingsPage } from "./pages/StandingsPage";
 
@@ -16,6 +17,14 @@ export function AppRoutes() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
+        <Route
+          path="/onboarding"
+          element={
+            <OnboardingRoute>
+              <OnboardingPage />
+            </OnboardingRoute>
+          }
+        />
         <Route
           path="/"
           element={

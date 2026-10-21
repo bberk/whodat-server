@@ -7,14 +7,39 @@ import { vi } from "vitest";
 
 import type {
   LeagueSummary,
+  MeResponse,
   OwnerSummary,
-  PublicUser,
+  SignupLeague,
   StandingsResponse,
   VpHistoryResponse,
 } from "../api/types";
 
-export const adminUser: PublicUser = { id: 1, email: "admin@example.com", role: "admin" };
-export const memberUser: PublicUser = { id: 2, email: "member@example.com", role: "member" };
+export const adminUser: MeResponse = {
+  id: 1,
+  email: "admin@example.com",
+  role: "admin",
+  has_league: true,
+};
+export const memberUser: MeResponse = {
+  id: 2,
+  email: "member@example.com",
+  role: "member",
+  has_league: true,
+};
+/** An admin who signed up with an admin invite and still owes the onboarding step. */
+export const adminWithoutLeague: MeResponse = {
+  id: 3,
+  email: "new-admin@example.com",
+  role: "admin",
+  has_league: false,
+};
+
+export const signupLeague: SignupLeague = {
+  league_id: 1,
+  provider: "espn",
+  external_id: "111111",
+  name: "Alpha League",
+};
 
 export const leagueAlpha: LeagueSummary = {
   league_id: 1,

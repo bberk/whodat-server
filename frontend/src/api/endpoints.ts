@@ -13,28 +13,32 @@ import type {
   LeagueSummary,
   LoginRequest,
   LogoutResponse,
+  MeResponse,
   OwnerUpdateRequest,
   OwnerUpdateResponse,
   OwnersResponse,
   PublicUser,
+  RedeemInviteRequest,
+  RedeemInviteResponse,
   RefreshResponse,
   SeasonsResponse,
   SignupRequest,
+  SignupResponse,
   StandingsResponse,
   VpHistoryResponse,
 } from "./types";
 
 export const api = {
-  me(signal?: AbortSignal): Promise<PublicUser> {
-    return apiRequest<PublicUser>("/api/v1/me", { signal });
+  me(signal?: AbortSignal): Promise<MeResponse> {
+    return apiRequest<MeResponse>("/api/v1/me", { signal });
   },
 
   login(body: LoginRequest): Promise<PublicUser> {
     return apiRequest<PublicUser>("/api/v1/auth/login", { method: "POST", body });
   },
 
-  signup(body: SignupRequest): Promise<PublicUser> {
-    return apiRequest<PublicUser>("/api/v1/auth/signup", { method: "POST", body });
+  signup(body: SignupRequest): Promise<SignupResponse> {
+    return apiRequest<SignupResponse>("/api/v1/auth/signup", { method: "POST", body });
   },
 
   logout(): Promise<LogoutResponse> {
@@ -43,6 +47,13 @@ export const api = {
 
   myLeagues(signal?: AbortSignal): Promise<LeagueSummary[]> {
     return apiRequest<LeagueSummary[]>("/api/v1/me/leagues", { signal });
+  },
+
+  redeemInvite(body: RedeemInviteRequest): Promise<RedeemInviteResponse> {
+    return apiRequest<RedeemInviteResponse>("/api/v1/me/leagues/redeem-invite", {
+      method: "POST",
+      body,
+    });
   },
 
   addLeague(body: AddLeagueRequest): Promise<AddLeagueResponse> {

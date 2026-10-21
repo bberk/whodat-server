@@ -63,8 +63,10 @@ export interface paths {
      * Signup
      * @description Create an account from a valid invite, set the session cookie, and return the public user.
      *
-     *     Unknown and expired invite codes share one 400 response so the endpoint does not help a caller
-     *     distinguish which part failed. A taken email returns 409.
+     *     A member invite also creates its league membership in the same transaction, so the response
+     *     includes that league; an admin invite returns ``league: null`` and the account must complete
+     *     onboarding. Unknown and expired invite codes share one 400 response so the endpoint does not
+     *     help a caller distinguish which part failed. A taken email returns 409.
      */
     post: operations["signup_api_v1_auth_signup_post"];
     delete?: never;
@@ -84,7 +86,7 @@ export interface paths {
     put?: never;
     /**
      * Add League
-     * @description Add a league with admin credentials or join an already-stored league as a member.
+     * @description Add a league as an admin; members join only by redeeming a member invite.
      */
     post: operations["add_league_api_v1_leagues_post"];
     delete?: never;
@@ -202,7 +204,10 @@ export interface paths {
     };
     /**
      * Me
-     * @description Return the account tied to the session cookie, or 401 when unauthenticated.
+     * @description Return the signed-in account and whether it already holds a league, or 401.
+     *
+     *     ``has_league`` is the mandatory onboarding gate: false means the UI must route the account to
+     *     create-its-league, true means standings are reachable.
      */
     get: operations["me_api_v1_me_get"];
     put?: never;
@@ -227,6 +232,30 @@ export interface paths {
     get: operations["list_my_leagues_api_v1_me_leagues_get"];
     put?: never;
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/me/leagues/redeem-invite": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Redeem Invite
+     * @description Join the league named by a valid member invite, creating exactly one membership.
+     *
+     *     Unknown, expired, admin-role, and league-less invites share one structured 400 so the endpoint
+     *     does not reveal which part failed; a duplicate membership returns 409. The submitted code is
+     *     never echoed in the response or an error message.
+     */
+    post: operations["redeem_invite_api_v1_me_leagues_redeem_invite_post"];
     delete?: never;
     options?: never;
     head?: never;
@@ -279,7 +308,7 @@ export interface components {
   schemas: {
     /**
      * AddLeagueRequest
-     * @description Add a league with admin credentials or join an existing league without them.
+     * @description Add a league with admin credentials (or a public league without them).
      */
     AddLeagueRequest: {
       /** Espn League Id */
@@ -357,6 +386,20 @@ export interface components {
       status: string;
     };
     /**
+     * MeResponse
+     * @description The signed-in account plus the flag the onboarding gate needs.
+     */
+    MeResponse: {
+      /** Email */
+      email: string;
+      /** Has League */
+      has_league: boolean;
+      /** Id */
+      id: number;
+      /** Role */
+      role: string;
+    };
+    /**
      * OwnerSummary
      * @description A league owner the caller may associate with their membership.
      */
@@ -404,6 +447,24 @@ export interface components {
       role: string;
     };
     /**
+     * RedeemInviteRequest
+     * @description Redeem a member invite to join its league.
+     */
+    RedeemInviteRequest: {
+      /**
+       * Invite Code
+       * Format: password
+       */
+      invite_code: string;
+    };
+    /**
+     * RedeemInviteResponse
+     * @description The membership created by redeeming a member invite.
+     */
+    RedeemInviteResponse: {
+      league: components["schemas"]["LeagueSummary"];
+    };
+    /**
      * RefreshResponse
      * @description Summary of one league-wide refresh.
      */
@@ -426,6 +487,20 @@ export interface components {
       seasons: number[];
     };
     /**
+     * SignupLeague
+     * @description The league granted by a member invite, with no membership or credential material.
+     */
+    SignupLeague: {
+      /** External Id */
+      external_id: string;
+      /** League Id */
+      league_id: number;
+      /** Name */
+      name: string;
+      /** Provider */
+      provider: string;
+    };
+    /**
      * SignupRequest
      * @description Create an account from an invite code.
      */
@@ -442,6 +517,19 @@ export interface components {
        * Format: password
        */
       password: string;
+    };
+    /**
+     * SignupResponse
+     * @description A newly created account and the league its invite granted, if any.
+     */
+    SignupResponse: {
+      /** Email */
+      email: string;
+      /** Id */
+      id: number;
+      league: components["schemas"]["SignupLeague"] | null;
+      /** Role */
+      role: string;
     };
     /**
      * StandingsResponse
@@ -605,7 +693,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["PublicUser"];
+          "application/json": components["schemas"]["SignupResponse"];
         };
       };
       /** @description Validation Error */
@@ -824,7 +912,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["PublicUser"];
+          "application/json": components["schemas"]["MeResponse"];
         };
       };
     };
@@ -845,6 +933,39 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["LeagueSummary"][];
+        };
+      };
+    };
+  };
+  redeem_invite_api_v1_me_leagues_redeem_invite_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["RedeemInviteRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RedeemInviteResponse"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
         };
       };
     };

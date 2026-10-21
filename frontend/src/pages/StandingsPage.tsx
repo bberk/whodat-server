@@ -64,7 +64,7 @@ export function StandingsPage() {
       <div className="pt-5 md:pt-6">
         <EmptyState
           title="No leagues yet"
-          detail="Add an ESPN league to see its standings. Admins can add a league; members can join one that already exists."
+          detail="Add an ESPN league to see its standings. Admins can add a league; members can join with an invite code."
         />
       </div>
     );
