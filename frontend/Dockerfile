@@ -2,7 +2,9 @@
 #
 # The API origin is baked in at build time because the browser (not the container) calls the
 # backend. Pass it as a build arg; changing it requires rebuilding the image.
-FROM node:26-alpine AS build
+# The build stage tag is pinned deliberately so a floating tag cannot silently ship an older,
+# vulnerable Node patch. Bump it together with Node security releases.
+FROM node:26.12.1-alpine AS build
 
 WORKDIR /app
 

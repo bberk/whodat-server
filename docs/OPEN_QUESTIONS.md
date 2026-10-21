@@ -8,6 +8,21 @@ Follow the format used below. Newest entries at the top.
 
 ---
 
+## OQ-0013 — `braces` <=3.0.3 advisory accepted until Tailwind updates it
+
+- **Found:** `pnpm audit` reports GHSA-vfj7-8cjw-p6xm (high, stack-exhaustion DoS via deeply nested
+  patterns) for `braces` 3.0.3, reached only through Tailwind (`tailwindcss > micromatch/fast-glob/
+  chokidar > braces`). The advisory has no patched release, so no `pnpm.overrides` entry can clear it.
+- **Assessment:** Node is build/dev tooling only here; production serves Python plus static files on
+  nginx. Tailwind runs at build time on repository-owned source, so the glob patterns `braces`
+  parses are not attacker-controlled at runtime.
+- **In the meantime:** accepted for now. The other frontend audit finding,
+  `postcss-selector-parser` <7.1.6, was fixed with a pnpm override to `^7.1.6`.
+- **Review trigger:** re-check `pnpm audit` when Tailwind ships an update that moves off
+  `braces` 3.0.3, and remove the acceptance once a patched path exists.
+
+---
+
 ## OQ-0012 — `provider_config_ref` is a legacy pointer whose value is "membership"
 
 - **Found:** `ARCHITECTURE.md` §4 describes `provider_config_ref` as a pointer to environment-level
