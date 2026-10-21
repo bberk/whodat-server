@@ -162,6 +162,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  postcss-selector-parser: ^7.1.6
+
 importers:
 
   .:
@@ -1732,8 +1735,8 @@ packages:
     peerDependencies:
       postcss: ^8.2.14
 
-  postcss-selector-parser@6.1.4:
-    resolution: {integrity: sha512-bIoJLOmjCO1S9XdY/DcnR5hJxvrDir1PbGChrzXG3vw0/FOliy/fA3dmdhQ441kah4gKv+TwckGzex6wNS5cnQ==}
+  postcss-selector-parser@7.1.7:
+    resolution: {integrity: sha512-wWBro/7hJ40ye6TPiXkUQoXKCw23xSsjriUvqd7Uls9Sso3oLiON1flc18cCdnjgCRXw4fBVqUJJeOdDTh3P3g==}
     engines: {node: '>=4'}
 
   postcss-value-parser@4.2.0:
@@ -3521,9 +3524,9 @@ snapshots:
   postcss-nested@6.2.0(postcss@8.5.30):
     dependencies:
       postcss: 8.5.30
-      postcss-selector-parser: 6.1.4
+      postcss-selector-parser: 7.1.7
 
-  postcss-selector-parser@6.1.4:
+  postcss-selector-parser@7.1.7:
     dependencies:
       cssesc: 3.0.0
       util-deprecate: 1.0.2
@@ -3715,7 +3718,7 @@ snapshots:
       postcss-js: 4.1.0(postcss@8.5.30)
       postcss-load-config: 6.0.1(jiti@1.21.7)(postcss@8.5.30)
       postcss-nested: 6.2.0(postcss@8.5.30)
-      postcss-selector-parser: 6.1.4
+      postcss-selector-parser: 7.1.7
       resolve: 1.22.13
       sucrase: 3.35.1
     transitivePeerDependencies:
