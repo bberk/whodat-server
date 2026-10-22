@@ -73,6 +73,9 @@ service; setting `DATABASE_URL` overrides that for the containers too. `CORS_ORI
 every frontend origin you use: `http://localhost:5173` for the Vite dev server and
 `http://localhost:8080` for the Compose frontend.
 
+If your `.env` came from an older example, add `http://localhost:8080` to `CORS_ORIGINS` and unset
+`DATABASE_URL` (or point it at the Compose Postgres service) before recreating the stack.
+
 ESPN credentials are **not** environment variables. Each member enters the league's `ESPN_S2`
 and `ESPN_SWID` cookies for that membership in the UI; they are stored encrypted per membership
 (under `LEAGUE_CREDENTIALS_KEY`) and never logged or returned by the API.
