@@ -22,6 +22,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, StringConstraints, field_validator
 
+from app.security.invite_codes import INVITE_CODE_MAX_LENGTH, validate_invite_code_format
+
 #: Minimum accepted password length at signup. Existing accounts can still log in with shorter
 #: passwords because login only requires a non-empty value.
 MIN_PASSWORD_LENGTH = 8
@@ -65,7 +67,7 @@ class SignupRequest(_EmailRequest):
     """Create an account from an invite code."""
 
     password: SecretStr = Field(min_length=MIN_PASSWORD_LENGTH, max_length=_MAX_PASSWORD_LENGTH)
-    invite_code: SecretStr = Field(min_length=1, max_length=512)
+    invite_code: SecretStr = Field(min_length=1, max_length=INVITE_CODE_MAX_LENGTH)
 
     @field_validator("password")
     @classmethod
@@ -75,8 +77,9 @@ class SignupRequest(_EmailRequest):
 
     @field_validator("invite_code")
     @classmethod
-    def _check_invite_code_characters(cls, value: SecretStr) -> SecretStr:
-        _reject_non_printable(value.get_secret_value(), "invite code")
+    def _check_invite_code_format(cls, value: SecretStr) -> SecretStr:
+        """Require the generated URL-safe token alphabet and reject everything else."""
+        validate_invite_code_format(value.get_secret_value())
         return value
 
 

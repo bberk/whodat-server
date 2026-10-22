@@ -114,8 +114,13 @@ export function OnboardingPage() {
           <input
             id="onboarding-league-id"
             name="espn_league_id"
-            required
+            inputMode="text"
             autoComplete="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            pattern="[A-Za-z0-9._-]+"
+            maxLength={64}
+            required
             value={leagueId}
             onChange={(event) => setLeagueId(event.target.value)}
             className={inputClass}

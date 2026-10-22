@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.api.params import LeagueIdPath, SeasonPath
 from app.api.refresh_limit import get_refresh_limiter
 from app.api.schemas_auth import PublicUser, error_detail
 from app.api.schemas_leagues import (
@@ -308,7 +309,7 @@ def list_my_leagues(
 
 @router.get("/leagues/{league_id}/seasons", response_model=SeasonsResponse)
 def list_league_seasons(
-    league_id: int,
+    league_id: LeagueIdPath,
     current_user: CurrentUserDep,
     service: ServiceDep,
 ) -> SeasonsResponse:
@@ -358,7 +359,7 @@ def list_league_season_settings(
     status_code=status.HTTP_201_CREATED,
 )
 def add_league_season(
-    league_id: int,
+    league_id: LeagueIdPath,
     payload: AddSeasonRequest,
     current_user: CurrentUserDep,
     service: ServiceDep,
@@ -433,8 +434,8 @@ def delete_league_season(
 
 @router.get("/leagues/{league_id}/seasons/{season}/cup-week", response_model=CupWeekResponse)
 def get_cup_week(
-    league_id: int,
-    season: int,
+    league_id: LeagueIdPath,
+    season: SeasonPath,
     current_user: CurrentUserDep,
     service: ServiceDep,
 ) -> CupWeekResponse:
@@ -452,8 +453,8 @@ def get_cup_week(
 
 @router.put("/leagues/{league_id}/seasons/{season}/cup-week", response_model=CupWeekResponse)
 def update_cup_week(
-    league_id: int,
-    season: int,
+    league_id: LeagueIdPath,
+    season: SeasonPath,
     payload: CupWeekUpdateRequest,
     current_user: CurrentUserDep,
     service: ServiceDep,
@@ -473,7 +474,7 @@ def update_cup_week(
 
 @router.get("/leagues/{league_id}/owners", response_model=OwnersResponse)
 def list_league_owners(
-    league_id: int,
+    league_id: LeagueIdPath,
     current_user: CurrentUserDep,
     service: ServiceDep,
 ) -> OwnersResponse:
@@ -487,7 +488,7 @@ def list_league_owners(
 
 @router.put("/me/leagues/{league_id}/owner", response_model=OwnerUpdateResponse)
 def set_my_owner(
-    league_id: int,
+    league_id: LeagueIdPath,
     payload: OwnerUpdateRequest,
     current_user: CurrentUserDep,
     service: ServiceDep,
@@ -503,7 +504,7 @@ def set_my_owner(
 
 @router.post("/leagues/{league_id}/refresh", response_model=RefreshResponse)
 def refresh_league(
-    league_id: int,
+    league_id: LeagueIdPath,
     current_user: CurrentUserDep,
     service: ServiceDep,
 ) -> RefreshResponse:

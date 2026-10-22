@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.body_limit import MAX_REQUEST_BODY_BYTES, RequestBodyLimitMiddleware
 from app.api.routes_auth import router as auth_router
 from app.api.routes_health import router as health_router
 from app.api.routes_leagues import router as leagues_router
@@ -27,6 +28,8 @@ def create_app() -> FastAPI:
         )
     app = FastAPI(title="Victory Points API", version="0.0.0")
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
+    # Added before CORS so CORS remains the outermost middleware and decorates a 413 too.
+    app.add_middleware(RequestBodyLimitMiddleware, max_bytes=MAX_REQUEST_BODY_BYTES)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[origin for origin in settings.cors_origins.split(",") if origin],

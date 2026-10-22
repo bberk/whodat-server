@@ -97,4 +97,18 @@ describe("StandingsTable", () => {
     renderTable();
     expect(screen.getByText("—")).toBeInTheDocument();
   });
+
+  it("renders provider-supplied HTML as literal text, not markup", () => {
+    const hostileTeam = "<script>alert(1)</script>";
+    const hostileOwner = '<img src=x onerror="alert(1)">';
+    const { container } = renderTable({
+      rows: [{ ...rows[0], team_name: hostileTeam, owner_name: hostileOwner }],
+    });
+
+    expect(screen.getByText(hostileTeam)).toBeInTheDocument();
+    expect(screen.getByText(hostileOwner)).toBeInTheDocument();
+    expect(container.querySelector("script")).toBeNull();
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.innerHTML).toContain("&lt;script&gt;");
+  });
 });

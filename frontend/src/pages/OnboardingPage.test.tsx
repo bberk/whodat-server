@@ -67,7 +67,11 @@ describe("OnboardingPage", () => {
   it("defaults the season to the current year and labels every required field", () => {
     renderPage();
     expect(screen.getByRole("heading", { level: 1, name: "Add your ESPN league" })).toBeVisible();
-    expect(screen.getByLabelText("ESPN league id")).toBeRequired();
+    const leagueId = screen.getByLabelText("ESPN league id");
+    expect(leagueId).toBeRequired();
+    expect(leagueId).toHaveAttribute("maxLength", "64");
+    expect(leagueId).toHaveAttribute("pattern", "[A-Za-z0-9._-]+");
+    expect(leagueId).toHaveAttribute("inputMode", "text");
     expect(screen.getByLabelText("Season")).toHaveValue(new Date().getFullYear());
     expect(screen.getByLabelText("ESPN_S2")).toBeRequired();
     expect(screen.getByLabelText("ESPN_SWID")).toBeRequired();

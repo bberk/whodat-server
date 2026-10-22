@@ -83,13 +83,19 @@ describe("AddLeagueDialog", () => {
     const admin = renderDialog();
     expect(screen.getByLabelText("ESPN_S2")).toBeInTheDocument();
     expect(screen.getByLabelText("ESPN_SWID")).toBeInTheDocument();
+    const leagueId = screen.getByLabelText("ESPN league id");
+    expect(leagueId).toHaveAttribute("maxLength", "64");
+    expect(leagueId).toHaveAttribute("pattern", "[A-Za-z0-9._-]+");
+    expect(screen.getByLabelText(/Season/)).toHaveAttribute("inputMode", "numeric");
     admin.unmount();
 
     renderDialog({ user: memberUser });
     expect(screen.queryByLabelText("ESPN_S2")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("ESPN_SWID")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("ESPN league id")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Invite code")).toBeInTheDocument();
+    const invite = screen.getByLabelText("Invite code");
+    expect(invite).toHaveAttribute("maxLength", "128");
+    expect(invite).toHaveAttribute("pattern", "[A-Za-z0-9_-]+");
     expect(screen.getByRole("button", { name: "Join league" })).toBeInTheDocument();
   });
 

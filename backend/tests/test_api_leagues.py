@@ -1283,7 +1283,7 @@ def test_AC_API_07_non_member_and_unknown_season_return_404(
     non_member_get = api.client.get(_cup_week_path(league_id))
     non_member_put = api.client.put(_cup_week_path(league_id), json={"cup_week": 1})
     unknown_league = api.client.get(_cup_week_path(999))
-    unknown_season = api.client.get(_cup_week_path(league_id, season=1999))
+    unknown_season = api.client.get(_cup_week_path(league_id, season=2025))
 
     for response in (non_member_get, non_member_put, unknown_league, unknown_season):
         assert response.status_code == 404
@@ -1299,7 +1299,7 @@ def test_AC_API_07_member_unknown_season_and_unusable_settings_are_structured(
     _seed_membership(api, user_id=member_id, league_id=league_id)
     _login(api, member_id)
 
-    unknown_season = api.client.get(_cup_week_path(league_id, season=1999))
+    unknown_season = api.client.get(_cup_week_path(league_id, season=2025))
     assert unknown_season.status_code == 404
     assert unknown_season.json()["detail"]["code"] == "not_found"
 
@@ -1987,3 +1987,170 @@ def test_AC_AU_22_delete_league_requires_an_admin_member(
     assert non_member.json()["detail"]["code"] == "not_found"
     assert unknown.status_code == 404
     assert _count_where(api, League, League.id == league_id) == 1
+
+
+# ---------------------------------------------------------------------------
+# Input hardening: invite alphabet, path params, injection, request size
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "invite_code",
+    [
+        "<script>alert(1)</script>",
+        "<img src=x onerror=alert(1)>",
+        "' OR 1=1 --",
+        '"; DROP TABLE app_user; --',
+        "with space",
+        "with/slash",
+        "with\x00nul",
+        "with\u202ertl",
+        "x" * 10_000,
+    ],
+)
+def test_redeem_rejects_invite_codes_outside_the_generated_alphabet(
+    api_factory: Callable[..., Api], invite_code: str
+) -> None:
+    """Redeem validates the token alphabet before any hash lookup or service call."""
+    api = api_factory()
+    member_id = _create_user(api, "member@example.com")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=member_id, league_id=league_id)
+    _login(api, member_id)
+
+    response = api.client.post(
+        "/api/v1/me/leagues/redeem-invite", json={"invite_code": invite_code}
+    )
+
+    assert response.status_code == 422
+    assert isinstance(response.json()["detail"], list)
+    assert invite_code not in response.text
+    assert all("input" not in error for error in response.json()["detail"])
+    assert _count(api, UserLeague) == 1
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        "leagues/0/seasons",
+        "leagues/-1/seasons",
+        "leagues/not-a-number/seasons",
+        "leagues/{league_id}/seasons/0/cup-week",
+        "leagues/{league_id}/seasons/1999/cup-week",
+        "leagues/{league_id}/seasons/2101/cup-week",
+        "leagues/{league_id}/seasons/not-a-number/cup-week",
+    ],
+)
+def test_malformed_path_ids_and_seasons_return_422(
+    api_factory: Callable[..., Api], suffix: str
+) -> None:
+    """A zero/negative id or unsupported season never reaches the service or a SQL predicate."""
+    api = api_factory()
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=admin_id, league_id=league_id)
+    _login(api, admin_id)
+
+    response = api.client.get("/api/v1/" + suffix.format(league_id=league_id))
+
+    assert response.status_code == 422
+    assert isinstance(response.json()["detail"], list)
+    assert all("input" not in error for error in response.json()["detail"])
+
+
+def test_sql_injection_and_markup_payloads_return_structured_4xx_without_query_errors(
+    api_factory: Callable[..., Api],
+) -> None:
+    """Hostile values are rejected as data; no query error, traceback, or table loss leaks."""
+    api = api_factory()
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=admin_id, league_id=league_id, credentials=True)
+    _login(api, admin_id)
+    payloads = [
+        "<script>alert(1)</script>",
+        "<img src=x onerror=alert(1)>",
+        "' OR 1=1 --",
+        '"; DROP TABLE app_user; --',
+    ]
+    requests: list[tuple[str, str, dict[str, object] | None]] = []
+    for payload in payloads:
+        requests.extend(
+            [
+                ("post", "/api/v1/leagues", {"espn_league_id": payload}),
+                (
+                    "post",
+                    "/api/v1/me/leagues/redeem-invite",
+                    {"invite_code": payload},
+                ),
+                (
+                    "put",
+                    f"/api/v1/me/leagues/{league_id}/owner",
+                    {"owner_id": payload},
+                ),
+                (
+                    "post",
+                    f"/api/v1/leagues/{league_id}/seasons",
+                    {"season": payload},
+                ),
+                (
+                    "put",
+                    f"/api/v1/leagues/{league_id}/seasons/{SEASON}/cup-week",
+                    {"cup_week": payload},
+                ),
+            ]
+        )
+    requests.append(("get", "/api/v1/leagues/1%20OR%201=1/seasons", None))
+    requests.append(
+        ("get", f"/api/v1/leagues/{league_id}/seasons/%27%20OR%201%3D1%20--/cup-week", None)
+    )
+
+    for method, path, body in requests:
+        response = api.client.request(method, path, json=body)
+        assert 400 <= response.status_code < 500, (method, path, response.status_code)
+        lowered = response.text.lower()
+        for marker in ("operationalerror", "syntax error", "traceback", "sqlalchemy", "drop table"):
+            assert marker not in lowered, (method, path, marker)
+
+    # Legitimate reads still work, proving no request dropped or corrupted a table.
+    assert api.client.get(f"/api/v1/leagues/{league_id}/seasons").status_code == 200
+    assert _count(api, League) == 1
+    assert _count(api, UserLeague) == 1
+
+
+def test_oversized_request_body_returns_structured_413(
+    api_factory: Callable[..., Api],
+) -> None:
+    """A body above the global cap is rejected before any schema or service code runs."""
+    api = api_factory()
+    oversized = b'{"email":"' + (b"x" * (64 * 1024)) + b'"}'
+
+    response = api.client.post(
+        "/api/v1/auth/signup",
+        content=oversized,
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 413
+    assert response.json()["detail"]["code"] == "payload_too_large"
+    assert "Traceback" not in response.text
+
+
+def test_streamed_body_over_the_cap_returns_structured_413(
+    api_factory: Callable[..., Api],
+) -> None:
+    """A chunked body with no Content-Length is capped while it is read."""
+
+    def chunks() -> Iterator[bytes]:
+        yield b"x" * 40_000
+        yield b"x" * 40_000
+
+    api = api_factory()
+    response = api.client.post(
+        "/api/v1/auth/login",
+        content=chunks(),
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 413
+    assert response.json()["detail"]["code"] == "payload_too_large"

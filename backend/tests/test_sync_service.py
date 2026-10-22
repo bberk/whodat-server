@@ -7,7 +7,9 @@ AC-PR-02.
 """
 
 import os
+import unicodedata
 from collections.abc import Iterator
+from dataclasses import replace
 from decimal import Decimal
 
 import pytest
@@ -34,6 +36,7 @@ from app.services.sync_service import (
     SyncError,
     SyncService,
 )
+from app.validation import MAX_DISPLAY_TEXT_LENGTH
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -1150,3 +1153,63 @@ def test_recompute_without_a_league_season_row_raises(session: Session) -> None:
 
     with pytest.raises(MissingRegularSeasonLengthError, match="league_season"):
         SyncService(None, session).recompute_league(_league_ref(), "fake", 2026)
+
+
+def test_provider_display_text_is_normalized_before_persistence(session: Session) -> None:
+    """Hostile provider names are stored as safe literal text, never escaped or truncated by DB."""
+    seed = _basic_seed()
+    league, owners, teams, matchups, week_status = seed[("league-1", 2026)]
+    hostile_league = replace(
+        league,
+        name="\u202eE\u0301vil\x00<script>alert(1)</script>\n\t  League\u200b",
+    )
+    hostile_owners = [
+        replace(owners[0], display_name="\x01Alice\u200d   Smith"),
+        *owners[1:],
+    ]
+    hostile_teams = [
+        replace(
+            teams[0],
+            name="<img src=x onerror=alert(1)>" + "x" * 10_000,
+            division="East\x00West",
+        ),
+        *teams[1:],
+    ]
+    hostile_seed = {
+        ("league-1", 2026): (
+            hostile_league,
+            hostile_owners,
+            hostile_teams,
+            matchups,
+            week_status,
+        )
+    }
+
+    SyncService(FakeProvider(hostile_seed), session).sync_league(_league_ref(), "fake", 2026)
+    session.commit()
+    session.expire_all()
+
+    stored_league = session.scalar(select(League))
+    assert stored_league is not None
+    assert stored_league.name == "Évil<script>alert(1)</script> League"
+
+    stored_owner = session.scalar(
+        select(Owner).where(Owner.external_id == "owner-1", Owner.league_id == stored_league.id)
+    )
+    assert stored_owner is not None
+    assert stored_owner.display_name == "Alice Smith"
+
+    stored_team = session.scalar(
+        select(Team).where(Team.external_id == "team-1", Team.season == 2026)
+    )
+    assert stored_team is not None
+    assert stored_team.name.startswith("<img src=x onerror=alert(1)>")
+    assert len(stored_team.name) == MAX_DISPLAY_TEXT_LENGTH
+    assert stored_team.division == "EastWest"
+
+    for stored_text in (stored_league.name, stored_owner.display_name, stored_team.name):
+        assert "\x00" not in stored_text
+        assert all(
+            unicodedata.category(character) not in {"Cc", "Cf", "Zl", "Zp", "Cs"}
+            for character in stored_text
+        )

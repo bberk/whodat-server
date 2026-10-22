@@ -163,6 +163,12 @@ export function AddLeagueDialog({ open, onClose }: { open: boolean; onClose: () 
                 <input
                   id="add-league-id"
                   name="espn_league_id"
+                  inputMode="text"
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  pattern="[A-Za-z0-9._-]+"
+                  maxLength={64}
                   required
                   value={leagueId}
                   onChange={(event) => setLeagueId(event.target.value)}
@@ -178,8 +184,10 @@ export function AddLeagueDialog({ open, onClose }: { open: boolean; onClose: () 
                   id="add-league-season"
                   name="season"
                   type="number"
+                  inputMode="numeric"
                   min={MIN_SEASON}
                   max={MAX_SEASON}
+                  step={1}
                   value={season}
                   onChange={(event) => setSeason(event.target.value)}
                   className={inputClass}
@@ -232,6 +240,11 @@ export function AddLeagueDialog({ open, onClose }: { open: boolean; onClose: () 
                 name="invite_code"
                 type="password"
                 autoComplete="off"
+                inputMode="text"
+                autoCapitalize="none"
+                spellCheck={false}
+                pattern="[A-Za-z0-9_-]+"
+                maxLength={128}
                 required
                 value={inviteCode}
                 onChange={(event) => setInviteCode(event.target.value)}

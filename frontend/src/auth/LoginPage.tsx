@@ -68,7 +68,9 @@ export function LoginPage() {
             id="login-email"
             name="email"
             type="email"
+            inputMode="email"
             autoComplete="email"
+            maxLength={320}
             required
             value={email}
             onChange={(event) => setEmail(event.target.value)}
@@ -84,6 +86,7 @@ export function LoginPage() {
             name="password"
             type="password"
             autoComplete="current-password"
+            maxLength={1024}
             required
             value={password}
             onChange={(event) => setPassword(event.target.value)}
