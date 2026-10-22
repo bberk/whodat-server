@@ -609,3 +609,71 @@ def test_me_rejects_a_valid_cookie_for_a_missing_account(
 
 def test_default_rate_limiter_is_a_process_singleton() -> None:
     assert deps.get_rate_limiter() is deps.get_rate_limiter()
+
+
+# ---------------------------------------------------------------------------
+# Input hardening: invite-code alphabet and hostile text
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "invite_code",
+    [
+        "<script>alert(1)</script>",
+        "<img src=x onerror=alert(1)>",
+        "' OR 1=1 --",
+        '"; DROP TABLE app_user; --',
+        "with space",
+        "with/slash",
+        "with\x00nul",
+        "with\u202ertl",
+        "with\u200bzero-width",
+        "x" * 10_000,
+    ],
+)
+def test_signup_rejects_invite_codes_outside_the_generated_alphabet(
+    api_factory: Callable[..., Api], invite_code: str
+) -> None:
+    """A malformed invite code is a structured 422 and never reaches the invite lookup."""
+    api = api_factory()
+
+    response = _signup(api.client, invite_code)
+
+    assert response.status_code == 422
+    assert isinstance(response.json()["detail"], list)
+    assert invite_code not in response.text
+    assert all("input" not in error for error in response.json()["detail"])
+    assert _count(api.factory, AppUser) == 0
+
+
+@pytest.mark.parametrize(
+    "email",
+    [
+        "<script>alert(1)</script>",
+        "<img src=x onerror=alert(1)>",
+        "' OR 1=1 --",
+        '"; DROP TABLE app_user; --',
+        "x" * 10_000,
+    ],
+)
+def test_signup_and_login_reject_hostile_email_payloads_without_query_errors(
+    api_factory: Callable[..., Api], email: str
+) -> None:
+    """Email shape checks reject markup, SQL metacharacters, and oversized values before lookup."""
+    api = api_factory()
+    payload = {"email": email, "password": PASSWORD, "invite_code": "valid-invite-code"}
+
+    signup = api.client.post("/api/v1/auth/signup", json=payload)
+    login = api.client.post("/api/v1/auth/login", json={"email": email, "password": PASSWORD})
+
+    for response in (signup, login):
+        assert response.status_code == 422
+        assert email not in response.text
+        lowered = response.text.lower()
+        for marker in ("operationalerror", "syntax error", "traceback", "sqlalchemy"):
+            assert marker not in lowered
+    assert _count(api.factory, AppUser) == 0
+
+    # The table is still present and queryable after every hostile request.
+    with api.factory() as session:
+        assert session.scalar(select(func.count()).select_from(AppUser)) == 0

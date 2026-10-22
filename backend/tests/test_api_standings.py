@@ -711,7 +711,7 @@ def test_AC_API_04_unknown_season_returns_structured_404(
     user_id = _create_user(api, "member@example.com", league_id=league_id)
     _login(api, user_id)
 
-    response = api.client.get(SEASON_PATHS[path_kind](league_id, 1999))
+    response = api.client.get(SEASON_PATHS[path_kind](league_id, 2025))
 
     assert response.status_code == 404
     assert response.json()["detail"]["code"] == "not_found"

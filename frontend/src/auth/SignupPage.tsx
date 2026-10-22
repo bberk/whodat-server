@@ -64,7 +64,9 @@ export function SignupPage() {
             id="signup-email"
             name="email"
             type="email"
+            inputMode="email"
             autoComplete="email"
+            maxLength={320}
             required
             value={email}
             onChange={(event) => setEmail(event.target.value)}
@@ -82,6 +84,7 @@ export function SignupPage() {
             autoComplete="new-password"
             required
             minLength={8}
+            maxLength={1024}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             className={inputClass}
@@ -97,6 +100,11 @@ export function SignupPage() {
             name="invite_code"
             type="password"
             autoComplete="off"
+            inputMode="text"
+            autoCapitalize="none"
+            spellCheck={false}
+            pattern="[A-Za-z0-9_-]+"
+            maxLength={128}
             required
             value={inviteCode}
             onChange={(event) => setInviteCode(event.target.value)}

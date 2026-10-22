@@ -67,6 +67,7 @@ from app.services.sync_service import (
     SyncService,
     SyncSummary,
 )
+from app.validation import normalize_external_id
 
 #: The only provider the HTTP API currently stores leagues for.
 PROVIDER_ID = "espn"
@@ -465,9 +466,10 @@ class LeagueService:
         explicit empty cookies, the league season is fetched before any write, and the membership is
         stored without credentials. The caller commits.
         """
-        external_id = espn_league_id.strip()
-        if not external_id:
-            raise InvalidLeagueRequestError("espn_league_id must not be empty")
+        try:
+            external_id = normalize_external_id(espn_league_id)
+        except ValueError:
+            raise InvalidLeagueRequestError("espn_league_id is not a valid id") from None
         requested_season = self._clock().year if season is None else season
         if requested_season <= 0:
             raise InvalidLeagueRequestError("season must be a positive year")

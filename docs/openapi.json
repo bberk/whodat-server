@@ -6,7 +6,7 @@
         "description": "Add a league with admin credentials (or a public league without them).",
         "properties": {
           "espn_league_id": {
-            "maxLength": 128,
+            "maxLength": 64,
             "minLength": 1,
             "title": "Espn League Id",
             "type": "string"
@@ -578,7 +578,7 @@
         "properties": {
           "invite_code": {
             "format": "password",
-            "maxLength": 512,
+            "maxLength": 128,
             "minLength": 1,
             "title": "Invite Code",
             "type": "string",
@@ -779,7 +779,7 @@
           },
           "invite_code": {
             "format": "password",
-            "maxLength": 512,
+            "maxLength": 128,
             "minLength": 1,
             "title": "Invite Code",
             "type": "string",
@@ -1528,6 +1528,7 @@
             "name": "league_id",
             "required": true,
             "schema": {
+              "minimum": 1,
               "title": "League Id",
               "type": "integer"
             }
@@ -1571,6 +1572,7 @@
             "name": "league_id",
             "required": true,
             "schema": {
+              "minimum": 1,
               "title": "League Id",
               "type": "integer"
             }
@@ -1614,6 +1616,7 @@
             "name": "league_id",
             "required": true,
             "schema": {
+              "minimum": 1,
               "title": "League Id",
               "type": "integer"
             }
@@ -1655,6 +1658,7 @@
             "name": "league_id",
             "required": true,
             "schema": {
+              "minimum": 1,
               "title": "League Id",
               "type": "integer"
             }
@@ -1796,6 +1800,7 @@
             "name": "league_id",
             "required": true,
             "schema": {
+              "minimum": 1,
               "title": "League Id",
               "type": "integer"
             }
@@ -1805,6 +1810,8 @@
             "name": "season",
             "required": true,
             "schema": {
+              "maximum": 2100,
+              "minimum": 2000,
               "title": "Season",
               "type": "integer"
             }
@@ -1846,6 +1853,7 @@
             "name": "league_id",
             "required": true,
             "schema": {
+              "minimum": 1,
               "title": "League Id",
               "type": "integer"
             }
@@ -1855,6 +1863,8 @@
             "name": "season",
             "required": true,
             "schema": {
+              "maximum": 2100,
+              "minimum": 2000,
               "title": "Season",
               "type": "integer"
             }
@@ -1960,6 +1970,7 @@
             "name": "league_id",
             "required": true,
             "schema": {
+              "minimum": 1,
               "title": "League Id",
               "type": "integer"
             }
@@ -1969,6 +1980,8 @@
             "name": "season",
             "required": true,
             "schema": {
+              "maximum": 2100,
+              "minimum": 2000,
               "title": "Season",
               "type": "integer"
             }
@@ -2012,6 +2025,7 @@
             "name": "league_id",
             "required": true,
             "schema": {
+              "minimum": 1,
               "title": "League Id",
               "type": "integer"
             }
@@ -2021,6 +2035,8 @@
             "name": "season",
             "required": true,
             "schema": {
+              "maximum": 2100,
+              "minimum": 2000,
               "title": "Season",
               "type": "integer"
             }
@@ -2064,6 +2080,7 @@
             "name": "league_id",
             "required": true,
             "schema": {
+              "minimum": 1,
               "title": "League Id",
               "type": "integer"
             }
@@ -2073,6 +2090,8 @@
             "name": "season",
             "required": true,
             "schema": {
+              "maximum": 2100,
+              "minimum": 2000,
               "title": "Season",
               "type": "integer"
             }
@@ -2206,6 +2225,7 @@
             "name": "league_id",
             "required": true,
             "schema": {
+              "minimum": 1,
               "title": "League Id",
               "type": "integer"
             }

@@ -42,6 +42,24 @@ describe("apiRequest", () => {
     expect(error.retryAfter).toBe(30);
   });
 
+  it("surfaces the structured request-too-large error without request input", async () => {
+    mockFetch(() =>
+      errorResponse(413, {
+        code: "payload_too_large",
+        message: "Request body is too large",
+      }),
+    );
+    const failure = await apiRequest("/api/v1/auth/signup", { method: "POST" }).catch(
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(ApiError);
+    const error = failure as ApiError;
+    expect(error.status).toBe(413);
+    expect(error.code).toBe("payload_too_large");
+    expect(error.message).toBe("Request body is too large");
+    expect(error.fieldErrors).toEqual([]);
+  });
+
   it("maps 422 validation entries to field errors and treats 401 as unauthorized", async () => {
     mockFetch(() =>
       errorResponse(422, [

@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.api.params import LeagueIdPath, SeasonPath
 from app.api.routes_leagues import _actor, _http_error, get_league_service
 from app.api.schemas_auth import PublicUser, error_detail
 from app.api.schemas_standings import (
@@ -51,7 +52,7 @@ StandingsServiceDep = Annotated[StandingsService, Depends(get_standings_service)
 
 
 def require_league_member(
-    league_id: int,
+    league_id: LeagueIdPath,
     current_user: CurrentUserDep,
     league_service: LeagueServiceDep,
 ) -> None:
@@ -87,8 +88,8 @@ def _raise_standings_error(error: StandingsServiceError) -> Never:
     response_model=StandingsResponse,
 )
 def get_standings(
-    league_id: int,
-    season: int,
+    league_id: LeagueIdPath,
+    season: SeasonPath,
     _member: MemberDep,
     service: StandingsServiceDep,
 ) -> StandingsResponse:
@@ -105,8 +106,8 @@ def get_standings(
     response_model=VpHistoryResponse,
 )
 def get_vp_history(
-    league_id: int,
-    season: int,
+    league_id: LeagueIdPath,
+    season: SeasonPath,
     _member: MemberDep,
     service: StandingsServiceDep,
 ) -> VpHistoryResponse:
@@ -123,8 +124,8 @@ def get_vp_history(
     response_model=WapdateResponse,
 )
 def get_wapdate(
-    league_id: int,
-    season: int,
+    league_id: LeagueIdPath,
+    season: SeasonPath,
     _member: MemberDep,
     service: StandingsServiceDep,
 ) -> WapdateResponse:

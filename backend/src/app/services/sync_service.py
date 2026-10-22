@@ -17,6 +17,7 @@ from app.db.repositories import SyncRepository, WeeklyVPValues
 from app.domain.types import TeamWeek
 from app.domain.vp_engine import compute_week_vp
 from app.providers.base import LeagueProvider, LeagueRef, MatchupDTO
+from app.validation import normalize_display_text
 
 #: Fixed non-secret value stored in ``league.provider_config_ref``. The column is a legacy pointer:
 #: league credentials come from memberships, not from an environment-level bootstrap secret.
@@ -173,7 +174,9 @@ class SyncService:
         league_result = self._repository.upsert_league(
             provider=provider_id,
             external_id=league_dto.external_id,
-            name=league_dto.name,
+            # Provider display text is untrusted: normalize control/format characters, collapse
+            # whitespace, and cap length before it reaches a text column. HTML stays literal.
+            name=normalize_display_text(league_dto.name),
             league_metadata=dict(league_dto.metadata),
             provider_config_ref=PROVIDER_CONFIG_REF,
         )
@@ -191,7 +194,9 @@ class SyncService:
         owners_changed = 0
         for owner_dto in owners_dto:
             owner_result = self._repository.upsert_owner(
-                league_id, owner_dto.external_id, owner_dto.display_name
+                league_id,
+                owner_dto.external_id,
+                normalize_display_text(owner_dto.display_name),
             )
             owner_external_to_id[owner_dto.external_id] = owner_result.row.id
             if owner_result.changed:
@@ -211,8 +216,8 @@ class SyncService:
                 league_id,
                 season,
                 team_dto.external_id,
-                team_dto.name,
-                team_dto.division,
+                normalize_display_text(team_dto.name),
+                normalize_display_text(team_dto.division) if team_dto.division else None,
                 owner_id,
             )
             team_external_to_id[team_dto.external_id] = team_result.row.id

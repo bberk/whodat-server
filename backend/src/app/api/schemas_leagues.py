@@ -23,8 +23,11 @@ from pydantic import (
 
 from app.security.invite_codes import (
     DEFAULT_INVITE_LIFETIME_DAYS,
+    INVITE_CODE_MAX_LENGTH,
     MAX_INVITE_LIFETIME_DAYS,
+    validate_invite_code_format,
 )
+from app.validation import MAX_EXTERNAL_ID_LENGTH, normalize_external_id
 
 #: Bounds keep obviously wrong seasons and ids out before the service touches the database.
 MIN_SEASON = 2000
@@ -45,7 +48,12 @@ class AddLeagueRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", validate_default=True)
 
     espn_league_id: Annotated[
-        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128)
+        str,
+        StringConstraints(
+            strip_whitespace=True,
+            min_length=1,
+            max_length=MAX_EXTERNAL_ID_LENGTH,
+        ),
     ]
     season: Annotated[int | None, Field(ge=MIN_SEASON, le=MAX_SEASON)] = None
     espn_s2: SecretStr | None = Field(default=None, min_length=1, max_length=_MAX_CREDENTIAL_LENGTH)
@@ -56,11 +64,8 @@ class AddLeagueRequest(BaseModel):
     @field_validator("espn_league_id")
     @classmethod
     def _check_league_id(cls, value: str) -> str:
-        """Reject non-printable or whitespace-containing league ids."""
-        _require_printable(value, "espn_league_id")
-        if any(character.isspace() for character in value):
-            raise ValueError("espn_league_id contains invalid characters")
-        return value
+        """Trim, NFC-normalize, and accept only id characters (no whitespace or markup)."""
+        return normalize_external_id(value)
 
     @field_validator("espn_s2", "espn_swid")
     @classmethod
@@ -83,13 +88,13 @@ class RedeemInviteRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    invite_code: SecretStr = Field(min_length=1, max_length=512)
+    invite_code: SecretStr = Field(min_length=1, max_length=INVITE_CODE_MAX_LENGTH)
 
     @field_validator("invite_code")
     @classmethod
     def _check_invite_code(cls, value: SecretStr) -> SecretStr:
-        """Reject empty or non-printable codes before they reach the service."""
-        _require_printable(value.get_secret_value(), "invite code")
+        """Require the generated URL-safe token alphabet and reject everything else."""
+        validate_invite_code_format(value.get_secret_value())
         return value
 
 
