@@ -82,6 +82,19 @@ Three tied teams each get exactly 1/3 high-score VP (tests must use exact fracti
 | AC-ST-10 | A cup week changes no team's W-L-T record and awards no H2H VP, while points for and the top-half/high/low VP components still count toward the season. |
 | AC-ST-11 | The weekly and cumulative VP series used by the chart include the cup week with its cup-week scoring. |
 
+### 2.1 WAPDate standings
+
+| ID | Criterion |
+|---|---|
+| AC-WD-01 | WAPDate uses three fixed, independent periods: weeks 1-4, 5-8 and 9-12. Weeks 13 and later are ignored, and no VP, wins or points for carry between periods. |
+| AC-WD-02 | A period is offered when at least one of its weeks is completed. It is complete when the highest completed regular-season week is at least its end week; otherwise it is the current period. With no completed weeks no period is offered. For example, highest completed week 6 offers period 1 as complete and period 2 as current, and period 3 is absent. |
+| AC-WD-03 | A team's period VP is the sum of its weekly VP for the period's completed weeks (cup-week aware), its wins are head-to-head wins in the period excluding the cup week, and its points for are the sum of its points in the period including the cup week. |
+| AC-WD-04 | Period rows are ordered lowest first: VP ascending, then wins ascending, then points for ascending, then team name for stability. |
+| AC-WD-05 | Greying applies only to the current period and uses VP and wins, ignoring points for. With `r = end_week - highest_completed_week`, a team's minimum VP is its current VP minus `r` and its minimum wins are its current wins; another team's maximum VP adds 3 per remaining non-cup week and 2 per remaining cup week, and its maximum wins add 1 per remaining non-cup week. A team is greyed when another team's maximum VP is below its minimum VP, or the maxima tie and that team's maximum wins do not exceed the team's minimum wins. |
+| AC-WD-06 | A completed period shows the actual result with no greying. |
+| AC-WD-07 | `GET /api/v1/leagues/{league_id}/seasons/{season}/wapdate` requires league membership (non-members get 404, unauthenticated requests get 401). It returns the offered periods with period number, start and end week, status (`complete` or `current`), counted weeks, and lowest-first rows with team id and name, VP as a string, wins, points for as a string, and an eliminated boolean. An empty season returns no periods. |
+| AC-WD-08 | The standings page shows a WAPDate section below the cumulative VP chart. An accessible period toggle lists only the offered periods, labelled with their week range and complete/in-progress state, and defaults to the current period or the latest complete one. The selected period shows Team, VP, Wins and PF lowest first, with a sticky team column and horizontal scrolling inside the table container and no page-body sideways scroll at 360px. Eliminated teams are greyed and carry a text/accessible "Safe" marker, never colour alone. Loading, empty, and error states match the other data views. |
+
 ## 3. Data sync and storage
 
 | ID | Criterion |

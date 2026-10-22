@@ -9,8 +9,10 @@ Each regular-season week, every team earns VP from four components: a head-to-he
 a top-half score (+1), the highest score of the week (+1), and the lowest score of the week
 (-1). Ties split the points exactly (for example, three teams tied for the high score get
 1/3 each). The app shows overall standings with a VP column for each week, per-division
-standings, and a cumulative VP chart. Members sign up, are linked to their team owner, and see
-only their league's data.
+standings, and a cumulative VP chart. It also shows WAPDate standings: the worst team in each
+fixed four-week period (weeks 1-4, 5-8, 9-12), ordered by VP, then wins, then points for, with
+teams that are already safe from last place greyed in the current period. Members sign up, are
+linked to their team owner, and see only their league's data.
 
 ESPN access is isolated behind a provider interface, so other league providers can be added
 later without changing the VP engine, database, API, or frontend.

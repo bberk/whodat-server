@@ -89,6 +89,23 @@ and the season's regular-season length. Choosing the cup week is an admin action
   the league's VP from stored data in the same operation. A sync of a season that already has a cup
   week honours it.
 
+**WAPDate standings.** WAPDate is a view over stored season data, not extra ingestion. The regular
+season is split into three fixed, independent periods: weeks 1-4, weeks 5-8 and weeks 9-12. Weeks
+13 and later are ignored, and no victory points, wins or points for carry between periods.
+
+A period is offered once at least one of its weeks is completed. It is **complete** when the
+highest completed regular-season week is at least its end week; otherwise it is the **current**
+period. Each team's period totals are its VP over the period's completed weeks (with cup-week
+scoring), its head-to-head wins in the period excluding the cup week, and its points for in the
+period including the cup week. The table lists the worst team first: VP ascending, then wins
+ascending, then points for ascending, then team name.
+
+For the current period only, a team is greyed as safe from last place when another team can no
+longer finish below it on VP and wins. The bound assumes a team can lose -1 VP per remaining week
+and another team can gain at most +3 VP per remaining non-cup week (+2 on the cup week, which has
+no head-to-head VP), with at most one win per remaining non-cup week. Points for is ignored by the
+bound. Completed periods show the actual result with no greying.
+
 ### 4.2 Data storage
 
 Persisted entities (see ARCHITECTURE.md for the schema):
@@ -151,6 +168,11 @@ Pages and views:
    - Season selector (default: current season).
    - **Overall standings table**: rank, team, owner, season VP, H2H record (W-L-T), points for, and one column per week showing that week's VP.
    - **Division standings**: one table per division; the division only filters and groups the rows, and the rank displayed for each team is its overall league rank.
+   - **WAPDate standings**: below the cumulative VP chart, a toggle for the offered four-week
+     periods (weeks 1-4, 5-8, 9-12) labelled with the week range and complete/in-progress state,
+     defaulting to the current period or the latest complete one. The selected period lists the
+     worst team first with Team, VP, Wins and PF. Teams safe from last place in the current period
+     are greyed and carry a text/accessible "Safe" marker, never colour alone.
    - Tapping/clicking a team highlights it in the chart.
 3. **VP chart**: a line chart of cumulative VP over time, x-axis = week, one line per team. Users can highlight a team and toggle teams on and off. Must be legible on a phone.
 4. **League admin**: a page available only to signed-in admins for a selected league, with a

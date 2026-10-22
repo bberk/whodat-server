@@ -18,6 +18,7 @@ import {
   requestBody,
   requestPath,
   standingsResponse,
+  wapdateResponse,
 } from "./test/fixtures";
 
 function renderAt(path: string) {
@@ -57,6 +58,9 @@ function signedInFetch(
     }
     if (/^\/api\/v1\/leagues\/\d+\/seasons\/\d+\/vp-history$/.test(path)) {
       return jsonResponse(historyResponse);
+    }
+    if (/^\/api\/v1\/leagues\/\d+\/seasons\/\d+\/wapdate$/.test(path)) {
+      return jsonResponse(wapdateResponse);
     }
     if (/^\/api\/v1\/leagues\/\d+\/seasons\/\d+\/cup-week$/.test(path)) {
       const season = Number(path.match(/seasons\/(\d+)\/cup-week/)?.[1]);
@@ -118,9 +122,12 @@ describe("App routing", () => {
       if (path === "/api/v1/leagues/1/owners") {
         return jsonResponse({ owners });
       }
-      if (/^\/api\/v1\/leagues\/1\/seasons\/2026\/(standings|vp-history)$/.test(path)) {
-        return path.endsWith("standings")
-          ? jsonResponse(standingsResponse)
+      if (/^\/api\/v1\/leagues\/1\/seasons\/2026\/(standings|vp-history|wapdate)$/.test(path)) {
+        if (path.endsWith("standings")) {
+          return jsonResponse(standingsResponse);
+        }
+        return path.endsWith("wapdate")
+          ? jsonResponse(wapdateResponse)
           : jsonResponse(historyResponse);
       }
       return errorResponse(404, { code: "not_found", message: path });
@@ -239,9 +246,12 @@ describe("App routing", () => {
       if (path === "/api/v1/leagues/1/seasons") {
         return jsonResponse({ seasons: [2026] });
       }
-      if (/^\/api\/v1\/leagues\/1\/seasons\/2026\/(standings|vp-history)$/.test(path)) {
-        return path.endsWith("standings")
-          ? jsonResponse(standingsResponse)
+      if (/^\/api\/v1\/leagues\/1\/seasons\/2026\/(standings|vp-history|wapdate)$/.test(path)) {
+        if (path.endsWith("standings")) {
+          return jsonResponse(standingsResponse);
+        }
+        return path.endsWith("wapdate")
+          ? jsonResponse(wapdateResponse)
           : jsonResponse(historyResponse);
       }
       return errorResponse(404, { code: "not_found", message: path });

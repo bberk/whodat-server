@@ -12,6 +12,7 @@ import type {
   SignupLeague,
   StandingsResponse,
   VpHistoryResponse,
+  WapdateResponse,
 } from "../api/types";
 
 export const adminUser: MeResponse = {
@@ -218,6 +219,103 @@ export const emptyStandingsResponse: StandingsResponse = {
 };
 
 export const emptyHistoryResponse: VpHistoryResponse = { weeks: [], teams: [] };
+
+export const wapdateResponse: WapdateResponse = {
+  league_id: 1,
+  season: 2026,
+  highest_completed_week: 6,
+  periods: [
+    {
+      period: 1,
+      start_week: 1,
+      end_week: 4,
+      status: "complete",
+      weeks: [1, 2, 3, 4],
+      rows: [
+        {
+          team_id: 9,
+          team_name: "Charlie",
+          victory_points: "-2",
+          wins: 0,
+          points_for: "180",
+          eliminated: false,
+        },
+        {
+          team_id: 2,
+          team_name: "Delta",
+          victory_points: "1",
+          wins: 1,
+          points_for: "205",
+          eliminated: false,
+        },
+        {
+          team_id: 3,
+          team_name: "Bravo",
+          victory_points: "3",
+          wins: 1,
+          points_for: "215",
+          eliminated: false,
+        },
+        {
+          team_id: 7,
+          team_name: "Alpha",
+          victory_points: "7",
+          wins: 2,
+          points_for: "250",
+          eliminated: false,
+        },
+      ],
+    },
+    {
+      period: 2,
+      start_week: 5,
+      end_week: 8,
+      status: "current",
+      weeks: [5, 6],
+      rows: [
+        {
+          team_id: 4,
+          team_name: "Foxtrot",
+          victory_points: "0",
+          wins: 0,
+          points_for: "150",
+          eliminated: false,
+        },
+        {
+          team_id: 2,
+          team_name: "Delta",
+          victory_points: "2",
+          wins: 1,
+          points_for: "205",
+          eliminated: false,
+        },
+        {
+          team_id: 3,
+          team_name: "Bravo",
+          victory_points: "5",
+          wins: 1,
+          points_for: "220",
+          eliminated: false,
+        },
+        {
+          team_id: 7,
+          team_name: "Alpha",
+          victory_points: "10",
+          wins: 2,
+          points_for: "260",
+          eliminated: true,
+        },
+      ],
+    },
+  ],
+};
+
+export const emptyWapdateResponse: WapdateResponse = {
+  league_id: 1,
+  season: 2026,
+  highest_completed_week: null,
+  periods: [],
+};
 
 export interface JsonResponseInit {
   status?: number;

@@ -48,6 +48,7 @@ Key principle: **dependencies point inward**. The VP engine knows nothing about 
 │   │   ├── domain/              # engine + pure types (no I/O)
 │   │   │   ├── vp_engine.py
 │   │   │   ├── standings.py     # ranking + tiebreakers (pure)
+│   │   │   ├── wapdate.py       # fixed four-week periods + safe-from-last bounds (pure)
 │   │   │   └── types.py
 │   │   ├── providers/
 │   │   │   ├── base.py          # LeagueProvider protocol + DTOs
@@ -253,6 +254,7 @@ All endpoints are under `/api/v1`, JSON, cookie-session or bearer-token auth (ba
 | `POST /leagues/{league_id}/refresh` | member with credentials | Refresh the league (rate limited per league and per user) |
 | `GET /leagues/{league_id}/seasons/{season}/standings` | member | Overall standings + divisions (shape below) |
 | `GET /leagues/{league_id}/seasons/{season}/vp-history` | member | Weekly and cumulative VP per team (for the chart) |
+| `GET /leagues/{league_id}/seasons/{season}/wapdate` | member | Offered WAPDate periods with status, counted weeks, and lowest-first rows |
 | `GET /leagues/{league_id}/seasons/{season}/cup-week` | member | Season, cup_week (nullable), and regular_season_length |
 | `PUT /leagues/{league_id}/seasons/{season}/cup-week` | admin member | Set `{cup_week: int\|null}`, persist it, and recompute the season from stored data |
 
@@ -300,6 +302,43 @@ VP and points are serialized as **strings** (decimal), so the frontend never rel
 }
 ```
 
+### WAPDate response (shape)
+
+Only offered periods are returned, in period order. `weeks` lists the completed weeks that
+counted, `status` is `complete` or `current`, and rows are already ordered lowest first. VP and
+points for are strings like the other responses; `eliminated` is true only for a team that cannot
+finish last in the current period.
+
+```json
+{
+  "league_id": 1,
+  "season": 2026,
+  "highest_completed_week": 6,
+  "periods": [
+    {
+      "period": 1,
+      "start_week": 1,
+      "end_week": 4,
+      "status": "complete",
+      "weeks": [1, 2, 3, 4],
+      "rows": [
+        { "team_id": 7, "team_name": "…", "victory_points": "2", "wins": 0, "points_for": "412.3", "eliminated": false }
+      ]
+    },
+    {
+      "period": 2,
+      "start_week": 5,
+      "end_week": 8,
+      "status": "current",
+      "weeks": [5, 6],
+      "rows": [
+        { "team_id": 7, "team_name": "…", "victory_points": "5", "wins": 1, "points_for": "205", "eliminated": false }
+      ]
+    }
+  ]
+}
+```
+
 ## 9. Frontend architecture
 
 - **Routing**: `/login`, `/signup`, `/leagues/:leagueId/owner`, `/leagues/:leagueId/admin` (admin
@@ -310,7 +349,7 @@ VP and points are serialized as **strings** (decimal), so the frontend never rel
   (`CupWeekSection`: `No cup week` or weeks 1..`regular_season_length` for the selected season,
   saved through the cup-week API with loading, error, and success states).
 - **State**: server state via TanStack Query; local UI state (selected team, hidden chart series) in component state or a small store. No global state library needed.
-- **Components**: `StandingsTable` (reused for overall and per-division), `WeeklyVPCells`, `VPChart`, `TeamSelector`/legend, `SeasonPicker`, layout/nav, and states (`Loading`, `Empty`, `ErrorState`).
+- **Components**: `StandingsTable` (reused for overall and per-division), `WapdateSection` (period toggle plus a lowest-first table below the chart), `WeeklyVPCells`, `VPChart`, `TeamSelector`/legend, `SeasonPicker`, layout/nav, and states (`Loading`, `Empty`, `ErrorState`).
 - **Responsive strategy**: mobile-first. Tables scroll horizontally in a container with a sticky first column. The chart supports tap-to-highlight, legend toggles, and a reduced default of highlighted lines on small screens.
 - **Styling**: Tailwind with design tokens (colors, spacing, radius) defined once; consistent light/dark tokens if dark mode is implemented.
 - **Dev without backend**: an MSW (mock service worker) or fixture-based mock of the API, generated from the OpenAPI contract and `docs/fixtures/`, so frontend work can proceed in parallel with the backend.

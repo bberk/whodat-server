@@ -128,6 +128,26 @@ test("sign up with a member invite, set owner, and read the seeded standings", a
     }
   }
 
+  // AC-WD-08: the WAPDate section sits below the chart, defaults to the current period, and
+  // shows the selected period's rows lowest first.
+  await expect(page.getByRole("heading", { level: 2, name: "WAPDate standings" })).toBeVisible();
+  const wapdate = page.getByRole("region", {
+    name: "WAPDate standings, scrollable horizontally",
+  });
+  await expect(wapdate).toBeVisible();
+  await expect(page.getByRole("radio", { name: /weeks 1-4 · in progress/i })).toBeChecked();
+  const wapdatePeriod = fixture.expected.wapdate.periods[0];
+  const wapdateRows = wapdate.getByRole("row");
+  await expect(wapdateRows).toHaveCount(wapdatePeriod.rows.length + 1);
+  for (const [index, expected] of wapdatePeriod.rows.entries()) {
+    const row = wapdateRows.nth(index + 1);
+    await expect(rowCells(row).nth(0)).toHaveText(expected.team);
+    await expect(rowCells(row).nth(1)).toHaveText(expected.victoryPoints);
+    await expect(rowCells(row).nth(2)).toHaveText(String(expected.wins));
+    await expect(rowCells(row).nth(3)).toHaveText(expected.pointsFor);
+  }
+  await expect(wapdate.getByTitle("cannot finish last")).toHaveCount(0);
+
   // AC-FE-05: no page-body sideways scroll at 360/768/1280, wide tables scroll inside their own
   // region, and the team column is pinned at every width.
   await expectPageDoesNotScrollSideways(page);
@@ -140,6 +160,17 @@ test("sign up with a member invite, set owner, and read the seeded standings", a
   }
   const teamHeader = overall.getByRole("columnheader", { name: "Team" });
   expect(await teamHeader.evaluate((element) => getComputedStyle(element).position)).toBe("sticky");
+  const wapdateWidth = await wapdate.evaluate((element) => ({
+    scrollWidth: element.scrollWidth,
+    clientWidth: element.clientWidth,
+  }));
+  if (testInfo.project.name === "mobile-360") {
+    expect(wapdateWidth.scrollWidth).toBeGreaterThan(wapdateWidth.clientWidth);
+  }
+  const wapdateTeamHeader = wapdate.getByRole("columnheader", { name: "Team" });
+  expect(await wapdateTeamHeader.evaluate((element) => getComputedStyle(element).position)).toBe(
+    "sticky",
+  );
 
   // AC-FE-07: axe on the standings page, after all data views have rendered.
   await expectNoBlockingAxeViolations(page, "standings");

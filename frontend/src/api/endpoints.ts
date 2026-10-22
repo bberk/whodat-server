@@ -30,6 +30,7 @@ import type {
   SignupResponse,
   StandingsResponse,
   VpHistoryResponse,
+  WapdateResponse,
 } from "./types";
 
 export const api = {
@@ -104,6 +105,12 @@ export const api = {
       `/api/v1/leagues/${leagueId}/seasons/${season}/vp-history`,
       { signal },
     );
+  },
+
+  wapdate(leagueId: number, season: number, signal?: AbortSignal): Promise<WapdateResponse> {
+    return apiRequest<WapdateResponse>(`/api/v1/leagues/${leagueId}/seasons/${season}/wapdate`, {
+      signal,
+    });
   },
 
   cupWeek(leagueId: number, season: number, signal?: AbortSignal): Promise<CupWeekResponse> {

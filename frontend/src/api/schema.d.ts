@@ -227,6 +227,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/leagues/{league_id}/seasons/{season}/wapdate": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Get Wapdate
+     * @description Return the offered WAPDate periods with their lowest-first rows.
+     */
+    get: operations["get_wapdate_api_v1_leagues__league_id__seasons__season__wapdate_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/me": {
     parameters: {
       query?: never;
@@ -687,6 +707,59 @@ export interface components {
       /** Weeks */
       weeks: number[];
     };
+    /**
+     * WapdatePeriod
+     * @description One offered WAPDate period with its completed weeks and rows.
+     */
+    WapdatePeriod: {
+      /** End Week */
+      end_week: number;
+      /** Period */
+      period: number;
+      /** Rows */
+      rows: components["schemas"]["WapdateRow"][];
+      /** Start Week */
+      start_week: number;
+      /**
+       * Status
+       * @enum {string}
+       */
+      status: "complete" | "current";
+      /** Weeks */
+      weeks: number[];
+    };
+    /**
+     * WapdateResponse
+     * @description The offered WAPDate periods for one league season.
+     */
+    WapdateResponse: {
+      /** Highest Completed Week */
+      highest_completed_week: number | null;
+      /** League Id */
+      league_id: number;
+      /** Periods */
+      periods: components["schemas"]["WapdatePeriod"][];
+      /** Season */
+      season: number;
+    };
+    /**
+     * WapdateRow
+     * @description One team's WAPDate row, ordered lowest first by the service.
+     */
+    WapdateRow: {
+      /** Eliminated */
+      eliminated: boolean;
+      /** Points For */
+      points_for: string;
+      /** Team Id */
+      team_id: number;
+      /** Team Name */
+      team_name: string;
+      /** Victory Points */
+      victory_points: string;
+      /** Wins */
+      wins: number;
+    };
   };
   responses: never;
   parameters: never;
@@ -1062,6 +1135,38 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["VpHistoryResponse"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  get_wapdate_api_v1_leagues__league_id__seasons__season__wapdate_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        league_id: number;
+        season: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WapdateResponse"];
         };
       };
       /** @description Validation Error */
