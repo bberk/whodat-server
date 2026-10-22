@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -77,6 +77,25 @@ describe("InvitesSection", () => {
 
     expect(writeText).toHaveBeenCalledWith(created.code);
     expect(await screen.findByText("Copied to the clipboard.")).toBeInTheDocument();
+  });
+
+  it("selects the code on focus and explains when copying is unavailable", async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
+    mockFetch(() => jsonResponse(created, { status: 201 }));
+    render(<InvitesSection leagueId={1} />);
+
+    await user.click(screen.getByRole("button", { name: "Generate invite" }));
+    const codeInput = (await screen.findByLabelText("Invite code")) as HTMLInputElement;
+    fireEvent.focus(codeInput);
+    expect(codeInput.selectionStart).toBe(0);
+    expect(codeInput.selectionEnd).toBe(created.code.length);
+
+    await user.click(screen.getByRole("button", { name: "Copy code" }));
+
+    expect(
+      await screen.findByText("Copy failed. Select the code and copy it manually."),
+    ).toBeInTheDocument();
   });
 
   it("validates the expiry before calling the API", async () => {

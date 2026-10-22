@@ -213,4 +213,37 @@ describe("MembersSection", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Members unavailable");
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
   });
+
+  it("retries the member list after an error", async () => {
+    const user = userEvent.setup();
+    let calls = 0;
+    mockFetch(() => {
+      calls += 1;
+      return calls === 1
+        ? errorResponse(500, { code: "boom", message: "Members unavailable" })
+        : jsonResponse({ members: leagueMembers });
+    });
+    renderSection();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Members unavailable");
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(await screen.findByText("admin@example.com")).toBeInTheDocument();
+    expect(calls).toBe(2);
+  });
+
+  it("cancels a removal confirmation without removing the member", async () => {
+    const user = userEvent.setup();
+    const mutable: MembersMutable = { members: leagueMembers };
+    membersFetch(mutable);
+    renderSection();
+
+    const memberRow = await screen.findByRole("row", { name: /member@example.com/ });
+    await user.click(within(memberRow).getByRole("button", { name: "Remove" }));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(mutable.deleted).toBeUndefined();
+    expect(screen.getByText("member@example.com")).toBeInTheDocument();
+  });
 });
