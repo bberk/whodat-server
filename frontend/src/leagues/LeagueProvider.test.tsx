@@ -110,6 +110,27 @@ describe("LeagueProvider", () => {
     });
   });
 
+  it("merges an added season, selects it, and reloads the season list", async () => {
+    const seasons: Record<number, number[]> = { 1: [2026], 2: [2025] };
+    leagueFetch(seasons);
+    const { result } = renderHook(() => useLeague(), { wrapper: wrapperFor(adminUser) });
+    await waitFor(() => {
+      expect(result.current.season).toBe(2026);
+    });
+
+    act(() => result.current.addStoredSeason(2025));
+    expect(result.current.seasons).toEqual([2025, 2026]);
+    expect(result.current.season).toBe(2025);
+
+    seasons[1] = [2025, 2026];
+    act(() => result.current.reloadSeasons());
+    await waitFor(() => {
+      expect(result.current.seasonsStatus).toBe("ready");
+    });
+    expect(result.current.seasons).toEqual([2025, 2026]);
+    expect(result.current.season).toBe(2025);
+  });
+
   it("surfaces membership and season failures", async () => {
     mockFetch(() => errorResponse(500, { code: "boom", message: "Leagues unavailable" }));
     const first = renderHook(() => useLeague(), { wrapper: wrapperFor(adminUser) });

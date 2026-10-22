@@ -31,6 +31,7 @@ export function AppShell() {
   const navigate = useNavigate();
 
   const ownerPath = selectedLeague === null ? null : `/leagues/${selectedLeague.league_id}/owner`;
+  const adminPath = selectedLeague === null ? null : `/leagues/${selectedLeague.league_id}/admin`;
 
   return (
     <div className="flex min-h-full flex-col bg-gray-50 text-gray-900">
@@ -60,6 +61,11 @@ export function AppShell() {
                   Owner
                 </NavLink>
               )}
+              {adminPath === null || user?.role !== "admin" ? null : (
+                <NavLink to={adminPath} className={navLinkClass}>
+                  Admin
+                </NavLink>
+              )}
             </nav>
 
             <div className="flex items-center gap-2 border-l border-gray-200 pl-3 text-[13px] text-gray-700">
@@ -80,8 +86,13 @@ export function AppShell() {
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-gray-100 py-2.5">
             <LeagueSwitcher
               onSelect={(leagueId) => {
-                if (location.pathname.endsWith("/owner")) {
-                  navigate(`/leagues/${leagueId}/owner`);
+                const suffix = location.pathname.endsWith("/owner")
+                  ? "/owner"
+                  : location.pathname.endsWith("/admin")
+                    ? "/admin"
+                    : null;
+                if (suffix !== null) {
+                  navigate(`/leagues/${leagueId}${suffix}`);
                 }
               }}
             />

@@ -118,6 +118,22 @@ class SeasonsResponse(BaseModel):
     seasons: list[int]
 
 
+class AddSeasonRequest(BaseModel):
+    """Add and sync one more season for an existing league."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    season: Annotated[int, Field(ge=MIN_SEASON, le=MAX_SEASON)]
+
+
+class AddSeasonResponse(BaseModel):
+    """The season added to a league and the weeks the sync ingested."""
+
+    league_id: int
+    season: int
+    weeks_synced: list[int]
+
+
 class OwnerSummary(BaseModel):
     """A league owner the caller may associate with their membership."""
 

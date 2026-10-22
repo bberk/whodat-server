@@ -6,6 +6,7 @@ import { OnboardingRoute, ProtectedRoute } from "./auth/ProtectedRoute";
 import { SignupPage } from "./auth/SignupPage";
 import { AppShell } from "./components/AppShell";
 import { LeagueProvider } from "./leagues/LeagueProvider";
+import { AdminPage } from "./pages/AdminPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
 import { OwnerPage } from "./pages/OwnerPage";
 import { StandingsPage } from "./pages/StandingsPage";
@@ -37,6 +38,7 @@ export function AppRoutes() {
         >
           <Route index element={<StandingsPage />} />
           <Route path="leagues/:leagueId/owner" element={<OwnerPage />} />
+          <Route path="leagues/:leagueId/admin" element={<AdminPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

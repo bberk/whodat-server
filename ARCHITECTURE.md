@@ -247,15 +247,17 @@ All endpoints are under `/api/v1`, JSON, cookie-session or bearer-token auth (ba
 | `GET /leagues/{league_id}/owners` | member | Owners available for the caller's owner association |
 | `PUT /me/leagues/{league_id}/owner` | member | Set the caller's own owner association within that league |
 | `GET /leagues/{league_id}/seasons` | member | Seasons with data |
+| `POST /leagues/{league_id}/seasons` | admin member with credentials | Add and sync another season for an existing league |
 | `POST /leagues/{league_id}/refresh` | member with credentials | Refresh the league (rate limited per league and per user) |
 | `GET /leagues/{league_id}/seasons/{season}/standings` | member | Overall standings + divisions (shape below) |
 | `GET /leagues/{league_id}/seasons/{season}/vp-history` | member | Weekly and cumulative VP per team (for the chart) |
 
 "member" = authenticated user with a `user_league` membership in the league. League-scoped requests
 from non-members return 403 or 404, and unauthenticated requests return 401. Only admins may add a
-league or league credentials; a member supplying `espn_league_id` or credentials is rejected, and a
-member joins only through a valid member invite. A refresh requires a membership that holds
-credentials.
+league, add a season to an existing league, or supply league credentials; a member supplying
+`espn_league_id` or credentials is rejected, and a member joins only through a valid member invite.
+Adding a season uses the caller's own stored credentials, like a refresh. A refresh requires a
+membership that holds credentials.
 
 Invite creation is an admin CLI operation, not a public endpoint:
 `python -m app.cli create-invite --role admin|member [--league <id>] --expires 7d`.
@@ -296,7 +298,7 @@ VP and points are serialized as **strings** (decimal), so the frontend never rel
 
 ## 9. Frontend architecture
 
-- **Routing**: `/login`, `/signup`, `/leagues/:leagueId/owner`, `/` (standings for the selected league and current season).
+- **Routing**: `/login`, `/signup`, `/leagues/:leagueId/owner`, `/leagues/:leagueId/admin` (admin only), `/` (standings for the selected league and current season).
 - **State**: server state via TanStack Query; local UI state (selected team, hidden chart series) in component state or a small store. No global state library needed.
 - **Components**: `StandingsTable` (reused for overall and per-division), `WeeklyVPCells`, `VPChart`, `TeamSelector`/legend, `SeasonPicker`, layout/nav, and states (`Loading`, `Empty`, `ErrorState`).
 - **Responsive strategy**: mobile-first. Tables scroll horizontally in a container with a sticky first column. The chart supports tap-to-highlight, legend toggles, and a reduced default of highlighted lines on small screens.

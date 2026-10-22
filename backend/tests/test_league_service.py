@@ -21,7 +21,7 @@ from app.config import get_settings
 from app.db.auth_repositories import DuplicateMembershipError as DatabaseDuplicateMembershipError
 from app.db.auth_repositories import InviteRepository, MembershipRepository, UserRepository
 from app.db.base import Base
-from app.db.models import AppUser, League, LeagueSeason, Owner, Score, UserLeague
+from app.db.models import AppUser, League, LeagueSeason, Owner, Score, Team, UserLeague
 from app.db.repositories import SyncRepository
 from app.providers.base import (
     LeagueDTO,
@@ -41,6 +41,7 @@ from app.services.league_service import (
     AdminRequiredError,
     AlreadyMemberError,
     CredentialsRequiredError,
+    DuplicateSeasonError,
     EspnCredentials,
     IncompleteCredentialsError,
     InvalidLeagueRequestError,
@@ -726,6 +727,143 @@ def test_AC_AU_09_refresh_is_limited_per_user(session: Session) -> None:
 
     assert denied.value.retry_after == 3600
     service.commit()
+
+
+# ---------------------------------------------------------------------------
+# AC-AU-18: admins add a season to an existing league
+# ---------------------------------------------------------------------------
+
+
+def test_AC_AU_18_admin_adds_a_season_with_membership_credentials(session: Session) -> None:
+    admin = _create_user(session, "admin@example.com", "admin")
+    league = _seed_existing_league(session)
+    _seed_membership(session, user=admin, league=league)
+    factory = RecordingFactory(_seed(season=2025))
+    service = LeagueService(session, factory, provider_id="fake")
+
+    result = service.add_season(_actor(admin), league.id, 2025)
+    service.commit()
+
+    assert result.league_id == league.id
+    assert result.season == 2025
+    assert result.weeks_synced == (1,)
+    assert factory.decrypted == [(S2, SWID)]
+    seasons = [row.season for row in SyncRepository(session).list_league_seasons(league.id)]
+    assert seasons == [2025, SEASON]
+    assert _count(session, Score) == 2
+
+
+def test_AC_AU_18_add_season_without_credentials_is_rejected(session: Session) -> None:
+    admin = _create_user(session, "admin@example.com", "admin")
+    league = _seed_existing_league(session)
+    _seed_membership(session, user=admin, league=league, credentials=False)
+    factory = RecordingFactory(_seed(season=2025))
+    service = LeagueService(session, factory, provider_id="fake")
+
+    with pytest.raises(CredentialsRequiredError):
+        service.add_season(_actor(admin), league.id, 2025)
+
+    assert factory.calls == []
+    assert [row.season for row in SyncRepository(session).list_league_seasons(league.id)] == [
+        SEASON
+    ]
+
+
+def test_AC_AU_18_duplicate_season_is_rejected_before_the_provider_call(
+    session: Session,
+) -> None:
+    admin = _create_user(session, "admin@example.com", "admin")
+    league = _seed_existing_league(session)
+    _seed_membership(session, user=admin, league=league)
+    factory = RecordingFactory(_seed())
+    service = LeagueService(session, factory, provider_id="fake")
+
+    with pytest.raises(DuplicateSeasonError):
+        service.add_season(_actor(admin), league.id, SEASON)
+
+    assert factory.calls == []
+
+
+def test_AC_AU_18_add_season_requires_admin(session: Session) -> None:
+    member = _create_user(session, "member@example.com")
+    league = _seed_existing_league(session)
+    _seed_membership(session, user=member, league=league)
+    factory = RecordingFactory(_seed(season=2025))
+    service = LeagueService(session, factory, provider_id="fake")
+
+    with pytest.raises(AdminRequiredError):
+        service.add_season(_actor(member), league.id, 2025)
+
+    assert factory.calls == []
+
+
+def test_AC_AU_18_add_season_requires_membership(session: Session) -> None:
+    admin = _create_user(session, "admin@example.com", "admin")
+    league = _seed_existing_league(session)
+    factory = RecordingFactory(_seed(season=2025))
+    service = LeagueService(session, factory, provider_id="fake")
+
+    with pytest.raises(NotAMemberError):
+        service.add_season(_actor(admin), league.id, 2025)
+
+    assert factory.calls == []
+
+
+def test_AC_AU_18_add_season_unknown_league_is_not_found(session: Session) -> None:
+    admin = _create_user(session, "admin@example.com", "admin")
+    factory = RecordingFactory(_seed(season=2025))
+    service = LeagueService(session, factory, provider_id="fake")
+
+    with pytest.raises(NotAMemberError):
+        service.add_season(_actor(admin), 999, 2025)
+
+    assert factory.calls == []
+
+
+def test_AC_AU_18_add_season_rejects_a_non_positive_year(session: Session) -> None:
+    admin = _create_user(session, "admin@example.com", "admin")
+    league = _seed_existing_league(session)
+    _seed_membership(session, user=admin, league=league)
+    factory = RecordingFactory(_seed(season=2025))
+    service = LeagueService(session, factory, provider_id="fake")
+
+    with pytest.raises(InvalidLeagueRequestError):
+        service.add_season(_actor(admin), league.id, 0)
+
+    assert factory.calls == []
+
+
+def test_AC_AU_18_add_season_provider_failure_leaves_no_partial_season(
+    session: Session,
+) -> None:
+    admin = _create_user(session, "admin@example.com", "admin")
+    league = _seed_existing_league(session)
+    _seed_membership(session, user=admin, league=league)
+
+    class FailingFactory(RecordingFactory):
+        def __call__(
+            self,
+            *,
+            espn_s2_encrypted: str | None = None,
+            espn_swid_encrypted: str | None = None,
+        ) -> FailAfterValidationProvider:
+            if espn_s2_encrypted is not None and espn_swid_encrypted is not None:
+                decrypt(espn_s2_encrypted)
+                decrypt(espn_swid_encrypted)
+            return FailAfterValidationProvider(self.seed)
+
+    service = LeagueService(session, FailingFactory(_seed(season=2025)), provider_id="fake")
+
+    with pytest.raises(LeagueSyncError) as error:
+        service.add_season(_actor(admin), league.id, 2025)
+
+    assert "sensitive url" not in str(error.value)
+    session.commit()
+    assert [row.season for row in SyncRepository(session).list_league_seasons(league.id)] == [
+        SEASON
+    ]
+    assert session.scalar(select(func.count()).select_from(Team).where(Team.season == 2025)) == 0
+    assert _count(session, Score) == 0
 
 
 # ---------------------------------------------------------------------------

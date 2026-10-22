@@ -10,6 +10,8 @@ import { apiRequest } from "./client";
 import type {
   AddLeagueRequest,
   AddLeagueResponse,
+  AddSeasonRequest,
+  AddSeasonResponse,
   LeagueSummary,
   LoginRequest,
   LogoutResponse,
@@ -62,6 +64,13 @@ export const api = {
 
   seasons(leagueId: number, signal?: AbortSignal): Promise<SeasonsResponse> {
     return apiRequest<SeasonsResponse>(`/api/v1/leagues/${leagueId}/seasons`, { signal });
+  },
+
+  addSeason(leagueId: number, body: AddSeasonRequest): Promise<AddSeasonResponse> {
+    return apiRequest<AddSeasonResponse>(`/api/v1/leagues/${leagueId}/seasons`, {
+      method: "POST",
+      body,
+    });
   },
 
   owners(leagueId: number, signal?: AbortSignal): Promise<OwnersResponse> {

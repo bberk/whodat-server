@@ -4,8 +4,9 @@ The service is transaction-neutral with a documented commit boundary: every meth
 writes (through repositories or the sync service) but never commits. HTTP callers call
 :meth:`LeagueService.commit` after a successful mutating request; the session dependency rolls the
 request back when an exception escapes. Multi-step writes that must not survive a later failure
-(a credentialed add and a refresh) additionally run inside a SAVEPOINT, so a typed sync error never
-leaves a partial league, membership, or refresh behind even if a caller commits afterwards.
+(a credentialed add, a refresh, and adding a season) additionally run inside a SAVEPOINT, so a
+typed sync error never leaves a partial league, membership, season, or refresh behind even if a
+caller commits afterwards.
 
 Only an admin may add a league; members join an additional league by redeeming a valid, unexpired
 member invite, never by supplying a bare league id. A member-invite redemption writes exactly one
@@ -140,6 +141,15 @@ class RefreshResult:
     weeks_with_vp_recomputed: tuple[int, ...]
 
 
+@dataclass(frozen=True)
+class AddSeasonResult:
+    """Outcome of adding and syncing one season for an existing league."""
+
+    league_id: int
+    season: int
+    weeks_synced: tuple[int, ...]
+
+
 class LeagueServiceError(Exception):
     """Base class for expected league-service failures."""
 
@@ -169,7 +179,11 @@ class OwnerNotFoundError(LeagueServiceError, LookupError):
 
 
 class CredentialsRequiredError(LeagueServiceError):
-    """The caller's membership holds no credentials, so it cannot refresh the league."""
+    """The caller's membership holds no credentials for a refresh or a new season."""
+
+
+class DuplicateSeasonError(LeagueServiceError):
+    """The league already stores data for the requested season."""
 
 
 class IncompleteCredentialsError(InvalidLeagueRequestError):
@@ -454,6 +468,48 @@ class LeagueService:
             season=season,
             weeks_synced=summary.weeks_synced,
             weeks_with_vp_recomputed=summary.weeks_with_vp_recomputed,
+        )
+
+    def add_season(self, user: LeagueUser, league_id: int, season: int) -> AddSeasonResult:
+        """Add and sync one more season for an existing league the caller administers.
+
+        The caller must hold a membership in the league (a non-member gets the same error as an
+        unknown league, so the response does not confirm that it exists) and have the global admin
+        role. The season must not already be stored, and the caller's own membership must hold both
+        encrypted ESPN cookies: there is no fallback to another member's credentials or to the
+        environment. The provider is built from ciphertext, exactly as for a refresh, so decryption
+        stays behind the provider factory.
+
+        The provider-backed sync runs inside a SAVEPOINT, so a provider failure leaves no league,
+        season, owner, team, matchup, or score rows from this request even if a caller commits
+        afterwards. The caller commits on success.
+        """
+        membership = self.require_membership(user, league_id)
+        if user.role != ROLE_ADMIN:
+            raise AdminRequiredError("only an admin may add a season")
+        if season <= 0:
+            raise InvalidLeagueRequestError("season must be a positive year")
+        if self._sync.get_league_season(league_id, season) is not None:
+            raise DuplicateSeasonError("season is already stored for this league")
+
+        espn_s2_encrypted = membership.espn_s2_encrypted
+        espn_swid_encrypted = membership.espn_swid_encrypted
+        if not espn_s2_encrypted or not espn_swid_encrypted:
+            raise CredentialsRequiredError("membership holds no league credentials")
+
+        encrypted = EncryptedCredentials(
+            espn_s2_encrypted=espn_s2_encrypted,
+            espn_swid_encrypted=espn_swid_encrypted,
+        )
+        provider = self._build_provider(encrypted)
+        external_id = membership.league.external_id
+        with self._session.begin_nested():
+            summary = self._sync_season(provider, external_id, season)
+
+        return AddSeasonResult(
+            league_id=league_id,
+            season=season,
+            weeks_synced=summary.weeks_synced,
         )
 
     # ------------------------------------------------------------------

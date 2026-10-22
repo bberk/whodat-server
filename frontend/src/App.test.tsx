@@ -28,13 +28,15 @@ function renderAt(path: string) {
   );
 }
 
-function signedInFetch(options: { seasonsAlpha?: number[]; seasonsBeta?: number[] } = {}) {
+function signedInFetch(
+  options: { seasonsAlpha?: number[]; seasonsBeta?: number[]; user?: typeof adminUser } = {},
+) {
   const seasonsAlpha = options.seasonsAlpha ?? [2024, 2026];
   const seasonsBeta = options.seasonsBeta ?? [2025];
   return mockFetch((url, init) => {
     const path = requestPath(url);
     if (path === "/api/v1/me") {
-      return jsonResponse(adminUser);
+      return jsonResponse(options.user ?? adminUser);
     }
     if (path === "/api/v1/me/leagues") {
       return jsonResponse([leagueAlpha, leagueBeta]);
@@ -390,6 +392,31 @@ describe("App routing", () => {
     expect(screen.getByRole("dialog", { name: "Add a league" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Close add-league dialog" }));
     expect(screen.queryByRole("dialog", { name: "Add a league" })).not.toBeInTheDocument();
+  });
+
+  it("shows admins the admin nav item and the league admin page", async () => {
+    signedInFetch();
+    renderAt("/leagues/1/admin");
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Season")).toHaveValue("2026");
+    });
+    expect(screen.getByRole("heading", { level: 1, name: "League admin" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Admin" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Add a season" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Season year")).toBeInTheDocument();
+  });
+
+  it("hides admin controls from members", async () => {
+    signedInFetch({ user: memberUser });
+    renderAt("/leagues/1/admin");
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Season")).toHaveValue("2026");
+    });
+    expect(screen.getByText("Only league admins can manage this league.")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Admin" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Season year")).not.toBeInTheDocument();
   });
 
   it("renders the browser router entrypoint", async () => {

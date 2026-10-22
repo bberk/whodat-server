@@ -31,6 +31,8 @@ export type OwnerUpdateRequest = components["schemas"]["OwnerUpdateRequest"];
 export type OwnerUpdateResponse = components["schemas"]["OwnerUpdateResponse"];
 
 export type SeasonsResponse = components["schemas"]["SeasonsResponse"];
+export type AddSeasonRequest = components["schemas"]["AddSeasonRequest"];
+export type AddSeasonResponse = components["schemas"]["AddSeasonResponse"];
 export type RefreshResponse = components["schemas"]["RefreshResponse"];
 
 export type StandingsRow = components["schemas"]["StandingsRow"];

@@ -148,7 +148,15 @@ export interface paths {
      */
     get: operations["list_league_seasons_api_v1_leagues__league_id__seasons_get"];
     put?: never;
-    post?: never;
+    /**
+     * Add League Season
+     * @description Add and sync one more season for an existing league.
+     *
+     *     Only a global admin who belongs to the league may call this. The season sync uses the caller's
+     *     own stored credentials, and the whole write is atomic: a provider failure returns a structured
+     *     error and leaves no partial season behind. Credential values never appear in the response.
+     */
+    post: operations["add_league_season_api_v1_leagues__league_id__seasons_post"];
     delete?: never;
     options?: never;
     head?: never;
@@ -326,6 +334,26 @@ export interface components {
      */
     AddLeagueResponse: {
       league: components["schemas"]["LeagueSummary"];
+      /** Season */
+      season: number;
+      /** Weeks Synced */
+      weeks_synced: number[];
+    };
+    /**
+     * AddSeasonRequest
+     * @description Add and sync one more season for an existing league.
+     */
+    AddSeasonRequest: {
+      /** Season */
+      season: number;
+    };
+    /**
+     * AddSeasonResponse
+     * @description The season added to a league and the weeks the sync ingested.
+     */
+    AddSeasonResponse: {
+      /** League Id */
+      league_id: number;
       /** Season */
       season: number;
       /** Weeks Synced */
@@ -820,6 +848,41 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["SeasonsResponse"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  add_league_season_api_v1_leagues__league_id__seasons_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        league_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AddSeasonRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AddSeasonResponse"];
         };
       };
       /** @description Validation Error */
