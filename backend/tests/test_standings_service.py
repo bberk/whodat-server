@@ -195,6 +195,63 @@ def test_AC_ST_01_season_vp_is_exact_sum_of_weekly_vp(session: Session) -> None:
         assert row.victory_points == sum(row.weekly_vp, Fraction(0))
 
 
+def test_AC_ST_10_cup_week_skips_wlt_but_keeps_points_for_and_other_vp(
+    session: Session,
+) -> None:
+    seeded = _seed(
+        session,
+        team_specs=FOUR_TEAMS,
+        weeks=_four_team_weeks(),
+        regular_season_length=2,
+    )
+    league_season = SyncRepository(session).get_league_season(seeded.league_id, SEASON)
+    assert league_season is not None
+    league_season.cup_week = 2
+    session.flush()
+
+    standings = StandingsService(session).get_standings(seeded.league_id, SEASON)
+
+    rows = _by_name(standings)
+    # Week 1 is still a normal week; week 2 is the cup week and adds no W/L/T.
+    assert (rows["Alpha"].wins, rows["Alpha"].losses, rows["Alpha"].ties) == (1, 0, 0)
+    assert (rows["Bravo"].wins, rows["Bravo"].losses, rows["Bravo"].ties) == (1, 0, 0)
+    assert (rows["Charlie"].wins, rows["Charlie"].losses, rows["Charlie"].ties) == (0, 1, 0)
+    assert (rows["Delta"].wins, rows["Delta"].losses, rows["Delta"].ties) == (0, 1, 0)
+
+    # Points for still includes the cup week: 120+130 for Alpha, 90+115 for Delta.
+    assert rows["Alpha"].points_for == Decimal("250.00")
+    assert rows["Delta"].points_for == Decimal("205.00")
+
+    # The cup week removes H2H but keeps high/top-half/low: A 2, B 0, C -1, D 1.
+    assert rows["Alpha"].weekly_vp == (Fraction(3), Fraction(2))
+    assert rows["Bravo"].weekly_vp == (Fraction(2), Fraction(0))
+    assert rows["Charlie"].weekly_vp == (Fraction(0), Fraction(-1))
+    assert rows["Delta"].weekly_vp == (Fraction(-1), Fraction(1))
+    for row in standings.overall:
+        assert row.victory_points == sum(row.weekly_vp, Fraction(0))
+
+
+def test_AC_ST_11_vp_history_series_reflect_the_cup_week(session: Session) -> None:
+    seeded = _seed(
+        session,
+        team_specs=FOUR_TEAMS,
+        weeks=_four_team_weeks(),
+        regular_season_length=2,
+    )
+    league_season = SyncRepository(session).get_league_season(seeded.league_id, SEASON)
+    assert league_season is not None
+    league_season.cup_week = 2
+    session.flush()
+
+    history = StandingsService(session).get_vp_history(seeded.league_id, SEASON)
+
+    assert history.weeks == (1, 2)
+    series = {team.team_name: (team.weekly, team.cumulative) for team in history.teams}
+    assert series["Alpha"] == ((Fraction(3), Fraction(2)), (Fraction(3), Fraction(5)))
+    assert series["Bravo"] == ((Fraction(2), Fraction(0)), (Fraction(2), Fraction(2)))
+    assert series["Delta"] == ((Fraction(-1), Fraction(1)), (Fraction(-1), Fraction(0)))
+
+
 def test_AC_ST_02_and_ST_07_overall_rank_is_across_the_whole_league(session: Session) -> None:
     seeded = _seed(
         session,

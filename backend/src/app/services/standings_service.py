@@ -143,6 +143,7 @@ class _SeasonContext:
     league_id: int
     season: int
     regular_season_length: int
+    cup_week: int | None
     teams: tuple[Team, ...]
     owner_names: Mapping[int, str]
 
@@ -291,6 +292,7 @@ class StandingsService:
             league_id=league_id,
             season=season,
             regular_season_length=regular_season_length,
+            cup_week=league_season.cup_week,
             teams=teams,
             owner_names=owner_names,
         )
@@ -319,7 +321,11 @@ class StandingsService:
         return tuple(weeks)
 
     def _aggregate(self, context: _SeasonContext, weeks: Sequence[int]) -> _SeasonAggregate:
-        """Recompute weekly VP and W-L-T and accumulate exact season totals."""
+        """Recompute weekly VP and W-L-T and accumulate exact season totals.
+
+        A cup week (``context.cup_week``) still counts for points for and its VP, but its
+        matchups never change the W-L-T record and every team gets zero head-to-head VP.
+        """
         roster_ids = {team.id for team in context.teams}
         weekly_by_team: dict[int, list[Fraction]] = {team_id: [] for team_id in roster_ids}
         wins = {team_id: 0 for team_id in roster_ids}
@@ -328,6 +334,7 @@ class StandingsService:
         points_for = {team_id: Decimal(0) for team_id in roster_ids}
 
         for week in weeks:
+            is_cup_week = week == context.cup_week
             matchups = self._repository.get_week_matchups(context.league_id, context.season, week)
             scores = self._repository.get_week_scores(context.league_id, context.season, week)
             scores_by_team = {score.team_id: score for score in scores}
@@ -368,15 +375,16 @@ class StandingsService:
                         )
                     opponent_by_team[matchup.away_team_id] = matchup.home_team_id
 
-                    if home_score.points > away_score.points:
-                        wins[matchup.home_team_id] += 1
-                        losses[matchup.away_team_id] += 1
-                    elif home_score.points < away_score.points:
-                        losses[matchup.home_team_id] += 1
-                        wins[matchup.away_team_id] += 1
-                    else:
-                        ties[matchup.home_team_id] += 1
-                        ties[matchup.away_team_id] += 1
+                    if not is_cup_week:
+                        if home_score.points > away_score.points:
+                            wins[matchup.home_team_id] += 1
+                            losses[matchup.away_team_id] += 1
+                        elif home_score.points < away_score.points:
+                            losses[matchup.home_team_id] += 1
+                            wins[matchup.away_team_id] += 1
+                        else:
+                            ties[matchup.home_team_id] += 1
+                            ties[matchup.away_team_id] += 1
 
             for team_id, score in scores_by_team.items():
                 points_for[team_id] += score.points
@@ -389,7 +397,7 @@ class StandingsService:
                 )
                 for score in scores
             ]
-            week_values = compute_week_vp(team_weeks)
+            week_values = compute_week_vp(team_weeks, h2h=not is_cup_week)
             for team_id in roster_ids:
                 week_vp = week_values.get(team_id)
                 weekly_by_team[team_id].append(

@@ -101,8 +101,9 @@ Unique: (`provider`, `external_id`).
 Per-season provider settings, so each season can be refreshed independently and a sync of one
 season never overwrites another season's settings: `league_id` → league, `season` (int),
 `metadata` (JSON: regular season length, team count, division count, scoring type, playoff
-settings).
-Unique: (`league_id`, `season`).
+settings), `cup_week` (int, nullable; the optional cup week described in SPEC 3.4; `NULL` means no
+cup week). The cup week is admin-chosen application data, not provider metadata: sync updates
+`metadata` but never overwrites `cup_week`. Unique: (`league_id`, `season`).
 
 ### `owner`
 `league_id` → league, `external_id` (provider's owner/member ID), `display_name`.
@@ -188,7 +189,7 @@ DTO rules:
    seasons untouched.
 2. Determine weeks to sync (default: all weeks up to and including the current completed week).
 3. For each week: fetch matchups; upsert matchups; upsert scores' `points`.
-4. For each week whose matchup/score data changed (or is newly completed): load that week's scores and matchups, run the VP engine, and write `victory_points` and components for all teams in that week, in a single transaction.
+4. For each week whose matchup/score data changed (or is newly completed): load that week's scores and matchups, run the VP engine, and write `victory_points` and components for all teams in that week, in a single transaction. When the season's `cup_week` equals that week, the engine runs with `h2h=False` and `vp_h2h` is stored as 0.
 5. Weeks that are playoffs or incomplete are stored but receive no VP (VP columns remain 0 and are excluded from standings).
 
 Sync is idempotent (AC-DB-02): upserts compare values and only write on change.
@@ -215,7 +216,7 @@ class WeekVP:
     @property
     def total(self) -> Fraction: ...
 
-def compute_week_vp(teams: Sequence[TeamWeek]) -> dict[int, WeekVP]: ...
+def compute_week_vp(teams: Sequence[TeamWeek], *, h2h: bool = True) -> dict[int, WeekVP]: ...
 ```
 
 Algorithm notes (see SPEC 3 and ACCEPTANCE 1.1 for authoritative rules and examples):
@@ -223,7 +224,8 @@ Algorithm notes (see SPEC 3 and ACCEPTANCE 1.1 for authoritative rules and examp
 - Group teams by exact `points`. Process tie groups in rank order.
 - Top-half pool: for a tie group occupying ranks `r..r+k-1` (1-indexed), slots inside the cutoff = `max(0, min(r+k-1, floor(N/2)) - r + 1)`; each member gets `slots / k`.
 - High: the first group splits +1; low: the last group splits -1.
-- H2H: compare points of each matched pair; tie → 0.5 each.
+- H2H: compare points of each matched pair; tie → 0.5 each. With `h2h=False` (a cup week) every
+  team's H2H component is 0 and the other components are unchanged.
 
 ```python
 # domain/standings.py
@@ -251,6 +253,8 @@ All endpoints are under `/api/v1`, JSON, cookie-session or bearer-token auth (ba
 | `POST /leagues/{league_id}/refresh` | member with credentials | Refresh the league (rate limited per league and per user) |
 | `GET /leagues/{league_id}/seasons/{season}/standings` | member | Overall standings + divisions (shape below) |
 | `GET /leagues/{league_id}/seasons/{season}/vp-history` | member | Weekly and cumulative VP per team (for the chart) |
+| `GET /leagues/{league_id}/seasons/{season}/cup-week` | member | Season, cup_week (nullable), and regular_season_length |
+| `PUT /leagues/{league_id}/seasons/{season}/cup-week` | admin member | Set `{cup_week: int\|null}`, persist it, and recompute the season from stored data |
 
 "member" = authenticated user with a `user_league` membership in the league. League-scoped requests
 from non-members return 403 or 404, and unauthenticated requests return 401. Only admins may add a
@@ -298,7 +302,13 @@ VP and points are serialized as **strings** (decimal), so the frontend never rel
 
 ## 9. Frontend architecture
 
-- **Routing**: `/login`, `/signup`, `/leagues/:leagueId/owner`, `/leagues/:leagueId/admin` (admin only), `/` (standings for the selected league and current season).
+- **Routing**: `/login`, `/signup`, `/leagues/:leagueId/owner`, `/leagues/:leagueId/admin` (admin
+  only; non-admins are redirected to `/`), `/` (standings for the selected league and current
+  season). The `Admin` nav item appears only for an admin with a selected league.
+- **Admin page**: one `League admin` shell at `/leagues/:leagueId/admin` hosting the admin-only,
+  season-scoped sections: add a stored season (`AddSeasonSection`) and choose the cup week
+  (`CupWeekSection`: `No cup week` or weeks 1..`regular_season_length` for the selected season,
+  saved through the cup-week API with loading, error, and success states).
 - **State**: server state via TanStack Query; local UI state (selected team, hidden chart series) in component state or a small store. No global state library needed.
 - **Components**: `StandingsTable` (reused for overall and per-division), `WeeklyVPCells`, `VPChart`, `TeamSelector`/legend, `SeasonPicker`, layout/nav, and states (`Loading`, `Empty`, `ErrorState`).
 - **Responsive strategy**: mobile-first. Tables scroll horizontally in a container with a sticky first column. The chart supports tap-to-highlight, legend toggles, and a reduced default of highlighted lines on small screens.

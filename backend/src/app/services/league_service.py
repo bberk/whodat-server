@@ -37,7 +37,7 @@ from sqlalchemy.orm import Session
 
 from app.db.auth_repositories import DuplicateMembershipError as DatabaseDuplicateMembershipError
 from app.db.auth_repositories import InviteRepository, MembershipRepository
-from app.db.models import ROLE_ADMIN, ROLE_MEMBER, League, Owner, UserLeague
+from app.db.models import ROLE_ADMIN, ROLE_MEMBER, League, LeagueSeason, Owner, UserLeague
 from app.db.repositories import SyncRepository
 from app.providers.base import LeagueDTO, LeagueProvider, LeagueRef
 from app.security.crypto import CredentialCryptoError, encrypt
@@ -123,6 +123,19 @@ class OwnerView:
 
 
 @dataclass(frozen=True)
+class CupWeekView:
+    """One league season's cup week and the week range the admin UI offers.
+
+    ``cup_week`` is ``None`` when the season has no cup week; ``regular_season_length`` comes from
+    the season's stored metadata and bounds every non-null value.
+    """
+
+    season: int
+    cup_week: int | None
+    regular_season_length: int
+
+
+@dataclass(frozen=True)
 class AddLeagueResult:
     """Outcome of adding or joining a league."""
 
@@ -176,6 +189,18 @@ class AlreadyMemberError(LeagueServiceError):
 
 class OwnerNotFoundError(LeagueServiceError, LookupError):
     """The requested owner does not belong to the league."""
+
+
+class LeagueSeasonNotFoundError(LeagueServiceError, LookupError):
+    """The league exists but the requested season is not stored."""
+
+
+class InvalidCupWeekError(LeagueServiceError):
+    """The cup week is outside 1..the season's stored regular-season length."""
+
+
+class InvalidSeasonSettingsError(LeagueServiceError):
+    """The season's stored metadata has no usable regular-season length."""
 
 
 class CredentialsRequiredError(LeagueServiceError):
@@ -434,6 +459,62 @@ class LeagueService:
         membership = self._memberships.set_owner(user.user_id, league_id, owner_id)
         return self._view(membership)
 
+    def get_cup_week(self, user: LeagueUser, league_id: int, season: int) -> CupWeekView:
+        """Return a stored season's cup week and its regular-season length.
+
+        Membership is required first, so a non-member receives the same 404 as every other
+        league-scoped read. The length comes from the stored season metadata; the UI uses it to
+        build the week choices without inventing a setting.
+        """
+        self.require_membership(user, league_id)
+        league_season = self._require_league_season(league_id, season)
+        return CupWeekView(
+            season=league_season.season,
+            cup_week=league_season.cup_week,
+            regular_season_length=self._regular_season_length(league_season),
+        )
+
+    def set_cup_week(
+        self,
+        user: LeagueUser,
+        league_id: int,
+        season: int,
+        cup_week: int | None,
+    ) -> CupWeekView:
+        """Set or clear a season's cup week and recompute its stored weeks in one operation.
+
+        The caller must be a league member (non-members get the same 404 as other league reads)
+        and an admin. A non-null value must be between 1 and the season's stored regular-season
+        length, read from ``league_season`` metadata. The value is persisted and every stored
+        complete, non-playoff week is recomputed from stored data before the caller commits, so
+        season totals and stored score rows agree with the new cup week.
+        """
+        membership = self.require_membership(user, league_id)
+        if user.role != ROLE_ADMIN:
+            raise AdminRequiredError("only an admin may change the cup week")
+        league_season = self._require_league_season(league_id, season)
+        regular_season_length = self._regular_season_length(league_season)
+        if cup_week is not None and not 1 <= cup_week <= regular_season_length:
+            raise InvalidCupWeekError(f"cup_week must be between 1 and {regular_season_length}")
+
+        with self._session.begin_nested():
+            league_season.cup_week = cup_week
+            self._session.flush()
+            try:
+                SyncService(None, self._session).recompute_league(
+                    LeagueRef(external_id=membership.league.external_id),
+                    self._provider_id,
+                    season,
+                )
+            except SyncError:
+                raise LeagueSyncError("league VP could not be recomputed") from None
+
+        return CupWeekView(
+            season=league_season.season,
+            cup_week=league_season.cup_week,
+            regular_season_length=regular_season_length,
+        )
+
     def refresh(self, user: LeagueUser, league_id: int) -> RefreshResult:
         """Refresh the league's most recent stored season with the membership's credentials.
 
@@ -551,6 +632,27 @@ class LeagueService:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    def _require_league_season(self, league_id: int, season: int) -> LeagueSeason:
+        """Return the stored league season or raise :class:`LeagueSeasonNotFoundError`."""
+        league_season = self._sync.get_league_season(league_id, season)
+        if league_season is None:
+            raise LeagueSeasonNotFoundError("season is not stored for this league")
+        return league_season
+
+    @staticmethod
+    def _regular_season_length(league_season: LeagueSeason) -> int:
+        """Return the season's stored regular-season length or raise a typed settings error.
+
+        A non-integer, boolean, or non-positive value is not usable, so the admin UI never offers
+        an invented week range.
+        """
+        raw: object = league_season.league_season_metadata.get("regular_season_length")
+        if isinstance(raw, bool) or not isinstance(raw, int) or raw < 1:
+            raise InvalidSeasonSettingsError(
+                "the season has no usable regular_season_length setting"
+            )
+        return raw
 
     def _create_membership(self, user_id: int, league_id: int) -> UserLeague:
         """Create a membership and translate a duplicate constraint into a typed error."""

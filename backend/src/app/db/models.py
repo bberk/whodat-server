@@ -86,6 +86,9 @@ class LeagueSeason(TimestampMixin, Base):
     league_season_metadata: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSON, nullable=False, default=dict
     )
+    #: The optional single week scored without head-to-head VP and without a W/L/T record.
+    #: ``None`` means the season has no cup week and every week is scored normally.
+    cup_week: Mapped[int | None] = mapped_column(Integer, nullable=True)
     league: Mapped[League] = relationship(back_populates="seasons")
 
 

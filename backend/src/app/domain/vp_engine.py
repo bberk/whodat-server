@@ -7,11 +7,14 @@ from fractions import Fraction
 from app.domain.types import TeamWeek, WeekVP
 
 
-def compute_week_vp(teams: Sequence[TeamWeek]) -> dict[int, WeekVP]:
+def compute_week_vp(teams: Sequence[TeamWeek], *, h2h: bool = True) -> dict[int, WeekVP]:
     """Compute exact weekly VP for each team in a valid completed week.
 
     Opponents are represented symmetrically: both teams in a matchup point to
     one another. Teams with no opponent are byes and receive no H2H VP.
+
+    ``h2h=False`` is for a cup week: every team gets zero head-to-head VP while the top-half,
+    high-score, and low-score components are unchanged. The default preserves normal scoring.
     """
     if not teams:
         return {}
@@ -25,7 +28,7 @@ def compute_week_vp(teams: Sequence[TeamWeek]) -> dict[int, WeekVP]:
         sorted(group, key=lambda team: team.team_id)
         for _, group in sorted(scores.items(), key=lambda item: item[0], reverse=True)
     ]
-    h2h = {team.team_id: Fraction(0) for team in teams}
+    h2h_vp = {team.team_id: Fraction(0) for team in teams}
     top_half = {team.team_id: Fraction(0) for team in teams}
     high = {team.team_id: Fraction(0) for team in teams}
     low = {team.team_id: Fraction(0) for team in teams}
@@ -48,22 +51,23 @@ def compute_week_vp(teams: Sequence[TeamWeek]) -> dict[int, WeekVP]:
     for team in groups[-1]:
         low[team.team_id] = low_award
 
-    for team in teams:
-        opponent_id = team.opponent_id
-        if opponent_id is not None and team.team_id < opponent_id:
-            opponent = teams_by_id[opponent_id]
-            if team.points > opponent.points:
-                h2h[team.team_id] = Fraction(1)
-            elif team.points < opponent.points:
-                h2h[opponent_id] = Fraction(1)
-            else:
-                h2h[team.team_id] = Fraction(1, 2)
-                h2h[opponent_id] = Fraction(1, 2)
+    if h2h:
+        for team in teams:
+            opponent_id = team.opponent_id
+            if opponent_id is not None and team.team_id < opponent_id:
+                opponent = teams_by_id[opponent_id]
+                if team.points > opponent.points:
+                    h2h_vp[team.team_id] = Fraction(1)
+                elif team.points < opponent.points:
+                    h2h_vp[opponent_id] = Fraction(1)
+                else:
+                    h2h_vp[team.team_id] = Fraction(1, 2)
+                    h2h_vp[opponent_id] = Fraction(1, 2)
 
     return {
         team_id: WeekVP(
             team_id=team_id,
-            h2h=h2h[team_id],
+            h2h=h2h_vp[team_id],
             top_half=top_half[team_id],
             high=high[team_id],
             low=low[team_id],

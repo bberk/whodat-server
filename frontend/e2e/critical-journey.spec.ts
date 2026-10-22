@@ -150,6 +150,39 @@ test("sign up with a member invite, set owner, and read the seeded standings", a
   });
 });
 
+test("admin reads the league admin page without blocking accessibility issues", async ({
+  page,
+}, testInfo) => {
+  await page.goto("/login");
+  await page.getByLabel("Email", { exact: true }).fill(fixture.users.admin.email);
+  await page.getByLabel("Password", { exact: true }).fill(fixture.users.admin.password);
+  await page.getByRole("button", { name: "Log in" }).click();
+  await expect(page).toHaveURL(/\/$/);
+
+  // AC-FE-11: the Admin nav item is for admins and opens the league admin page.
+  await page.getByRole("link", { name: "Admin" }).click();
+  await expect(page).toHaveURL(/\/leagues\/\d+\/admin$/);
+  await expect(page.getByRole("heading", { level: 1, name: "League admin" })).toBeVisible();
+
+  const select = page.getByLabel("Cup week for this season");
+  await expect(select).toBeVisible();
+  await expect(select.locator("option")).toHaveText([
+    "No cup week",
+    ...Array.from(
+      { length: fixture.league.regularSeasonLength },
+      (_, index) => `Week ${index + 1}`,
+    ),
+  ]);
+
+  await expectPageDoesNotScrollSideways(page);
+  await expectNoBlockingAxeViolations(page, "league admin");
+
+  await testInfo.attach(`league-admin-${testInfo.project.name}`, {
+    body: await page.screenshot({ fullPage: true }),
+    contentType: "image/png",
+  });
+});
+
 test("sign up with an admin invite and get forced through onboarding", async ({
   page,
 }, testInfo) => {

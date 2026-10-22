@@ -24,6 +24,7 @@ Input for a week: the list of teams with `team_id`, `points` (exact decimal), an
 | AC-VP-12 | Engine output is deterministic and independent of input ordering (property test: shuffling input yields identical per-team results). |
 | AC-VP-13 | Property test: for any valid week, the sum of high-score VP is exactly +1, the sum of low-score VP is exactly -1, and the sum of H2H VP equals the number of completed matchups. |
 | AC-VP-14 | The engine performs no I/O and imports nothing from the web, database, or provider layers (enforced by an import-boundary test or lint rule). |
+| AC-VP-15 | A cup week (`h2h=False`) awards zero H2H VP to every team while the top-half, high-score, and low-score components are identical to a normal week. |
 
 ### 1.1 Worked examples (must be encoded as test fixtures)
 
@@ -78,6 +79,8 @@ Three tied teams each get exactly 1/3 high-score VP (tests must use exact fracti
 | AC-ST-07 | Overall rank is computed across all teams in the league for the season. |
 | AC-ST-08 | **[DECISION]** Playoff weeks and incomplete weeks contribute no VP. |
 | AC-ST-09 | Season totals that should be equal compare as equal even when built from fractional parts (e.g. 1/3 + 1/3 + 1/3 equals 1). |
+| AC-ST-10 | A cup week changes no team's W-L-T record and awards no H2H VP, while points for and the top-half/high/low VP components still count toward the season. |
+| AC-ST-11 | The weekly and cumulative VP series used by the chart include the cup week with its cup-week scoring. |
 
 ## 3. Data sync and storage
 
@@ -91,6 +94,7 @@ Three tied teams each get exactly 1/3 high-score VP (tests must use exact fracti
 | AC-DB-06 | One head round-trip plus `alembic check` per engine; the downgrade path of a new revision is exercised once in its PR, not forever in the suite. |
 | AC-DB-07 | Sync tests run entirely from recorded fixtures; the test suite makes no live ESPN calls. |
 | AC-DB-08 | ESPN credentials (`espn_s2`, `SWID`) never appear in logs, error messages, API responses, or the repository. |
+| AC-DB-09 | Each `league_season` stores an optional `cup_week` (nullable; `null` means no cup week). Sync preserves it, recompute stores `vp_h2h = 0` on that week, and changing it recomputes the season from stored data in the same operation. |
 
 ## 4. Provider abstraction
 
@@ -134,6 +138,7 @@ Three tied teams each get exactly 1/3 high-score VP (tests must use exact fracti
 | AC-API-04 | Invalid inputs (unknown season, week out of range) return 4xx with a structured error body, never a 500. |
 | AC-API-05 | Standings for a 12-team, 18-week season respond in under 500 ms (p95) against SQLite in a local benchmark test. |
 | AC-API-06 | `POST /api/v1/leagues/{league_id}/seasons` accepts `{season: int}` with a year from 2000 to 2100 and returns 201 with the league id, season, and weeks synced. Admin-only, membership, duplicate-season, missing-credential, and provider failures map to structured 4xx responses, and the committed OpenAPI document includes the endpoint. |
+| AC-API-07 | `GET` and `PUT /leagues/{league_id}/seasons/{season}/cup-week` require league membership (non-members get 404) and `PUT` requires the admin role (403). `GET` returns season, cup_week, and regular_season_length. `PUT` accepts a week in 1..regular_season_length or `null` to clear it, rejects missing, zero, negative, and out-of-range values with a structured 4xx, persists the value, and recomputes the league's stored VP in the same operation. |
 
 ## 7. Frontend
 
@@ -149,6 +154,7 @@ Three tied teams each get exactly 1/3 high-score VP (tests must use exact fracti
 | AC-FE-08 | Unauthenticated users are redirected to login; after login they return to the page they requested. |
 | AC-FE-09 | (manual) A human reviewer confirms the UI looks modern and polished on a real phone and a desktop browser. |
 | AC-FE-10 | An admin can add a season for the selected league from the admin page (`/leagues/:leagueId/admin`): a labelled whole-year input (2000-2100, required, defaulting to the current year), an Add action with a loading state, clear success and error messages, and no colour-only signalling. On success the league's seasons refresh and the newly added season is selected. |
+| AC-FE-11 | `/leagues/:leagueId/admin` renders a `League admin` page for admins with the `Admin` nav item visible only when the signed-in user is an admin and a league is selected; non-admins are redirected to `/`. The cup-week section offers `No cup week` or weeks 1..regular_season_length for the selected season, saves through the API, and shows loading, error, and success states with labelled controls and no color-only signalling. |
 
 ## 8. Repository and delivery
 

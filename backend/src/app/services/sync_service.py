@@ -373,9 +373,16 @@ class SyncService:
         return changed
 
     def _recompute_week_vp(self, league_id: int, season: int, week: int) -> None:
-        """Compute VP for a week and persist the results for all teams in that week."""
+        """Compute VP for a week and persist the results for all teams in that week.
+
+        The season's stored ``cup_week`` decides scoring: on that week every team's head-to-head
+        component is zero while the other components are unchanged. A missing league-season row has
+        no cup week.
+        """
         matchups = self._repository.get_week_matchups(league_id, season, week)
         scores = self._repository.get_week_scores(league_id, season, week)
+        league_season = self._repository.get_league_season(league_id, season)
+        is_cup_week = league_season is not None and league_season.cup_week == week
 
         # Build TeamWeek inputs: map each score to its opponent (if any).
         # Build a matchup lookup: team_id → opponent_id (or None for byes).
@@ -395,7 +402,7 @@ class SyncService:
         ]
 
         # Compute exact VP using the pure engine.
-        vp_by_team = compute_week_vp(teams_week)
+        vp_by_team = compute_week_vp(teams_week, h2h=not is_cup_week)
 
         # Convert Fractions to Decimals at the persistence boundary.
         values_by_team: dict[int, WeeklyVPValues] = {

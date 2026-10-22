@@ -53,6 +53,20 @@ If all three are equal, teams share the same rank (display order is then alphabe
 - A week is "completed" when ESPN reports the matchup period as finished.
 - Bye weeks or teams without an opponent: still earn the top-half / high / low components; no H2H component.
 
+### 3.4 Cup week
+
+A league season may designate **one optional regular-season week** as a cup week. On that week:
+
+- No head-to-head VP is awarded, so the H2H component is 0 for every team regardless of matchup result.
+- The high-score, top-half, and worst-score components are awarded exactly as in a normal week.
+- Matchup results do not change any team's W-L-T record.
+- Points for still count, the week still contributes its VP to the season total, and the weekly and
+  cumulative VP series include it.
+
+A season without a designated cup week behaves exactly as an ordinary season. The cup week is a
+per-season setting, it is not inferred from provider data, and it must be a week number between 1
+and the season's regular-season length. Choosing the cup week is an admin action (section 4.1).
+
 ## 4. Functional requirements
 
 ### 4.1 Data ingestion
@@ -69,6 +83,11 @@ If all three are equal, teams share the same rank (display order is then alphabe
 - A league-wide refresh can be triggered from the UI by a member whose membership holds credentials.
   Refresh is rate limited per league and per user; members without credentials cannot refresh.
 - Historical seasons can be backfilled by specifying a season.
+- Each season optionally stores one **cup week** (section 3.4): the week number, within the season's
+  regular-season length, where H2H VP and W/L/T do not apply. `null` means no cup week. Only an
+  admin may set or clear it; members may read it. Changing it persists the setting and recomputes
+  the league's VP from stored data in the same operation. A sync of a season that already has a cup
+  week honours it.
 
 ### 4.2 Data storage
 
@@ -134,6 +153,10 @@ Pages and views:
    - **Division standings**: one table per division; the division only filters and groups the rows, and the rank displayed for each team is its overall league rank.
    - Tapping/clicking a team highlights it in the chart.
 3. **VP chart**: a line chart of cumulative VP over time, x-axis = week, one line per team. Users can highlight a team and toggle teams on and off. Must be legible on a phone.
+4. **League admin**: a page available only to signed-in admins for a selected league, with a
+   season-aware control for that season's cup week (no cup week, or weeks 1..regular-season
+   length), a save action, and loading/error/success states. Non-admins are redirected to the
+   standings and do not see the Admin navigation item.
 
 UI requirements:
 

@@ -131,6 +131,60 @@
         "title": "AddSeasonResponse",
         "type": "object"
       },
+      "CupWeekResponse": {
+        "description": "A season's cup week and the week range an admin may choose from.",
+        "properties": {
+          "cup_week": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cup Week"
+          },
+          "regular_season_length": {
+            "title": "Regular Season Length",
+            "type": "integer"
+          },
+          "season": {
+            "title": "Season",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "season",
+          "cup_week",
+          "regular_season_length"
+        ],
+        "title": "CupWeekResponse",
+        "type": "object"
+      },
+      "CupWeekUpdateRequest": {
+        "additionalProperties": false,
+        "description": "Set a season's cup week, or clear it with ``null``.\n\nThe field is required so a malformed body cannot silently clear an existing cup week; the upper\nbound depends on stored season metadata and is validated by the service.",
+        "properties": {
+          "cup_week": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cup Week"
+          }
+        },
+        "required": [
+          "cup_week"
+        ],
+        "title": "CupWeekUpdateRequest",
+        "type": "object"
+      },
       "DivisionStandings": {
         "description": "A division's rows in overall-rank order; each row keeps its overall league rank.",
         "properties": {
@@ -1119,6 +1173,118 @@
           }
         },
         "summary": "Add League Season",
+        "tags": [
+          "leagues"
+        ]
+      }
+    },
+    "/api/v1/leagues/{league_id}/seasons/{season}/cup-week": {
+      "get": {
+        "description": "Return a stored season's cup week and the regular-season week range it may use.",
+        "operationId": "get_cup_week_api_v1_leagues__league_id__seasons__season__cup_week_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "league_id",
+            "required": true,
+            "schema": {
+              "title": "League Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "season",
+            "required": true,
+            "schema": {
+              "title": "Season",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CupWeekResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Cup Week",
+        "tags": [
+          "leagues"
+        ]
+      },
+      "put": {
+        "description": "Set or clear a season's cup week and recompute its stored VP in the same transaction.",
+        "operationId": "update_cup_week_api_v1_leagues__league_id__seasons__season__cup_week_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "league_id",
+            "required": true,
+            "schema": {
+              "title": "League Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "season",
+            "required": true,
+            "schema": {
+              "title": "Season",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CupWeekUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CupWeekResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Cup Week",
         "tags": [
           "leagues"
         ]

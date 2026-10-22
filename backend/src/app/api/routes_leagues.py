@@ -21,6 +21,8 @@ from app.api.schemas_leagues import (
     AddLeagueResponse,
     AddSeasonRequest,
     AddSeasonResponse,
+    CupWeekResponse,
+    CupWeekUpdateRequest,
     LeagueSummary,
     OwnersResponse,
     OwnerSummary,
@@ -40,10 +42,13 @@ from app.services.league_service import (
     DuplicateSeasonError,
     EspnCredentials,
     IncompleteCredentialsError,
+    InvalidCupWeekError,
     InvalidLeagueRequestError,
+    InvalidSeasonSettingsError,
     InviteNotRedeemableError,
     LeagueAccessError,
     LeagueProviderError,
+    LeagueSeasonNotFoundError,
     LeagueService,
     LeagueServiceError,
     LeagueSyncError,
@@ -116,6 +121,19 @@ def _http_error(error: LeagueServiceError) -> HTTPException:
             status_code=status.HTTP_403_FORBIDDEN,
             detail=error_detail("forbidden", "Only an admin may perform this action"),
         )
+    if isinstance(error, InvalidCupWeekError):
+        return HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_detail(
+                "invalid_cup_week",
+                "cup_week must be between 1 and the season's regular season length",
+            ),
+        )
+    if isinstance(error, InvalidSeasonSettingsError):
+        return HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_detail("invalid_season_settings", "The season settings are not usable"),
+        )
     if isinstance(error, InviteNotRedeemableError):
         return HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -130,6 +148,11 @@ def _http_error(error: LeagueServiceError) -> HTTPException:
         return HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=error_detail("not_found", "League or owner not found"),
+        )
+    if isinstance(error, LeagueSeasonNotFoundError):
+        return HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=error_detail("not_found", "League season not found"),
         )
     if isinstance(error, AlreadyMemberError):
         return HTTPException(
@@ -290,6 +313,46 @@ def add_league_season(
         league_id=result.league_id,
         season=result.season,
         weeks_synced=list(result.weeks_synced),
+    )
+
+
+@router.get("/leagues/{league_id}/seasons/{season}/cup-week", response_model=CupWeekResponse)
+def get_cup_week(
+    league_id: int,
+    season: int,
+    current_user: CurrentUserDep,
+    service: ServiceDep,
+) -> CupWeekResponse:
+    """Return a stored season's cup week and the regular-season week range it may use."""
+    try:
+        view = service.get_cup_week(_actor(current_user), league_id, season)
+    except LeagueServiceError as error:
+        _raise(error)
+    return CupWeekResponse(
+        season=view.season,
+        cup_week=view.cup_week,
+        regular_season_length=view.regular_season_length,
+    )
+
+
+@router.put("/leagues/{league_id}/seasons/{season}/cup-week", response_model=CupWeekResponse)
+def update_cup_week(
+    league_id: int,
+    season: int,
+    payload: CupWeekUpdateRequest,
+    current_user: CurrentUserDep,
+    service: ServiceDep,
+) -> CupWeekResponse:
+    """Set or clear a season's cup week and recompute its stored VP in the same transaction."""
+    try:
+        view = service.set_cup_week(_actor(current_user), league_id, season, payload.cup_week)
+        service.commit()
+    except LeagueServiceError as error:
+        _raise(error)
+    return CupWeekResponse(
+        season=view.season,
+        cup_week=view.cup_week,
+        regular_season_length=view.regular_season_length,
     )
 
 
