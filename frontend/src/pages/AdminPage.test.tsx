@@ -14,6 +14,7 @@ import {
   leagueMembers,
   mockFetch,
   requestPath,
+  seasonSettingsResponse,
 } from "../test/fixtures";
 import { AdminPage } from "./AdminPage";
 
@@ -76,8 +77,8 @@ function defaultFetch(url: string) {
   if (path === "/api/v1/leagues/1/members") {
     return jsonResponse({ members: leagueMembers });
   }
-  if (path === "/api/v1/leagues/1/seasons/2026/cup-week") {
-    return jsonResponse({ season: 2026, cup_week: 1, regular_season_length: 2 });
+  if (path === "/api/v1/leagues/1/seasons/settings") {
+    return jsonResponse(seasonSettingsResponse);
   }
   return errorResponse(404, { code: "not_found", message: path });
 }
@@ -87,19 +88,25 @@ afterEach(() => {
 });
 
 describe("AdminPage", () => {
-  it("mounts members, add-season, cup-week, invites, and the danger zone", async () => {
+  it("mounts members, the seasons table, invites, and the danger zone", async () => {
     mockFetch(defaultFetch);
 
     renderPage();
 
     expect(screen.getByRole("heading", { level: 1, name: "League admin" })).toBeInTheDocument();
-    expect(screen.getByText("Alpha League · 2026 season")).toBeInTheDocument();
+    expect(screen.getByText("Alpha League", { selector: "p" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: "Members" })).toBeInTheDocument();
     expect(await screen.findByText("admin@example.com")).toBeInTheDocument();
     expect(screen.getByText("member@example.com")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 2, name: "Add a season" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Season year")).toBeInTheDocument();
-    expect(await screen.findByLabelText("Cup week for this season")).toHaveValue("1");
+    expect(screen.getByRole("heading", { level: 2, name: "Seasons" })).toBeInTheDocument();
+    expect(await screen.findByRole("rowheader", { name: "2026" })).toBeInTheDocument();
+    expect(screen.getByRole("rowheader", { name: "2025" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Cup week for 2026")).toHaveValue("1");
+    expect(screen.getByRole("button", { name: "Add a season" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { level: 2, name: "Add a season" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 2, name: "Cup week" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: "Invites" })).toBeInTheDocument();
     expect(screen.getByLabelText("Invite type")).toBeInTheDocument();
     expect(
@@ -108,14 +115,14 @@ describe("AdminPage", () => {
     expect(screen.getByLabelText("Type the league name to confirm")).toBeInTheDocument();
   });
 
-  it("keeps add-season and the other sections when no season is selected", async () => {
+  it("renders the seasons table when the shell has no selected season", async () => {
     mockFetch(defaultFetch);
 
     renderPage(leagueValue({ season: null, seasons: [] }));
 
-    expect(screen.getByRole("heading", { level: 2, name: "Add a season" })).toBeInTheDocument();
-    expect(screen.getByText("No season selected")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Cup week for this season")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Seasons" })).toBeInTheDocument();
+    expect(await screen.findByRole("rowheader", { name: "2026" })).toBeInTheDocument();
+    expect(screen.queryByText("No season selected")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: "Invites" })).toBeInTheDocument();
     expect(await screen.findByText("admin@example.com")).toBeInTheDocument();
   });

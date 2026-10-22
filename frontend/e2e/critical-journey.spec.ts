@@ -190,13 +190,14 @@ test("admin reads the league admin page without blocking accessibility issues", 
   await page.getByRole("button", { name: "Log in" }).click();
   await expect(page).toHaveURL(/\/$/);
 
-  // AC-FE-11/13: the Admin nav item is for admins and opens the league admin page. The shell's
-  // season picker is hidden here because the page names the season it administers.
+  // AC-FE-11/13/16: the Admin nav item is for admins and opens the league admin page. The shell's
+  // season picker and header refresh control are gone; the seasons table owns refresh.
   await page.getByRole("link", { name: "Admin" }).click();
   await expect(page).toHaveURL(/\/leagues\/\d+\/admin$/);
   await expect(page.getByRole("heading", { level: 1, name: "League admin" })).toBeVisible();
   await expect(page.getByLabel("Season", { exact: true })).toHaveCount(0);
   await expect(page.getByLabel("League", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Refresh", exact: true })).toHaveCount(0);
 
   // AC-AU-19: every member is listed by email.
   await expect(
@@ -204,7 +205,12 @@ test("admin reads the league admin page without blocking accessibility issues", 
   ).toBeVisible();
   await expect(page.getByRole("heading", { level: 2, name: "Members" })).toBeVisible();
 
-  const select = page.getByLabel("Cup week for this season");
+  // AC-FE-16: one seasons table with the season's cup week, last refresh, and row actions.
+  await expect(page.getByRole("heading", { level: 2, name: "Seasons" })).toBeVisible();
+  const season = fixture.league.season;
+  const seasonRow = page.getByRole("row", { name: new RegExp(`^${season}`) });
+  await expect(seasonRow).toBeVisible();
+  const select = page.getByLabel(`Cup week for ${season}`);
   await expect(select).toBeVisible();
   await expect(select.locator("option")).toHaveText([
     "No cup week",
@@ -213,6 +219,18 @@ test("admin reads the league admin page without blocking accessibility issues", 
       (_, index) => `Week ${index + 1}`,
     ),
   ]);
+  await expect(seasonRow.getByText("Never")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: `Refresh season ${season}` })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add a season" })).toBeVisible();
+
+  // The delete action is confirmed and names the season; cancelling changes nothing.
+  await page.getByRole("button", { name: `Delete season ${season}` }).click();
+  const deleteDialog = page.getByRole("dialog", { name: `Delete season ${season}?` });
+  await expect(deleteDialog).toBeVisible();
+  await expect(deleteDialog).toContainText(`only the ${season} season`);
+  await deleteDialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(deleteDialog).toHaveCount(0);
+  await expect(seasonRow).toBeVisible();
 
   // AC-AU-21/AC-FE-14: a generated invite shows its raw code once with a one-time warning.
   await page.getByRole("button", { name: "Generate invite" }).click();

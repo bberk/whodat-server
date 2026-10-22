@@ -140,6 +140,28 @@ class AddSeasonResponse(BaseModel):
     weeks_synced: list[int]
 
 
+class SeasonSettingsSummary(BaseModel):
+    """One stored season's admin settings: cup week, week range, and last provider sync."""
+
+    season: int
+    cup_week: int | None
+    regular_season_length: int
+    last_refreshed_at: datetime | None
+
+
+class SeasonSettingsResponse(BaseModel):
+    """Every stored season for a league, ascending, for the admin seasons table."""
+
+    seasons: list[SeasonSettingsSummary]
+
+
+class SeasonRefreshResponse(BaseModel):
+    """The season refreshed through the provider and the weeks its sync ingested."""
+
+    season: int
+    weeks_synced: list[int]
+
+
 class OwnerSummary(BaseModel):
     """A league owner the caller may associate with their membership."""
 

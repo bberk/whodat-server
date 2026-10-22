@@ -7,10 +7,11 @@ belongs to the calling service.
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from typing import TypeVar
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import League, LeagueSeason, Matchup, Owner, Score, Team
@@ -100,6 +101,21 @@ class SyncRepository:
         if changed:
             self._session.flush()
         return UpsertResult(row, changed)
+
+    def set_league_season_last_refreshed(
+        self, league_id: int, season: int, refreshed_at: datetime
+    ) -> None:
+        """Record the instant a provider-backed sync of this season finished successfully.
+
+        The write is flushed but not committed. The caller decides when the timestamp is visible;
+        the sync service sets it only after the whole season has been ingested and recomputed.
+        """
+        self._session.execute(
+            update(LeagueSeason)
+            .where(LeagueSeason.league_id == league_id, LeagueSeason.season == season)
+            .values(last_refreshed_at=refreshed_at)
+        )
+        self._session.flush()
 
     def upsert_owner(
         self, league_id: int, external_id: str, display_name: str

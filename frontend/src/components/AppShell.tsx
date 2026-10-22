@@ -6,7 +6,6 @@ import { secondaryButtonClass } from "../components/formStyles";
 import { AddLeagueDialog } from "../leagues/AddLeagueDialog";
 import { useLeague } from "../leagues/LeagueContext";
 import { LeagueSwitcher } from "../leagues/LeagueSwitcher";
-import { RefreshButton } from "../leagues/RefreshButton";
 import { SeasonPicker } from "../leagues/SeasonPicker";
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
@@ -17,15 +16,7 @@ const navLinkClass = ({ isActive }: { isActive: boolean }) =>
 /** Signed-in layout: brand and navigation, league/season controls, and the routed page content. */
 export function AppShell() {
   const { user, logout } = useAuth();
-  const {
-    leaguesStatus,
-    leaguesError,
-    reloadLeagues,
-    selectedLeague,
-    season,
-    dataVersion,
-    notifyDataChanged,
-  } = useLeague();
+  const { leaguesStatus, leaguesError, reloadLeagues, selectedLeague, season } = useLeague();
   const [addOpen, setAddOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
@@ -100,11 +91,6 @@ export function AppShell() {
               }}
             />
             {showSeasonPicker ? <SeasonPicker /> : null}
-            <RefreshButton
-              leagueId={selectedLeague?.league_id ?? null}
-              hasCredentials={selectedLeague?.has_credentials ?? false}
-              onRefreshed={notifyDataChanged}
-            />
             <div className="flex-1" />
             <button type="button" onClick={() => setAddOpen(true)} className={secondaryButtonClass}>
               {user?.role === "admin" ? "Add league" : "Join league"}
@@ -128,7 +114,7 @@ export function AppShell() {
       ) : null}
 
       <main
-        key={`${selectedLeague?.league_id ?? "none"}-${season ?? "none"}-${dataVersion}`}
+        key={`${selectedLeague?.league_id ?? "none"}-${season ?? "none"}`}
         className="mx-auto w-full min-w-0 max-w-[1200px] flex-1 px-4 pb-10 md:px-6"
       >
         <Outlet />

@@ -64,6 +64,7 @@ from app.services.league_service import (
     LeagueAccessError,
     LeagueMemberNotFoundError,
     LeagueProviderError,
+    LeagueSeasonNotFoundError,
     LeagueService,
     LeagueSyncError,
     LeagueUser,
@@ -883,6 +884,253 @@ def test_AC_AU_18_add_season_provider_failure_leaves_no_partial_season(
 
 
 # ---------------------------------------------------------------------------
+# Season administration: settings, per-season refresh, delete, timestamps
+# ---------------------------------------------------------------------------
+
+
+SEASON_REFRESHED_AT = datetime(2026, 10, 22, 12, 0, tzinfo=UTC)
+
+
+def _sync_two_seasons(session: Session) -> int:
+    """Sync both a 2025 and the 2026 fixture season for the same league."""
+    seed = {**_seed(season=2025), **_seed(season=SEASON)}
+    provider = FakeProvider(seed)
+    sync = SyncService(provider, session)
+    league_id = sync.sync_league(LeagueRef(external_id=LEAGUE_EXTERNAL), "fake", 2025).league_id
+    sync.sync_league(LeagueRef(external_id=LEAGUE_EXTERNAL), "fake", SEASON)
+    session.commit()
+    return league_id
+
+
+def _stored_timestamp(session: Session, league_id: int, season: int) -> datetime | None:
+    stored = SyncRepository(session).get_league_season(league_id, season)
+    assert stored is not None
+    return stored.last_refreshed_at
+
+
+def test_AC_AU_23_list_season_settings_returns_nulls_without_a_provider_call(
+    session: Session,
+) -> None:
+    admin = _create_user(session, "admin@example.com", "admin")
+    league = _seed_existing_league(session)
+    SyncRepository(session).upsert_league_season(league.id, 2025, {"regular_season_length": 14})
+    session.commit()
+    _seed_membership(session, user=admin, league=league)
+    factory = RecordingFactory({})
+    service = LeagueService(session, factory, provider_id="fake")
+
+    settings = service.list_season_settings(_actor(admin), league.id)
+
+    assert [
+        (view.season, view.cup_week, view.regular_season_length, view.last_refreshed_at)
+        for view in settings
+    ] == [
+        (2025, None, 14, None),
+        (SEASON, None, 1, None),
+    ]
+    assert factory.calls == []
+    assert factory.public_calls == 0
+
+
+def test_AC_AU_23_list_season_settings_requires_an_admin_member(session: Session) -> None:
+    member = _create_user(session, "member@example.com")
+    outsider = _create_user(session, "outsider@example.com")
+    league = _seed_existing_league(session)
+    _seed_membership(session, user=member, league=league)
+    service = LeagueService(session, RecordingFactory({}), provider_id="fake")
+
+    with pytest.raises(AdminRequiredError):
+        service.list_season_settings(_actor(member), league.id)
+    with pytest.raises(NotAMemberError):
+        service.list_season_settings(_actor(outsider), league.id)
+
+
+def test_AC_AU_24_refresh_season_syncs_only_that_season_and_sets_the_timestamp(
+    session: Session,
+) -> None:
+    admin = _create_user(session, "admin@example.com", "admin")
+    league = _seed_existing_league(session, season=2025)
+    _seed_membership(session, user=admin, league=league)
+    factory = RecordingFactory(_seed(season=2025))
+    service = LeagueService(
+        session,
+        factory,
+        provider_id="fake",
+        clock=lambda: SEASON_REFRESHED_AT,
+    )
+
+    result = service.refresh_season(_actor(admin), league.id, 2025)
+    service.commit()
+
+    assert result.league_id == league.id
+    assert result.season == 2025
+    assert result.weeks_synced == (1,)
+    assert factory.decrypted == [(S2, SWID)]
+    assert _count(session, League) == 1
+    assert [row.season for row in SyncRepository(session).list_league_seasons(league.id)] == [2025]
+    refreshed_at = _stored_timestamp(session, league.id, 2025)
+    assert refreshed_at is not None
+    assert refreshed_at.replace(tzinfo=UTC) == SEASON_REFRESHED_AT
+
+
+def test_AC_AU_24_refresh_season_is_rate_limited_per_league(session: Session) -> None:
+    admin = _create_user(session, "admin@example.com", "admin")
+    league = _seed_existing_league(session, season=2025)
+    _seed_membership(session, user=admin, league=league)
+    factory = RecordingFactory(_seed(season=2025))
+    limiter = RefreshRateLimiter(clock=lambda: 0.0)
+    service = LeagueService(session, factory, provider_id="fake", refresh_limiter=limiter)
+
+    service.refresh_season(_actor(admin), league.id, 2025)
+    with pytest.raises(RefreshRateLimitedError) as denied:
+        service.refresh_season(_actor(admin), league.id, 2025)
+
+    assert denied.value.retry_after == 300
+    assert len(factory.calls) == 1
+
+
+def test_AC_AU_24_refresh_season_requires_admin_membership_and_a_stored_season(
+    session: Session,
+) -> None:
+    admin = _create_user(session, "admin@example.com", "admin")
+    member = _create_user(session, "member@example.com")
+    outsider = _create_user(session, "outsider@example.com")
+    league = _seed_existing_league(session, season=2025)
+    _seed_membership(session, user=admin, league=league, credentials=False)
+    _seed_membership(session, user=member, league=league)
+    factory = RecordingFactory(_seed(season=2025))
+    service = LeagueService(session, factory, provider_id="fake")
+
+    with pytest.raises(AdminRequiredError):
+        service.refresh_season(_actor(member), league.id, 2025)
+    with pytest.raises(NotAMemberError):
+        service.refresh_season(_actor(outsider), league.id, 2025)
+    with pytest.raises(LeagueSeasonNotFoundError):
+        service.refresh_season(_actor(admin), league.id, 1999)
+    with pytest.raises(CredentialsRequiredError):
+        service.refresh_season(_actor(admin), league.id, 2025)
+    assert factory.calls == []
+
+
+def test_AC_DB_10_cup_week_edit_does_not_call_the_provider_or_change_the_timestamp(
+    session: Session,
+) -> None:
+    admin = _create_user(session, "admin@example.com", "admin")
+    league_id = _sync_two_seasons(session)
+    league = SyncRepository(session).get_league("fake", LEAGUE_EXTERNAL)
+    assert league is not None
+    _seed_membership(session, user=admin, league=league)
+    before = _stored_timestamp(session, league_id, 2025)
+    factory = RecordingFactory({})
+    service = LeagueService(session, factory, provider_id="fake")
+
+    service.set_cup_week(_actor(admin), league_id, 2025, 1)
+    service.commit()
+
+    assert factory.calls == []
+    assert factory.public_calls == 0
+    assert _stored_timestamp(session, league_id, 2025) == before
+    stored = SyncRepository(session).get_league_season(league_id, 2025)
+    assert stored is not None
+    assert stored.cup_week == 1
+
+
+def test_AC_AU_25_delete_season_removes_only_that_seasons_data(session: Session) -> None:
+    admin = _create_user(session, "admin@example.com", "admin")
+    league_id = _sync_two_seasons(session)
+    league = SyncRepository(session).get_league("fake", LEAGUE_EXTERNAL)
+    assert league is not None
+    _seed_membership(session, user=admin, league=league)
+    _seed_invite(session, league=league)
+    service = LeagueService(session, RecordingFactory({}), provider_id="fake")
+
+    service.delete_season(_actor(admin), league_id, 2025)
+    service.commit()
+
+    assert [row.season for row in SyncRepository(session).list_league_seasons(league_id)] == [
+        SEASON
+    ]
+    assert _count(session, League) == 1
+    assert _count(session, Owner) == 2
+    assert _count(session, UserLeague) == 1
+    assert _count(session, Invite) == 1
+    repository = SyncRepository(session)
+    expected = {Team: 2, Matchup: 1, Score: 2}
+    for model, expected_count in expected.items():
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(model)
+                .where(model.league_id == league_id, model.season == 2025)
+            )
+            == 0
+        ), model.__tablename__
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(model)
+                .where(model.league_id == league_id, model.season == SEASON)
+            )
+            == expected_count
+        ), model.__tablename__
+    assert repository.get_league_season(league_id, 2025) is None
+
+
+def test_AC_AU_25_delete_season_rolls_back_atomically_on_failure(session: Session) -> None:
+    admin = _create_user(session, "admin@example.com", "admin")
+    league_id = _sync_two_seasons(session)
+    league = SyncRepository(session).get_league("fake", LEAGUE_EXTERNAL)
+    assert league is not None
+    _seed_membership(session, user=admin, league=league)
+    service = LeagueService(session, RecordingFactory({}), provider_id="fake")
+
+    with (
+        patch.object(session, "delete", side_effect=RuntimeError("delete failed")),
+        pytest.raises(RuntimeError, match="delete failed"),
+    ):
+        service.delete_season(_actor(admin), league_id, 2025)
+
+    assert [row.season for row in SyncRepository(session).list_league_seasons(league_id)] == [
+        2025,
+        SEASON,
+    ]
+    expected = {Team: 2, Matchup: 1, Score: 2}
+    for model, expected_count in expected.items():
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(model)
+                .where(model.league_id == league_id, model.season == 2025)
+            )
+            == expected_count
+        ), model.__tablename__
+
+
+def test_AC_AU_25_delete_season_requires_an_admin_member(session: Session) -> None:
+    member = _create_user(session, "member@example.com")
+    outsider = _create_user(session, "outsider@example.com")
+    league_id = _sync_two_seasons(session)
+    league = SyncRepository(session).get_league("fake", LEAGUE_EXTERNAL)
+    assert league is not None
+    _seed_membership(session, user=member, league=league)
+    admin = _create_user(session, "admin@example.com", "admin")
+    _seed_membership(session, user=admin, league=league)
+    service = LeagueService(session, RecordingFactory({}), provider_id="fake")
+
+    with pytest.raises(AdminRequiredError):
+        service.delete_season(_actor(member), league_id, 2025)
+    with pytest.raises(NotAMemberError):
+        service.delete_season(_actor(outsider), league_id, 2025)
+    with pytest.raises(LeagueSeasonNotFoundError):
+        service.delete_season(_actor(admin), league_id, 1999)
+
+    assert [row.season for row in SyncRepository(session).list_league_seasons(league_id)] == [
+        2025,
+        SEASON,
+    ]
+
+
+# ---------------------------------------------------------------------------
 # AC-AU-07 / AC-AU-13: credential boundary and fail-closed encryption
 # ---------------------------------------------------------------------------
 
@@ -1343,6 +1591,40 @@ def test_AC_AU_22_delete_league_cascade_honours_foreign_keys_on_postgres() -> No
                     assert _scoped_count(session, model, model.league_id == doomed.id) == 0
                 assert _scoped_count(session, League, League.id == survivor.id) == 1
                 assert _scoped_count(session, UserLeague, UserLeague.league_id == survivor.id) == 1
+        finally:
+            Base.metadata.drop_all(engine)
+            engine.dispose()
+
+
+@pytest.mark.postgres
+def test_AC_AU_25_delete_season_honours_foreign_keys_on_postgres() -> None:
+    """The season-scoped child-first deletion order also satisfies Postgres foreign keys."""
+    admin_url = _configured_postgres_url()
+    if admin_url is None:
+        pytest.skip("configured DATABASE_URL is not Postgres")
+
+    with _temporary_postgres_database(admin_url) as database_url:
+        engine = create_engine(database_url)
+        Base.metadata.create_all(engine)
+        try:
+            with Session(engine, expire_on_commit=False) as session:
+                admin = _create_user(session, "admin@example.com", "admin")
+                league_id = _sync_two_seasons(session)
+                league = SyncRepository(session).get_league("fake", LEAGUE_EXTERNAL)
+                assert league is not None
+                _seed_membership(session, user=admin, league=league)
+                service = LeagueService(session, RecordingFactory({}), provider_id="fake")
+
+                service.delete_season(_actor(admin), league_id, 2025)
+                service.commit()
+
+                assert [
+                    row.season for row in SyncRepository(session).list_league_seasons(league_id)
+                ] == [SEASON]
+                for model in (Team, Matchup, Score):
+                    condition = (model.league_id == league_id) & (model.season == 2025)
+                    assert _scoped_count(session, model, condition) == 0
+                assert _scoped_count(session, Owner, Owner.league_id == league_id) == 2
         finally:
             Base.metadata.drop_all(engine)
             engine.dispose()

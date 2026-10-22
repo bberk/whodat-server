@@ -103,8 +103,11 @@ Per-season provider settings, so each season can be refreshed independently and 
 season never overwrites another season's settings: `league_id` → league, `season` (int),
 `metadata` (JSON: regular season length, team count, division count, scoring type, playoff
 settings), `cup_week` (int, nullable; the optional cup week described in SPEC 3.4; `NULL` means no
-cup week). The cup week is admin-chosen application data, not provider metadata: sync updates
-`metadata` but never overwrites `cup_week`. Unique: (`league_id`, `season`).
+cup week), and `last_refreshed_at` (timestamp, nullable; the instant of the last successful
+provider-backed sync of this season, `NULL` when it has never synced). The cup week is admin-chosen
+application data, not provider metadata: sync updates `metadata` but never overwrites `cup_week`.
+A provider-free recompute and a cup-week edit never change `last_refreshed_at`. Unique:
+(`league_id`, `season`).
 
 ### `owner`
 `league_id` → league, `external_id` (provider's owner/member ID), `display_name`.
@@ -160,6 +163,13 @@ matchups, teams, memberships, owners, invites bound to the league, seasons, then
 order satisfies foreign-key enforcement on Postgres as well as SQLite. Accounts and league-less
 admin invites are never part of that deletion.
 
+### Season deletion
+
+Deleting one stored season is a separate, season-scoped transaction: scores, matchups, and teams
+for that `league_id` + `season`, then that `league_season` row, child-first. The league, owners,
+memberships, invites, and every other stored season are untouched. The delete runs in a SAVEPOINT
+so a failure leaves the season intact on both SQLite and Postgres.
+
 ### Numeric rules
 
 - `points` are exact decimals with 2 decimal places (ESPN reports floats; round to 2 dp on ingest via string conversion, e.g. `Decimal(str(x)).quantize(Decimal("0.01"))`).
@@ -199,6 +209,9 @@ DTO rules:
 3. For each week: fetch matchups; upsert matchups; upsert scores' `points`.
 4. For each week whose matchup/score data changed (or is newly completed): load that week's scores and matchups, run the VP engine, and write `victory_points` and components for all teams in that week, in a single transaction. When the season's `cup_week` equals that week, the engine runs with `h2h=False` and `vp_h2h` is stored as 0.
 5. Weeks that are playoffs or incomplete are stored but receive no VP (VP columns remain 0 and are excluded from standings).
+6. After the whole season has been ingested and recomputed, a provider-backed sync records
+   `league_season.last_refreshed_at`. A failed sync leaves it unchanged; `recompute_league` never
+   writes it.
 
 Sync is idempotent (AC-DB-02): upserts compare values and only write on change.
 
@@ -257,7 +270,10 @@ All endpoints are under `/api/v1`, JSON, cookie-session or bearer-token auth (ba
 | `GET /leagues/{league_id}/owners` | member | Owners available for the caller's owner association |
 | `PUT /me/leagues/{league_id}/owner` | member | Set the caller's own owner association within that league |
 | `GET /leagues/{league_id}/seasons` | member | Seasons with data |
-| `POST /leagues/{league_id}/seasons` | admin member with credentials | Add and sync another season for an existing league |
+| `POST /leagues/{league_id}/seasons` | admin member with credentials | Add and sync another season for an existing league; sets its `last_refreshed_at` |
+| `GET /leagues/{league_id}/seasons/settings` | admin member | Every stored season's cup week, regular-season length, and last provider sync |
+| `POST /leagues/{league_id}/seasons/{season}/refresh` | admin member with credentials | Refresh exactly one stored season (rate limited per league and per user); sets its `last_refreshed_at` |
+| `DELETE /leagues/{league_id}/seasons/{season}` | admin member | Delete only that season's row, teams, matchups, and scores |
 | `POST /leagues/{league_id}/refresh` | member with credentials | Refresh the league (rate limited per league and per user) |
 | `GET /leagues/{league_id}/seasons/{season}/standings` | member | Overall standings + divisions (shape below) |
 | `GET /leagues/{league_id}/seasons/{season}/vp-history` | member | Weekly and cumulative VP per team (for the chart) |
@@ -271,10 +287,10 @@ All endpoints are under `/api/v1`, JSON, cookie-session or bearer-token auth (ba
 
 "member" = authenticated user with a `user_league` membership in the league. League-scoped requests
 from non-members return 403 or 404, and unauthenticated requests return 401. Only admins may add a
-league, add a season to an existing league, or supply league credentials; a member supplying
-`espn_league_id` or credentials is rejected, and a member joins only through a valid member invite.
-Adding a season uses the caller's own stored credentials, like a refresh. A refresh requires a
-membership that holds credentials.
+league, add a season to an existing league, refresh or delete one stored season, or supply league
+credentials; a member supplying `espn_league_id` or credentials is rejected, and a member joins only
+through a valid member invite. Adding a season and refreshing one season use the caller's own stored
+credentials. A refresh requires a membership that holds credentials.
 
 Invite creation is available from the admin CLI and the league admin page:
 `python -m app.cli create-invite --role admin|member [--league <id>] --expires 7d`, and
@@ -283,9 +299,10 @@ is required for a member invite and rejected (impossible) for an admin invite, w
 The CLI prints the raw invite code once at creation; the API returns it once in that response. Only
 its hash is stored, and the raw code is never retrievable afterwards.
 
-League administration is scoped to an admin who is a member of the league. The member list and the
-removal, invite, and delete-league operations all return 403 for a non-admin member and 404 for a
-non-member (or an unknown league). Removal of the last admin member returns 409. Deleting a league
+League administration is scoped to an admin who is a member of the league. The member list, season
+settings, season refresh and delete, and the removal, invite, and delete-league operations all
+return 403 for a non-admin member and 404 for a non-member (or an unknown league). Removal of the
+last admin member returns 409. Deleting a league
 removes only that league's rows; accounts, league-less admin invites, and other leagues remain.
 
 ### Standings response (shape)
@@ -362,19 +379,20 @@ finish last in the current period.
   only; non-admins are redirected to `/`), `/` (standings for the selected league and current
   season). The `Admin` nav item appears only for an admin with a selected league. The shell's
   `SeasonPicker` renders on the standings route only: the owner and admin pages keep the league
-  switcher and refresh control but own their own context.
+  switcher but own their own context. The shell has no refresh control.
 - **Admin page**: one `League admin` shell at `/leagues/:leagueId/admin` hosting the admin-only
   sections: the member list (`MembersSection`: email, role, owner, credential status; confirmed
-  removal with a last-admin guard and a credential warning), add a stored season
-  (`AddSeasonSection`), choose the cup week (`CupWeekSection`: `No cup week` or weeks
-  1..`regular_season_length` for the selected season, saved through the cup-week API with loading,
-  error, and success states), invite generation (`InvitesSection`: member invite bound to the league
-  or league-less admin invite, raw code shown once with a copy control), and a separated
-  `DeleteLeagueSection` that requires the league name typed before the destructive action.
+  removal with a last-admin guard and a credential warning), one seasons table (`SeasonsSection`:
+  a row per stored season with its cup-week dropdown, last-refreshed time, per-season refresh, and
+  confirmed delete, plus a `+` action that adds a season), invite generation (`InvitesSection`:
+  member invite bound to the league or league-less admin invite, raw code shown once with a copy
+  control), and a separated `DeleteLeagueSection` that requires the league name typed before the
+  destructive action. The cup week saves immediately per row through the provider-free cup-week
+  API; refresh and add-season use the caller's stored credentials.
 - **State**: server state via TanStack Query; local UI state (selected team, hidden chart series) in component state or a small store. No global state library needed.
 - **Components**: `StandingsTable` (reused for overall and per-division), `WapdateSection` (period
   toggle plus a lowest-first table below the chart), `WeeklyVPCells`, `VPChart`,
-  `TeamSelector`/legend, `SeasonPicker`, `LeagueSwitcher`, `RefreshButton`, `MembersSection`,
+  `TeamSelector`/legend, `SeasonPicker`, `LeagueSwitcher`, `SeasonsSection`, `MembersSection`,
   `InvitesSection`, `DeleteLeagueSection`, layout/nav, and states (`Loading`, `Empty`,
   `ErrorState`).
 - **Responsive strategy**: mobile-first. Tables scroll horizontally in a container with a sticky first column. The chart supports tap-to-highlight, legend toggles, and a reduced default of highlighted lines on small screens.

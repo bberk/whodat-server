@@ -93,6 +93,30 @@ describe("StandingsPage", () => {
     expect(await screen.findByRole("radio", { name: /weeks 5-8 · in progress/i })).toBeChecked();
   });
 
+  it("omits the section subheader copy and the decimal footer", async () => {
+    readyFetch();
+    renderPage();
+
+    await screen.findByRole("table", { name: /overall 2026 standings/i });
+
+    expect(screen.queryByText(/Select a team to highlight/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Each division groups the same teams/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/One line per team\. Series differ by color/i),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/points arrive from the API as decimal strings/i),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Standings are computed from synced ESPN data/i),
+    ).not.toBeInTheDocument();
+    // The headings, meta line, tables, and chart remain.
+    expect(screen.getByRole("heading", { name: "Overall standings" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Division standings" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Cumulative VP by week" })).toBeInTheDocument();
+    expect(screen.getByText(/4 completed weeks/i)).toBeInTheDocument();
+  });
+
   it("shows W-L-T when a team recorded an H2H tie", async () => {
     const tied = {
       ...standingsResponse,

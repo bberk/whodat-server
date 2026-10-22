@@ -18,6 +18,7 @@ import {
   owners,
   requestBody,
   requestPath,
+  seasonSettingsResponse,
   standingsResponse,
   wapdateResponse,
 } from "./test/fixtures";
@@ -48,6 +49,9 @@ function signedInFetch(
     }
     if (path === "/api/v1/leagues/2/seasons") {
       return jsonResponse({ seasons: seasonsBeta });
+    }
+    if (/^\/api\/v1\/leagues\/\d+\/seasons\/settings$/.test(path)) {
+      return jsonResponse(seasonSettingsResponse);
     }
     if (/^\/api\/v1\/leagues\/\d+\/seasons\/\d+\/standings$/.test(path)) {
       const [, leagueId, season] = path.match(/leagues\/(\d+)\/seasons\/(\d+)\/standings/) ?? [];
@@ -415,18 +419,26 @@ describe("App routing", () => {
     signedInFetch();
     renderAt("/leagues/1/admin");
 
-    expect(await screen.findByText("Alpha League · 2026 season")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 1, name: "League admin" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Admin" })).toHaveAttribute("href", "/leagues/1/admin");
-    expect(screen.getByRole("heading", { level: 2, name: "Members" })).toBeInTheDocument();
-    expect(await screen.findByRole("row", { name: /admin@example\.com/ })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 2, name: "Add a season" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Season year")).toBeInTheDocument();
-    expect(await screen.findByLabelText("Cup week for this season")).toHaveValue("");
-    expect(screen.getByRole("heading", { level: 2, name: "Invites" })).toBeInTheDocument();
-    expect(
-      screen.getByRole("heading", { level: 2, name: "Danger zone: delete this league" }),
-    ).toBeInTheDocument();
+    // The shell remounts its outlet as the league and season load, so assert the settled state.
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { level: 1, name: "League admin" })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Admin" })).toHaveAttribute(
+        "href",
+        "/leagues/1/admin",
+      );
+      expect(screen.getByRole("heading", { level: 2, name: "Members" })).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("row", { name: /admin@example\.com/ })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { level: 2, name: "Seasons" })).toBeInTheDocument();
+      expect(screen.getByRole("rowheader", { name: "2026" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Add a season" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Refresh season 2026" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { level: 2, name: "Invites" })).toBeInTheDocument();
+      expect(
+        screen.getByRole("heading", { level: 2, name: "Danger zone: delete this league" }),
+      ).toBeInTheDocument();
+    });
   });
 
   it("shows the season picker on the standings route", async () => {
@@ -435,26 +447,28 @@ describe("App routing", () => {
 
     await screen.findByRole("heading", { level: 1, name: "Alpha League — standings" });
     expect(await screen.findByLabelText("Season")).toHaveValue("2026");
+    expect(screen.getByLabelText("League")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Refresh" })).not.toBeInTheDocument();
   });
 
-  it("hides the season picker on the owner route but keeps the league and refresh controls", async () => {
+  it("hides the season picker and header refresh control on the owner route", async () => {
     signedInFetch();
     renderAt("/leagues/1/owner");
 
     await screen.findByRole("heading", { level: 1, name: "Owner · Alpha League" });
     expect(screen.queryByLabelText("Season")).not.toBeInTheDocument();
     expect(screen.getByLabelText("League")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Refresh" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Refresh" })).not.toBeInTheDocument();
   });
 
-  it("hides the season picker on the admin route but keeps the league and refresh controls", async () => {
+  it("hides the season picker and header refresh control on the admin route", async () => {
     signedInFetch();
     renderAt("/leagues/1/admin");
 
     await screen.findByRole("heading", { level: 1, name: "League admin" });
     expect(screen.queryByLabelText("Season")).not.toBeInTheDocument();
     expect(screen.getByLabelText("League")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Refresh" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Refresh" })).not.toBeInTheDocument();
   });
 
   it("keeps the admin route when a league is switched", async () => {

@@ -155,6 +155,20 @@ class CupWeekView:
 
 
 @dataclass(frozen=True)
+class SeasonSettingsView:
+    """One stored season's admin settings, all safe to return to a browser.
+
+    ``last_refreshed_at`` is ``None`` when the season has never been synced through the provider;
+    the UI shows "Never". A cup-week edit never changes it.
+    """
+
+    season: int
+    cup_week: int | None
+    regular_season_length: int
+    last_refreshed_at: datetime | None
+
+
+@dataclass(frozen=True)
 class LeagueMemberView:
     """One account associated with a league, with no credential or password material."""
 
@@ -198,6 +212,15 @@ class RefreshResult:
 @dataclass(frozen=True)
 class AddSeasonResult:
     """Outcome of adding and syncing one season for an existing league."""
+
+    league_id: int
+    season: int
+    weeks_synced: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class SeasonRefreshResult:
+    """Outcome of refreshing exactly one stored season through the provider."""
 
     league_id: int
     season: int
@@ -380,6 +403,17 @@ class RefreshRateLimiter:
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    """Return a timezone-aware timestamp so the API always emits an unambiguous ISO instant.
+
+    SQLite does not preserve timezone information, so a value read back there is naive; it was
+    written as UTC, and this restores the marker. Postgres already returns an aware value.
+    """
+    if value is None or value.tzinfo is not None:
+        return value
+    return value.replace(tzinfo=UTC)
 
 
 class LeagueService:
@@ -645,6 +679,82 @@ class LeagueService:
             season=season,
             weeks_synced=summary.weeks_synced,
         )
+
+    def list_season_settings(self, user: LeagueUser, league_id: int) -> list[SeasonSettingsView]:
+        """Return every stored season's admin settings for an admin member.
+
+        The caller must belong to the league (a non-member gets the same 404 as every other
+        league-scoped read) and hold the global admin role. Seasons are ordered ascending. A season
+        that has never synced through the provider reports ``last_refreshed_at=None``; the cup week
+        and regular-season length come from the stored season row, and no provider is contacted.
+        """
+        self.require_membership(user, league_id)
+        self._require_admin(user)
+        return [
+            SeasonSettingsView(
+                season=row.season,
+                cup_week=row.cup_week,
+                regular_season_length=self._regular_season_length(row),
+                last_refreshed_at=_as_utc(row.last_refreshed_at),
+            )
+            for row in self._sync.list_league_seasons(league_id)
+        ]
+
+    def refresh_season(self, user: LeagueUser, league_id: int, season: int) -> SeasonRefreshResult:
+        """Refresh exactly one stored season using the caller's own stored credentials.
+
+        Only an admin member may call this. The season must already be stored, so a refresh never
+        invents or duplicates a season, and the provider is built from the caller's membership
+        ciphertext exactly as for the league-wide refresh. Rate limits are checked per league and
+        per user before the provider call. A successful sync records the season's
+        ``last_refreshed_at``; a failure rolls the SAVEPOINT back and changes neither scores nor the
+        timestamp.
+        """
+        membership = self.require_membership(user, league_id)
+        self._require_admin(user)
+        self._require_league_season(league_id, season)
+        espn_s2_encrypted = membership.espn_s2_encrypted
+        espn_swid_encrypted = membership.espn_swid_encrypted
+        if not espn_s2_encrypted or not espn_swid_encrypted:
+            raise CredentialsRequiredError("membership holds no league credentials")
+
+        decision = self._refresh_limiter.check(league_id=league_id, user_id=user.user_id)
+        if not decision.allowed:
+            raise RefreshRateLimitedError(decision.retry_after)
+
+        encrypted = EncryptedCredentials(
+            espn_s2_encrypted=espn_s2_encrypted,
+            espn_swid_encrypted=espn_swid_encrypted,
+        )
+        provider = self._build_provider(encrypted)
+        external_id = membership.league.external_id
+        with self._session.begin_nested():
+            summary = self._sync_season(provider, external_id, season)
+
+        return SeasonRefreshResult(
+            league_id=league_id,
+            season=season,
+            weeks_synced=summary.weeks_synced,
+        )
+
+    def delete_season(self, user: LeagueUser, league_id: int, season: int) -> None:
+        """Delete one stored season's data, leaving the league and every other season intact.
+
+        Only an admin member may delete a season. Rows are removed child-first (scores, matchups,
+        teams, then the season itself) so the operation satisfies foreign-key enforcement on both
+        SQLite and Postgres. Owners, memberships, invites, the league row, and every other stored
+        season are untouched. The whole delete runs in a SAVEPOINT; the caller commits on success.
+        """
+        self.require_membership(user, league_id)
+        self._require_admin(user)
+        league_season = self._require_league_season(league_id, season)
+        with self._session.begin_nested():
+            for model in (Score, Matchup, Team):
+                self._session.execute(
+                    delete(model).where(model.league_id == league_id, model.season == season)
+                )
+            self._session.delete(league_season)
+            self._session.flush()
 
     # ------------------------------------------------------------------
     # League administration
@@ -942,7 +1052,7 @@ class LeagueService:
     def _sync_season(self, provider: LeagueProvider, external_id: str, season: int) -> SyncSummary:
         """Run one provider-backed sync and translate every failure into a typed sync error."""
         try:
-            return SyncService(provider, self._session).sync_league(
+            return SyncService(provider, self._session, clock=self._clock).sync_league(
                 LeagueRef(external_id=external_id),
                 self._provider_id,
                 season,

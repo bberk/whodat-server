@@ -10,6 +10,7 @@ import type {
   LeagueSummary,
   MeResponse,
   OwnerSummary,
+  SeasonSettingsResponse,
   SignupLeague,
   StandingsResponse,
   VpHistoryResponse,
@@ -85,6 +86,23 @@ export const leagueMembers: LeagueMemberSummary[] = [
     has_credentials: false,
   },
 ];
+
+export const seasonSettingsResponse: SeasonSettingsResponse = {
+  seasons: [
+    {
+      season: 2025,
+      cup_week: null,
+      regular_season_length: 14,
+      last_refreshed_at: "2026-10-20T15:30:00+00:00",
+    },
+    {
+      season: 2026,
+      cup_week: 1,
+      regular_season_length: 2,
+      last_refreshed_at: null,
+    },
+  ],
+};
 
 export const standingsResponse: StandingsResponse = {
   league_id: 1,

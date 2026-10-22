@@ -34,6 +34,9 @@ export type SeasonsResponse = components["schemas"]["SeasonsResponse"];
 export type AddSeasonRequest = components["schemas"]["AddSeasonRequest"];
 export type AddSeasonResponse = components["schemas"]["AddSeasonResponse"];
 export type RefreshResponse = components["schemas"]["RefreshResponse"];
+export type SeasonSettingsSummary = components["schemas"]["SeasonSettingsSummary"];
+export type SeasonSettingsResponse = components["schemas"]["SeasonSettingsResponse"];
+export type SeasonRefreshResponse = components["schemas"]["SeasonRefreshResponse"];
 
 /** A season's cup week plus the regular-season week range the admin UI offers. */
 export type CupWeekResponse = components["schemas"]["CupWeekResponse"];

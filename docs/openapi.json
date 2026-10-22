@@ -639,6 +639,89 @@
         "title": "RefreshResponse",
         "type": "object"
       },
+      "SeasonRefreshResponse": {
+        "description": "The season refreshed through the provider and the weeks its sync ingested.",
+        "properties": {
+          "season": {
+            "title": "Season",
+            "type": "integer"
+          },
+          "weeks_synced": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Weeks Synced",
+            "type": "array"
+          }
+        },
+        "required": [
+          "season",
+          "weeks_synced"
+        ],
+        "title": "SeasonRefreshResponse",
+        "type": "object"
+      },
+      "SeasonSettingsResponse": {
+        "description": "Every stored season for a league, ascending, for the admin seasons table.",
+        "properties": {
+          "seasons": {
+            "items": {
+              "$ref": "#/components/schemas/SeasonSettingsSummary"
+            },
+            "title": "Seasons",
+            "type": "array"
+          }
+        },
+        "required": [
+          "seasons"
+        ],
+        "title": "SeasonSettingsResponse",
+        "type": "object"
+      },
+      "SeasonSettingsSummary": {
+        "description": "One stored season's admin settings: cup week, week range, and last provider sync.",
+        "properties": {
+          "cup_week": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cup Week"
+          },
+          "last_refreshed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Refreshed At"
+          },
+          "regular_season_length": {
+            "title": "Regular Season Length",
+            "type": "integer"
+          },
+          "season": {
+            "title": "Season",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "season",
+          "cup_week",
+          "regular_season_length",
+          "last_refreshed_at"
+        ],
+        "title": "SeasonSettingsSummary",
+        "type": "object"
+      },
       "SeasonsResponse": {
         "description": "Stored seasons for one league.",
         "properties": {
@@ -1615,6 +1698,94 @@
         ]
       }
     },
+    "/api/v1/leagues/{league_id}/seasons/settings": {
+      "get": {
+        "description": "Return every stored season's admin settings for an admin member.\n\nA non-member gets 404 (the league is not confirmed to exist) and a member without the admin\nrole gets 403. The cup week, regular-season week range, and last successful provider sync are\nread from stored rows; no provider is contacted.",
+        "operationId": "list_league_season_settings_api_v1_leagues__league_id__seasons_settings_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "league_id",
+            "required": true,
+            "schema": {
+              "title": "League Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeasonSettingsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List League Season Settings",
+        "tags": [
+          "leagues"
+        ]
+      }
+    },
+    "/api/v1/leagues/{league_id}/seasons/{season}": {
+      "delete": {
+        "description": "Delete one stored season's data, keeping the league, accounts, and other seasons.\n\nScores, matchups, teams, and the season row go in one transaction; owners, memberships,\ninvites, the league, and every other season remain. An unknown or unreadable season returns a\nstructured 404.",
+        "operationId": "delete_league_season_api_v1_leagues__league_id__seasons__season__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "league_id",
+            "required": true,
+            "schema": {
+              "title": "League Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "season",
+            "required": true,
+            "schema": {
+              "title": "Season",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete League Season",
+        "tags": [
+          "leagues"
+        ]
+      }
+    },
     "/api/v1/leagues/{league_id}/seasons/{season}/cup-week": {
       "get": {
         "description": "Return a stored season's cup week and the regular-season week range it may use.",
@@ -1722,6 +1893,58 @@
           }
         },
         "summary": "Update Cup Week",
+        "tags": [
+          "leagues"
+        ]
+      }
+    },
+    "/api/v1/leagues/{league_id}/seasons/{season}/refresh": {
+      "post": {
+        "description": "Refresh one stored season through the provider with the caller's stored credentials.\n\nThe season must already exist, so a refresh never creates or duplicates a season. Rate limits,\ncredential requirements, and structured errors match the league-wide refresh.",
+        "operationId": "refresh_league_season_api_v1_leagues__league_id__seasons__season__refresh_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "league_id",
+            "required": true,
+            "schema": {
+              "title": "League Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "season",
+            "required": true,
+            "schema": {
+              "title": "Season",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeasonRefreshResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Refresh League Season",
         "tags": [
           "leagues"
         ]

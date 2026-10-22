@@ -28,6 +28,8 @@ import type {
   RedeemInviteRequest,
   RedeemInviteResponse,
   RefreshResponse,
+  SeasonRefreshResponse,
+  SeasonSettingsResponse,
   SeasonsResponse,
   SignupRequest,
   SignupResponse,
@@ -76,6 +78,25 @@ export const api = {
     return apiRequest<AddSeasonResponse>(`/api/v1/leagues/${leagueId}/seasons`, {
       method: "POST",
       body,
+    });
+  },
+
+  seasonSettings(leagueId: number, signal?: AbortSignal): Promise<SeasonSettingsResponse> {
+    return apiRequest<SeasonSettingsResponse>(`/api/v1/leagues/${leagueId}/seasons/settings`, {
+      signal,
+    });
+  },
+
+  refreshSeason(leagueId: number, season: number): Promise<SeasonRefreshResponse> {
+    return apiRequest<SeasonRefreshResponse>(
+      `/api/v1/leagues/${leagueId}/seasons/${season}/refresh`,
+      { method: "POST" },
+    );
+  },
+
+  deleteSeason(leagueId: number, season: number): Promise<void> {
+    return apiRequest<void>(`/api/v1/leagues/${leagueId}/seasons/${season}`, {
+      method: "DELETE",
     });
   },
 

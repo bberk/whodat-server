@@ -5,8 +5,9 @@ ESPN-specific code. It orchestrates fetching, upserting, and VP computation usin
 session transactions.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import ROUND_HALF_EVEN, Decimal
 from fractions import Fraction
 
@@ -106,10 +107,17 @@ class SyncService:
     works entirely from persisted rows. Pass ``None`` to build a service that can only recompute.
     """
 
-    def __init__(self, provider: LeagueProvider | None, session: Session) -> None:
-        """Bind the service to an optional provider and a caller-owned session."""
+    def __init__(
+        self,
+        provider: LeagueProvider | None,
+        session: Session,
+        *,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        """Bind the service to an optional provider, session, and clock."""
         self._provider = provider
         self._session = session
+        self._clock = clock or (lambda: datetime.now(UTC))
         self._repository = SyncRepository(session)
 
     def _require_provider(self) -> LeagueProvider:
@@ -142,6 +150,10 @@ class SyncService:
 
         When weeks is provided, those weeks are synced regardless of completion status.
         Incomplete or playoff weeks are stored with VP zero.
+
+        A successful sync records the season's ``last_refreshed_at`` instant, so the admin seasons
+        table can show when the provider data was last brought up to date. Only a provider-backed
+        sync writes that value; provider-free recomputes and cup-week edits leave it untouched.
 
         For any week whose matchup/score data changed or is newly completed, VP is recomputed
         for every team in that week and persisted in the same transaction.
@@ -212,6 +224,7 @@ class SyncService:
         if weeks is None:
             if week_status.last_completed_week is None:
                 # No completed weeks and no explicit request: only metadata, no matchups/scores.
+                self._repository.set_league_season_last_refreshed(league_id, season, self._clock())
                 return SyncSummary(
                     league_id=league_id,
                     season=season,
@@ -252,6 +265,7 @@ class SyncService:
             self._recompute_week_vp(league_id, season, week)
             weeks_with_vp_recomputed.append(week)
 
+        self._repository.set_league_season_last_refreshed(league_id, season, self._clock())
         return SyncSummary(
             league_id=league_id,
             season=season,

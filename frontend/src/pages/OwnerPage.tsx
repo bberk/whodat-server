@@ -135,7 +135,7 @@ export function OwnerPage() {
         {ownersState.status === "empty" ? (
           <EmptyState
             title="No owners yet"
-            detail="Owners appear after the league data has been synced. Refresh the league and try again."
+            detail="Owners appear after the league data has been synced. An admin can refresh the season from the league admin page."
           />
         ) : null}
 

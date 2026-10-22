@@ -89,7 +89,7 @@ export function StandingsPage() {
       <div className="pt-5 md:pt-6">
         <EmptyState
           title="No seasons yet"
-          detail="This league has no stored seasons. Refresh the league to sync its data."
+          detail="This league has no stored seasons. An admin can add one from the league admin page."
         />
       </div>
     );
@@ -147,9 +147,6 @@ export function StandingsPage() {
           </h2>
           <VPRulesTooltip />
         </div>
-        <p className="mt-1 text-[13px] text-gray-500">
-          Select a team to highlight its row and its chart line.
-        </p>
         {bundle === null ? (
           <DataState
             state={state}
@@ -176,10 +173,6 @@ export function StandingsPage() {
         <h2 id="h-divisions" className="text-base font-bold">
           Division standings
         </h2>
-        <p className="mt-1 text-[13px] text-gray-500">
-          Each division groups the same teams; the rank shown is the team&rsquo;s overall league
-          rank.
-        </p>
         {bundle === null ? (
           <DataState
             state={state}
@@ -221,10 +214,6 @@ export function StandingsPage() {
         <h2 id="h-chart" className="text-base font-bold">
           Cumulative VP by week
         </h2>
-        <p className="mt-1 text-[13px] text-gray-500">
-          One line per team. Series differ by color, dash pattern, and marker shape; legend chips
-          toggle a series, and the selected team is drawn thicker.
-        </p>
         {bundle === null ? (
           <DataState
             state={state}
@@ -255,16 +244,6 @@ export function StandingsPage() {
         season={season}
         dataVersion={dataVersion}
       />
-
-      <footer className="mt-8">
-        <div className="rounded-xl border border-gray-200 bg-white p-4 text-[12.5px] text-gray-500">
-          <p>
-            Standings are computed from synced ESPN data using the Victory Points rules. VP and
-            points arrive from the API as decimal strings and display with at most two decimals;
-            negative VP keeps its minus sign and positive values never carry a plus sign.
-          </p>
-        </div>
-      </footer>
     </div>
   );
 }
