@@ -2154,3 +2154,77 @@ def test_streamed_body_over_the_cap_returns_structured_413(
 
     assert response.status_code == 413
     assert response.json()["detail"]["code"] == "payload_too_large"
+
+
+@pytest.mark.parametrize("member_user_id", [0, -1, "not-a-number"])
+def test_admin_member_path_ids_must_be_positive_integers(
+    api_factory: Callable[..., Api], member_user_id: object
+) -> None:
+    """The admin removal path rejects zero/negative/non-numeric user ids before the service."""
+    api = api_factory()
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=admin_id, league_id=league_id)
+    _login(api, admin_id)
+
+    response = api.client.delete(f"/api/v1/leagues/{league_id}/members/{member_user_id}")
+
+    assert response.status_code == 422
+    assert isinstance(response.json()["detail"], list)
+    assert all("input" not in error for error in response.json()["detail"])
+
+
+@pytest.mark.parametrize(
+    ("role", "expires_in_days"),
+    [
+        ("<script>alert(1)</script>", 7),
+        ("' OR 1=1 --", 7),
+        ("superuser", 7),
+        ("member", "' OR 1=1 --"),
+        ("member", "<img src=x onerror=alert(1)>"),
+        ("member", 10_000),
+        ("member", 0),
+        ("member", -1),
+        ("member", 3651),
+    ],
+)
+def test_admin_invite_creation_rejects_hostile_roles_and_expiry_values(
+    api_factory: Callable[..., Api], role: object, expires_in_days: object
+) -> None:
+    """Invite role and expiry are validated before the service writes an invite."""
+    api = api_factory()
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=admin_id, league_id=league_id)
+    _login(api, admin_id)
+
+    response = api.client.post(
+        _league_invites_path(league_id),
+        json={"role": role, "expires_in_days": expires_in_days},
+    )
+
+    assert response.status_code == 422
+    assert isinstance(response.json()["detail"], list)
+    assert all("input" not in error for error in response.json()["detail"])
+    assert _count_where(api, Invite, Invite.league_id == league_id) == 0
+
+
+@pytest.mark.parametrize("league_id", ["0", "-1", "not-a-number"])
+def test_admin_delete_and_member_routes_reject_malformed_league_ids(
+    api_factory: Callable[..., Api], league_id: str
+) -> None:
+    """Every new admin route uses the same positive league-id path constraint."""
+    api = api_factory()
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    _login(api, admin_id)
+
+    responses = [
+        api.client.delete(f"/api/v1/leagues/{league_id}"),
+        api.client.get(f"/api/v1/leagues/{league_id}/members"),
+        api.client.post(f"/api/v1/leagues/{league_id}/invites", json={"role": "member"}),
+        api.client.delete(f"/api/v1/leagues/{league_id}/members/1"),
+    ]
+
+    for response in responses:
+        assert response.status_code == 422
+        assert isinstance(response.json()["detail"], list)

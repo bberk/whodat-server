@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
-from app.api.params import LeagueIdPath, SeasonPath
+from app.api.params import LeagueIdPath, MemberUserIdPath, SeasonPath
 from app.api.refresh_limit import get_refresh_limiter
 from app.api.schemas_auth import PublicUser, error_detail
 from app.api.schemas_leagues import (
@@ -524,7 +524,7 @@ def refresh_league(
 
 @router.get("/leagues/{league_id}/members", response_model=LeagueMembersResponse)
 def list_league_members(
-    league_id: int,
+    league_id: LeagueIdPath,
     current_user: CurrentUserDep,
     service: ServiceDep,
 ) -> LeagueMembersResponse:
@@ -545,8 +545,8 @@ def list_league_members(
     "/leagues/{league_id}/members/{member_user_id}", status_code=status.HTTP_204_NO_CONTENT
 )
 def remove_league_member(
-    league_id: int,
-    member_user_id: int,
+    league_id: LeagueIdPath,
+    member_user_id: MemberUserIdPath,
     current_user: CurrentUserDep,
     service: ServiceDep,
 ) -> Response:
@@ -569,7 +569,7 @@ def remove_league_member(
     status_code=status.HTTP_201_CREATED,
 )
 def create_league_invite(
-    league_id: int,
+    league_id: LeagueIdPath,
     payload: CreateInviteRequest,
     current_user: CurrentUserDep,
     service: ServiceDep,
@@ -599,7 +599,7 @@ def create_league_invite(
 
 @router.delete("/leagues/{league_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_league(
-    league_id: int,
+    league_id: LeagueIdPath,
     current_user: CurrentUserDep,
     service: ServiceDep,
 ) -> Response:

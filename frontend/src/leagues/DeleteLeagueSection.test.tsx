@@ -18,6 +18,8 @@ describe("DeleteLeagueSection", () => {
     expect(button).toBeDisabled();
 
     const input = screen.getByLabelText("Type the league name to confirm");
+    expect(input).toHaveAttribute("maxLength", String("Alpha League".length));
+    expect(input).toHaveAttribute("spellCheck", "false");
     await user.type(input, "alpha league");
     expect(button).toBeDisabled();
 
