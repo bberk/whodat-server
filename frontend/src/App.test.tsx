@@ -141,11 +141,13 @@ describe("App routing", () => {
     await user.type(screen.getByLabelText("Password"), "password");
     await user.click(screen.getByRole("button", { name: "Log in" }));
 
-    // The league shell remounts its outlet when the selected season arrives, so wait for the
-    // routed page's own heading before asserting it.
-    expect(
-      await screen.findByRole("heading", { level: 1, name: "Owner · Alpha League" }),
-    ).toBeInTheDocument();
+    // The league shell remounts its outlet when the selected season arrives. Re-query inside
+    // waitFor instead of holding the first matching node, which the remount can detach.
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { level: 1, name: "Owner · Alpha League" }),
+      ).toBeInTheDocument();
+    });
   });
 
   it("picks the first league and its latest season on load, then logs out", async () => {
