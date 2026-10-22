@@ -32,6 +32,9 @@ export function AppShell() {
 
   const ownerPath = selectedLeague === null ? null : `/leagues/${selectedLeague.league_id}/owner`;
   const adminPath = selectedLeague === null ? null : `/leagues/${selectedLeague.league_id}/admin`;
+  // The owner and admin pages each own their context; only the standings uses the season picker.
+  const showSeasonPicker =
+    !location.pathname.endsWith("/owner") && !location.pathname.endsWith("/admin");
 
   return (
     <div className="flex min-h-full flex-col bg-gray-50 text-gray-900">
@@ -96,7 +99,7 @@ export function AppShell() {
                 }
               }}
             />
-            <SeasonPicker />
+            {showSeasonPicker ? <SeasonPicker /> : null}
             <RefreshButton
               leagueId={selectedLeague?.league_id ?? null}
               hasCredentials={selectedLeague?.has_credentials ?? false}

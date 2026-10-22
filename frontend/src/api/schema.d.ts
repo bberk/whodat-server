@@ -95,6 +95,96 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/leagues/{league_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /**
+     * Delete League
+     * @description Delete this league and all of its data, leaving accounts and other leagues intact.
+     */
+    delete: operations["delete_league_api_v1_leagues__league_id__delete"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/leagues/{league_id}/invites": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Create League Invite
+     * @description Generate one invite from the admin page and return its raw code exactly once.
+     *
+     *     A member invite is bound to this league; an admin invite is league-less. Only the code hash is
+     *     stored, so no other endpoint can return the code again. Defaults to a seven-day expiry.
+     */
+    post: operations["create_league_invite_api_v1_leagues__league_id__invites_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/leagues/{league_id}/members": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * List League Members
+     * @description List the accounts associated with a league for an admin member.
+     *
+     *     A non-member gets 404 (the league is not confirmed to exist) and a member without the admin
+     *     role gets 403. Emails are the account identifier; passwords, credentials, and hashes are never
+     *     part of the response.
+     */
+    get: operations["list_league_members_api_v1_leagues__league_id__members_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/leagues/{league_id}/members/{member_user_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /**
+     * Remove League Member
+     * @description Remove one user's membership in this league, subject to the last-admin guard.
+     *
+     *     The account and its other memberships are untouched. Removing the last admin member returns a
+     *     structured 409; a user without a membership in this league returns 404.
+     */
+    delete: operations["remove_league_member_api_v1_leagues__league_id__members__member_user_id__delete"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/leagues/{league_id}/owners": {
     parameters: {
       query?: never;
@@ -404,6 +494,41 @@ export interface components {
       weeks_synced: number[];
     };
     /**
+     * CreateInviteRequest
+     * @description Generate one member invite for this league or one league-less admin invite.
+     */
+    CreateInviteRequest: {
+      /**
+       * Expires In Days
+       * @default 7
+       */
+      expires_in_days: number;
+      /**
+       * Role
+       * @enum {string}
+       */
+      role: "admin" | "member";
+    };
+    /**
+     * CreateInviteResponse
+     * @description The one and only place a newly created invite's raw code is returned.
+     *
+     *     Only the hash is stored. The client must show this code once and cannot retrieve it later.
+     */
+    CreateInviteResponse: {
+      /** Code */
+      code: string;
+      /**
+       * Expires At
+       * Format: date-time
+       */
+      expires_at: string;
+      /** League Id */
+      league_id: number | null;
+      /** Role */
+      role: string;
+    };
+    /**
      * CupWeekResponse
      * @description A season's cup week and the week range an admin may choose from.
      */
@@ -440,6 +565,36 @@ export interface components {
     HTTPValidationError: {
       /** Detail */
       detail?: components["schemas"]["ValidationError"][];
+    };
+    /**
+     * LeagueMemberSummary
+     * @description One account that belongs to a league, with no password or credential material.
+     *
+     *     ``email`` is the account identifier because the application has no username field.
+     *     ``has_credentials`` only says whether the membership holds stored league cookies; their values
+     *     are never exposed.
+     */
+    LeagueMemberSummary: {
+      /** Email */
+      email: string;
+      /** Has Credentials */
+      has_credentials: boolean;
+      /** Owner Id */
+      owner_id: number | null;
+      /** Owner Name */
+      owner_name: string | null;
+      /** Role */
+      role: string;
+      /** User Id */
+      user_id: number;
+    };
+    /**
+     * LeagueMembersResponse
+     * @description Every account associated with a league, ordered by email.
+     */
+    LeagueMembersResponse: {
+      /** Members */
+      members: components["schemas"]["LeagueMemberSummary"][];
     };
     /**
      * LeagueSummary
@@ -876,6 +1031,131 @@ export interface operations {
         content: {
           "application/json": components["schemas"]["AddLeagueResponse"];
         };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  delete_league_api_v1_leagues__league_id__delete: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        league_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  create_league_invite_api_v1_leagues__league_id__invites_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        league_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CreateInviteRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CreateInviteResponse"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  list_league_members_api_v1_leagues__league_id__members_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        league_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LeagueMembersResponse"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  remove_league_member_api_v1_leagues__league_id__members__member_user_id__delete: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        league_id: number;
+        member_user_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
       };
       /** @description Validation Error */
       422: {

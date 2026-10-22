@@ -156,6 +156,20 @@ All ESPN-specific code lives behind a provider interface that returns normalized
 - A member whose membership holds credentials can trigger a league-wide refresh from the UI; refresh
   is rate limited per league and per user. Members without credentials cannot refresh.
 - After joining, a user may associate their membership with one of that league's owners.
+- An admin who belongs to a league can manage its membership from the league admin page. The page
+  lists every account associated with the league by email (the account identifier; there is no
+  username) with its role, owner association, and whether it holds stored credentials. An admin can
+  remove a member, including themselves or another admin; removal deletes only that user's
+  membership in this league (with its owner association and stored credentials) and never the
+  account or its other leagues. Removal is refused when it would leave the league with no admin
+  member.
+- The league admin page can generate either a member invite bound to this league or a league-less
+  admin invite. Both default to a seven-day expiry and are bounded. The raw code is returned once
+  at creation and is never retrievable afterwards; only its hash is stored.
+- An admin who belongs to a league can delete that league from the league admin page after typing
+  its name to confirm. Deletion removes the league and its own data only (seasons, teams, owners,
+  matchups, scores, memberships, and invites bound to it); user accounts, league-less admin
+  invites, and other leagues are untouched.
 - Not in v1: email verification, password reset, social login, claiming more than one owner in a
   league.
 
@@ -175,14 +189,21 @@ Pages and views:
      are greyed and carry a text/accessible "Safe" marker, never colour alone.
    - Tapping/clicking a team highlights it in the chart.
 3. **VP chart**: a line chart of cumulative VP over time, x-axis = week, one line per team. Users can highlight a team and toggle teams on and off. Must be legible on a phone.
-4. **League admin**: a page available only to signed-in admins for a selected league, with a
-   season-aware control for that season's cup week (no cup week, or weeks 1..regular-season
-   length), a save action, and loading/error/success states. Non-admins are redirected to the
-   standings and do not see the Admin navigation item.
+4. **League admin**: a page available only to signed-in admins for a selected league. It manages the
+   league's membership (member list by email with role, owner association, and credential status, and
+   confirmed removal with a last-admin guard and a credential warning), add-season, that season's cup
+   week (no cup week, or weeks 1..regular-season length) with a save action, invite generation (a
+   member invite bound to the league or a league-less admin invite, with the raw code shown once and a
+   copy control), and a clearly separated destructive action that deletes the league after typing its
+   name to confirm. Every section has loading, error, and success states. Non-admins are redirected
+   to the standings and do not see the Admin navigation item.
 
 UI requirements:
 
 - Responsive: usable on phones (~360px wide) through desktop.
+- The season picker belongs to the standings view. It is not shown on the owner page or the league
+  admin page; those pages keep the league switcher and refresh controls, and the admin page names
+  the season it administers in its own heading.
 - Modern, clean visual design; light and dark mode is nice to have, not required.
 - Wide tables scroll horizontally inside their own container, with the team column pinned (sticky).
 - Accessible: sufficient color contrast, keyboard navigable, chart series distinguishable without relying on color alone (e.g., highlight on select, labels).

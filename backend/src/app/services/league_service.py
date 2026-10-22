@@ -29,19 +29,38 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.db.auth_repositories import DuplicateMembershipError as DatabaseDuplicateMembershipError
 from app.db.auth_repositories import InviteRepository, MembershipRepository
-from app.db.models import ROLE_ADMIN, ROLE_MEMBER, League, LeagueSeason, Owner, UserLeague
+from app.db.models import (
+    ROLE_ADMIN,
+    ROLE_MEMBER,
+    VALID_ROLES,
+    AppUser,
+    Invite,
+    League,
+    LeagueSeason,
+    Matchup,
+    Owner,
+    Score,
+    Team,
+    UserLeague,
+)
 from app.db.repositories import SyncRepository
 from app.providers.base import LeagueDTO, LeagueProvider, LeagueRef
 from app.security.crypto import CredentialCryptoError, encrypt
-from app.security.invite_codes import hash_invite_code, invite_code_matches
+from app.security.invite_codes import (
+    DEFAULT_INVITE_LIFETIME_DAYS,
+    MAX_INVITE_LIFETIME_DAYS,
+    generate_invite_code,
+    hash_invite_code,
+    invite_code_matches,
+)
 from app.services.sync_service import (
     PROVIDER_CONFIG_REF,
     SyncError,
@@ -136,6 +155,28 @@ class CupWeekView:
 
 
 @dataclass(frozen=True)
+class LeagueMemberView:
+    """One account associated with a league, with no credential or password material."""
+
+    user_id: int
+    email: str
+    role: str
+    owner_id: int | None
+    owner_name: str | None
+    has_credentials: bool
+
+
+@dataclass(frozen=True)
+class CreatedInviteView:
+    """A freshly created invite and the raw code returned to the admin exactly once."""
+
+    code: str = field(repr=False)
+    role: str
+    league_id: int | None
+    expires_at: datetime
+
+
+@dataclass(frozen=True)
 class AddLeagueResult:
     """Outcome of adding or joining a league."""
 
@@ -189,6 +230,18 @@ class AlreadyMemberError(LeagueServiceError):
 
 class OwnerNotFoundError(LeagueServiceError, LookupError):
     """The requested owner does not belong to the league."""
+
+
+class LeagueMemberNotFoundError(LeagueServiceError, LookupError):
+    """The requested user holds no membership in the league."""
+
+
+class LastAdminError(LeagueServiceError):
+    """Removing this member would leave the league with no admin member."""
+
+
+class InvalidInviteRequestError(LeagueServiceError):
+    """The requested invite role, league binding, or lifetime is not usable."""
 
 
 class LeagueSeasonNotFoundError(LeagueServiceError, LookupError):
@@ -594,6 +647,120 @@ class LeagueService:
         )
 
     # ------------------------------------------------------------------
+    # League administration
+    # ------------------------------------------------------------------
+
+    def list_members(self, user: LeagueUser, league_id: int) -> list[LeagueMemberView]:
+        """List every account associated with a league, for an admin member.
+
+        A non-member receives the same 404 as every other league-scoped read; a member without the
+        admin role receives 403. Email is the account identifier because the application stores no
+        username. The response says only whether a membership holds stored credentials; neither a
+        credential nor a password hash ever leaves this method.
+        """
+        self.require_membership(user, league_id)
+        self._require_admin(user)
+        rows = self._session.execute(
+            select(UserLeague, AppUser, Owner)
+            .join(AppUser, AppUser.id == UserLeague.user_id)
+            .outerjoin(Owner, Owner.id == UserLeague.owner_id)
+            .where(UserLeague.league_id == league_id)
+            .order_by(AppUser.email)
+        ).all()
+        return [
+            LeagueMemberView(
+                user_id=account.id,
+                email=account.email,
+                role=account.role,
+                owner_id=membership.owner_id,
+                owner_name=owner.display_name if owner is not None else None,
+                has_credentials=bool(
+                    membership.espn_s2_encrypted and membership.espn_swid_encrypted
+                ),
+            )
+            for membership, account, owner in rows
+        ]
+
+    def remove_member(self, user: LeagueUser, league_id: int, member_user_id: int) -> None:
+        """Remove one user's membership in a league, leaving the account and other leagues alone.
+
+        Only an admin member may remove someone. An admin may remove themselves or another admin,
+        but the removal is refused when it would leave the league with zero admin members, because
+        nobody could administer the league afterwards. The owner association and any encrypted
+        credentials live on the membership row, so deleting the row removes them; the account and
+        every other membership are untouched. The caller commits.
+        """
+        self.require_membership(user, league_id)
+        self._require_admin(user)
+        membership = self._memberships.get(member_user_id, league_id)
+        if membership is None:
+            raise LeagueMemberNotFoundError("that user is not a member of this league")
+        account = self._session.get(AppUser, member_user_id)
+        if (
+            account is None
+        ):  # pragma: no cover - unreachable: user_league.user_id is a FK (AC-AU-20)
+            raise LeagueMemberNotFoundError("that user is not a member of this league")
+        if account.role == ROLE_ADMIN and self._admin_member_count(league_id) <= 1:
+            raise LastAdminError("a league must keep at least one admin member")
+        self._session.delete(membership)
+        self._session.flush()
+
+    def create_invite(
+        self,
+        user: LeagueUser,
+        league_id: int,
+        role: str,
+        expires_in_days: int | None = None,
+    ) -> CreatedInviteView:
+        """Create one invite from the admin page and return its raw code exactly once.
+
+        A ``member`` invite is bound to this league; an ``admin`` invite is deliberately
+        league-less so it can create an account that starts without a league. The lifetime defaults
+        to seven days and is bounded. Only the code hash is stored, so the returned code cannot be
+        retrieved again. Membership and admin checks match every other league-scoped write. The
+        caller commits.
+        """
+        self.require_membership(user, league_id)
+        self._require_admin(user)
+        if role not in VALID_ROLES:
+            raise InvalidInviteRequestError("unknown invite role")
+        days = DEFAULT_INVITE_LIFETIME_DAYS if expires_in_days is None else expires_in_days
+        if not 1 <= days <= MAX_INVITE_LIFETIME_DAYS:
+            raise InvalidInviteRequestError("invite lifetime is out of range")
+        invite_league_id = league_id if role == ROLE_MEMBER else None
+        code = generate_invite_code()
+        with self._session.begin_nested():
+            invite = self._invites.create(
+                invite_league_id,
+                hash_invite_code(code),
+                self._clock() + timedelta(days=days),
+                role=role,
+            )
+        return CreatedInviteView(
+            code=code,
+            role=invite.role,
+            league_id=invite.league_id,
+            expires_at=invite.expires_at,
+        )
+
+    def delete_league(self, user: LeagueUser, league_id: int) -> None:
+        """Delete a league and every row that belongs to it, in one transaction.
+
+        The caller must be an admin member; a non-member gets the same 404 as any league read. Rows
+        are deleted child-first so the operation also succeeds where foreign keys are enforced
+        (Postgres): scores, matchups, teams, memberships, owners, invites bound to this league, then
+        seasons, then the league itself. Accounts and league-less admin invites are not touched,
+        and neither is any other league. The caller commits.
+        """
+        self.require_membership(user, league_id)
+        self._require_admin(user)
+        with self._session.begin_nested():
+            for model in (Score, Matchup, Team, UserLeague, Owner, Invite, LeagueSeason):
+                self._session.execute(delete(model).where(model.league_id == league_id))
+            self._session.execute(delete(League).where(League.id == league_id))
+            self._session.flush()
+
+    # ------------------------------------------------------------------
     # Membership-scoped reads
     # ------------------------------------------------------------------
 
@@ -632,6 +799,22 @@ class LeagueService:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _require_admin(user: LeagueUser) -> None:
+        """Raise :class:`AdminRequiredError` unless the caller holds the global admin role."""
+        if user.role != ROLE_ADMIN:
+            raise AdminRequiredError("only an admin may administer this league")
+
+    def _admin_member_count(self, league_id: int) -> int:
+        """Count the league's members whose account role is ``admin``."""
+        count = self._session.scalar(
+            select(func.count())
+            .select_from(UserLeague)
+            .join(AppUser, AppUser.id == UserLeague.user_id)
+            .where(UserLeague.league_id == league_id, AppUser.role == ROLE_ADMIN)
+        )
+        return int(count or 0)
 
     def _require_league_season(self, league_id: int, season: int) -> LeagueSeason:
         """Return the stored league season or raise :class:`LeagueSeasonNotFoundError`."""

@@ -30,7 +30,17 @@ from app.api.session import SESSION_COOKIE_NAME, set_session
 from app.config import get_settings
 from app.db.auth_repositories import InviteRepository, MembershipRepository, UserRepository
 from app.db.base import Base
-from app.db.models import League, Owner, Team, UserLeague
+from app.db.models import (
+    AppUser,
+    Invite,
+    League,
+    LeagueSeason,
+    Matchup,
+    Owner,
+    Score,
+    Team,
+    UserLeague,
+)
 from app.db.repositories import SyncRepository
 from app.db.session import get_session as db_get_session
 from app.providers.base import (
@@ -52,10 +62,13 @@ from app.services.league_service import (
     DuplicateSeasonError,
     IncompleteCredentialsError,
     InvalidCupWeekError,
+    InvalidInviteRequestError,
     InvalidLeagueRequestError,
     InvalidSeasonSettingsError,
     InviteNotRedeemableError,
+    LastAdminError,
     LeagueAccessError,
+    LeagueMemberNotFoundError,
     LeagueProviderError,
     LeagueSeasonNotFoundError,
     LeagueService,
@@ -367,6 +380,10 @@ def _add_payload(*, credentials: bool = True) -> dict[str, object]:
         ("get", "/api/v1/leagues/1/owners", None),
         ("put", "/api/v1/me/leagues/1/owner", {"owner_id": 1}),
         ("post", "/api/v1/leagues/1/refresh", None),
+        ("get", "/api/v1/leagues/1/members", None),
+        ("delete", "/api/v1/leagues/1/members/2", None),
+        ("post", "/api/v1/leagues/1/invites", {"role": "member"}),
+        ("delete", "/api/v1/leagues/1", None),
     ],
 )
 def test_AC_AU_10_unauthenticated_requests_return_401(
@@ -1036,11 +1053,14 @@ def test_production_league_service_dependency_builds(api_factory: Callable[..., 
         (RefreshRateLimitedError(7), 429, "rate_limited"),
         (AdminRequiredError("x"), 403, "forbidden"),
         (InvalidCupWeekError("x"), 400, "invalid_cup_week"),
+        (InvalidInviteRequestError("x"), 400, "invalid_invite"),
+        (LastAdminError("x"), 409, "last_admin"),
         (InvalidSeasonSettingsError("x"), 400, "invalid_season_settings"),
         (InviteNotRedeemableError("x"), 400, "invalid_invite"),
         (CredentialsRequiredError("x"), 403, "credentials_required"),
         (NotAMemberError("x"), 404, "not_found"),
         (OwnerNotFoundError("x"), 404, "not_found"),
+        (LeagueMemberNotFoundError("x"), 404, "not_found"),
         (LeagueSeasonNotFoundError("x"), 404, "not_found"),
         (AlreadyMemberError("x"), 409, "already_member"),
         (DuplicateSeasonError("x"), 409, "season_exists"),
@@ -1324,3 +1344,390 @@ def test_AC_API_07_unauthenticated_cup_week_requests_return_401(
     for response in (get_response, put_response):
         assert response.status_code == 401
         assert response.json()["detail"]["code"] == "not_authenticated"
+
+
+# ---------------------------------------------------------------------------
+# AC-AU-19/20/21/22: members, removal, invite generation, league deletion
+# ---------------------------------------------------------------------------
+
+
+def _league_members_path(league_id: int) -> str:
+    return f"/api/v1/leagues/{league_id}/members"
+
+
+def _league_invites_path(league_id: int) -> str:
+    return f"/api/v1/leagues/{league_id}/invites"
+
+
+def _owner_ids(api: Api, league_id: int) -> list[int]:
+    with api.factory() as session:
+        return list(
+            session.scalars(select(Owner.id).where(Owner.league_id == league_id).order_by(Owner.id))
+        )
+
+
+def _seed_league_data(api: Api, *, league_id: int, season: int = SEASON) -> int:
+    """Add one team, matchup, score, and league-bound invite so deletion has rows to remove."""
+    with api.factory() as session:
+        repository = SyncRepository(session)
+        owner_id = session.scalar(
+            select(Owner.id).where(Owner.league_id == league_id).order_by(Owner.id)
+        )
+        team = repository.upsert_team(league_id, season, "team-1", "Team A", "East", owner_id).row
+        repository.upsert_matchup(league_id, season, 1, team.id, None, False, True)
+        repository.upsert_score(team.id, league_id, season, 1, Decimal("100.00"))
+        InviteRepository(session).create(
+            league_id,
+            hash_invite_code(f"bound-invite-{league_id}"),
+            datetime.now(UTC) + timedelta(days=7),
+            role="member",
+        )
+        session.commit()
+        return team.id
+
+
+def _count_where(api: Api, model: type[Base], condition: object) -> int:
+    with api.factory() as session:
+        return int(session.scalar(select(func.count()).select_from(model).where(condition)) or 0)
+
+
+def test_AC_AU_19_admin_lists_members_with_email_role_owner_and_credentials(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    member_id = _create_user(api, "member@example.com")
+    league_id = _seed_league(api)
+    owner_id = _owner_ids(api, league_id)[0]
+    _seed_membership(
+        api, user_id=admin_id, league_id=league_id, credentials=True, owner_id=owner_id
+    )
+    _seed_membership(api, user_id=member_id, league_id=league_id)
+    _login(api, admin_id)
+
+    response = api.client.get(_league_members_path(league_id))
+
+    assert response.status_code == 200
+    members = response.json()["members"]
+    assert [row["email"] for row in members] == ["admin@example.com", "member@example.com"]
+    assert [row["role"] for row in members] == ["admin", "member"]
+    assert members[0]["user_id"] == admin_id
+    assert members[0]["owner_id"] == owner_id
+    assert members[0]["owner_name"] == "Owner 1"
+    assert members[0]["has_credentials"] is True
+    assert members[1]["owner_id"] is None and members[1]["owner_name"] is None
+    assert members[1]["has_credentials"] is False
+    for secret in (S2, SWID, "unused-password-hash", "password_hash", "espn_s2_encrypted"):
+        assert secret not in response.text
+
+
+def test_AC_AU_19_members_list_requires_an_admin_member(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    member_id = _create_user(api, "member@example.com")
+    outsider_id = _create_user(api, "outsider@example.com")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=member_id, league_id=league_id)
+    _login(api, member_id)
+
+    forbidden = api.client.get(_league_members_path(league_id))
+    api.client.cookies.clear()
+    _login(api, outsider_id)
+    unknown = api.client.get(_league_members_path(league_id))
+
+    assert forbidden.status_code == 403
+    assert forbidden.json()["detail"]["code"] == "forbidden"
+    assert unknown.status_code == 404
+    assert unknown.json()["detail"]["code"] == "not_found"
+
+
+def test_AC_AU_20_admin_removes_another_member_and_keeps_their_account_and_other_leagues(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    member_id = _create_user(api, "member@example.com")
+    first = _seed_league(api, external_id="league-a")
+    second = _seed_league(api, external_id="league-b")
+    _seed_membership(api, user_id=admin_id, league_id=first)
+    _seed_membership(api, user_id=member_id, league_id=first)
+    _seed_membership(api, user_id=member_id, league_id=second)
+    owners_before = _count_where(api, Owner, Owner.league_id == first)
+    _login(api, admin_id)
+
+    response = api.client.delete(f"{_league_members_path(first)}/{member_id}")
+
+    assert response.status_code == 204
+    assert response.content == b""
+    assert _count_where(api, UserLeague, UserLeague.league_id == first) == 1
+    assert _count_where(api, UserLeague, UserLeague.league_id == second) == 1
+    assert _count_where(api, AppUser, AppUser.id == member_id) == 1
+    assert _count_where(api, Owner, Owner.league_id == first) == owners_before
+
+
+def test_AC_AU_20_admin_may_remove_themselves_when_another_admin_remains(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    first_admin = _create_user(api, "first-admin@example.com", role="admin")
+    second_admin = _create_user(api, "second-admin@example.com", role="admin")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=first_admin, league_id=league_id)
+    _seed_membership(api, user_id=second_admin, league_id=league_id)
+    _login(api, first_admin)
+
+    response = api.client.delete(f"{_league_members_path(league_id)}/{first_admin}")
+
+    assert response.status_code == 204
+    assert _count_where(api, UserLeague, UserLeague.league_id == league_id) == 1
+    assert _count_where(api, AppUser, AppUser.id == first_admin) == 1
+
+
+def test_AC_AU_20_removing_the_last_admin_member_is_blocked(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=admin_id, league_id=league_id)
+    _login(api, admin_id)
+
+    response = api.client.delete(f"{_league_members_path(league_id)}/{admin_id}")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "last_admin"
+    assert _count_where(api, UserLeague, UserLeague.league_id == league_id) == 1
+
+
+def test_AC_AU_20_removing_a_non_admin_member_is_allowed_next_to_one_admin(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    member_id = _create_user(api, "member@example.com")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=admin_id, league_id=league_id)
+    _seed_membership(api, user_id=member_id, league_id=league_id)
+    _login(api, admin_id)
+
+    response = api.client.delete(f"{_league_members_path(league_id)}/{member_id}")
+
+    assert response.status_code == 204
+    assert _count_where(api, UserLeague, UserLeague.league_id == league_id) == 1
+
+
+def test_AC_AU_20_removal_requires_admin_membership_and_an_existing_membership(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    member_id = _create_user(api, "member@example.com")
+    outsider_id = _create_user(api, "outsider@example.com")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=admin_id, league_id=league_id)
+    _seed_membership(api, user_id=member_id, league_id=league_id)
+    _login(api, member_id)
+
+    forbidden = api.client.delete(f"{_league_members_path(league_id)}/{admin_id}")
+    api.client.cookies.clear()
+    _login(api, outsider_id)
+    non_member = api.client.delete(f"{_league_members_path(league_id)}/{member_id}")
+    api.client.cookies.clear()
+    _login(api, admin_id)
+    unknown_member = api.client.delete(f"{_league_members_path(league_id)}/{outsider_id}")
+
+    assert forbidden.status_code == 403
+    assert forbidden.json()["detail"]["code"] == "forbidden"
+    assert non_member.status_code == 404
+    assert non_member.json()["detail"]["code"] == "not_found"
+    assert unknown_member.status_code == 404
+    assert unknown_member.json()["detail"]["code"] == "not_found"
+
+
+def test_AC_AU_21_member_invite_returns_the_code_once_and_stores_only_its_hash(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=admin_id, league_id=league_id)
+    _login(api, admin_id)
+
+    response = api.client.post(_league_invites_path(league_id), json={"role": "member"})
+
+    assert response.status_code == 201
+    body = response.json()
+    code = body["code"]
+    assert code and len(code) >= 32
+    assert body["role"] == "member"
+    assert body["league_id"] == league_id
+    assert body["expires_at"].startswith("2026-01-08")
+    with api.factory() as session:
+        invite = session.scalar(select(Invite))
+        assert invite is not None
+        assert invite.code_hash == hash_invite_code(code)
+        assert code != invite.code_hash
+        assert invite.league_id == league_id
+        assert invite.role == "member"
+        stored_hash = invite.code_hash
+    listed = api.client.get(_league_members_path(league_id))
+    assert code not in listed.text
+    assert stored_hash not in listed.text
+
+
+def test_AC_AU_21_admin_invite_is_league_less_and_defaults_to_seven_days(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=admin_id, league_id=league_id)
+    _login(api, admin_id)
+
+    response = api.client.post(_league_invites_path(league_id), json={"role": "admin"})
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["role"] == "admin"
+    assert body["league_id"] is None
+    assert body["expires_at"].startswith("2026-01-08")
+    with api.factory() as session:
+        invite = session.scalar(select(Invite))
+        assert invite is not None
+        assert invite.league_id is None
+        assert invite.role == "admin"
+
+
+@pytest.mark.parametrize("days", [1, 3650])
+def test_AC_AU_21_invite_lifetime_accepts_the_bounds(
+    api_factory: Callable[..., Api], days: int
+) -> None:
+    api = api_factory()
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=admin_id, league_id=league_id)
+    _login(api, admin_id)
+
+    response = api.client.post(
+        _league_invites_path(league_id), json={"role": "member", "expires_in_days": days}
+    )
+
+    assert response.status_code == 201
+    assert _count_where(api, Invite, Invite.league_id == league_id) == 1
+
+
+@pytest.mark.parametrize("days", [0, -1, 3651])
+def test_AC_AU_21_invite_lifetime_outside_the_bounds_returns_422(
+    api_factory: Callable[..., Api], days: int
+) -> None:
+    api = api_factory()
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=admin_id, league_id=league_id)
+    _login(api, admin_id)
+
+    response = api.client.post(
+        _league_invites_path(league_id), json={"role": "member", "expires_in_days": days}
+    )
+
+    assert response.status_code == 422
+    assert all("input" not in error for error in response.json()["detail"])
+    assert _count_where(api, Invite, Invite.league_id == league_id) == 0
+
+
+def test_AC_AU_21_invite_creation_requires_an_admin_member(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    member_id = _create_user(api, "member@example.com")
+    outsider_id = _create_user(api, "outsider@example.com")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=member_id, league_id=league_id)
+    _login(api, member_id)
+
+    forbidden = api.client.post(_league_invites_path(league_id), json={"role": "member"})
+    api.client.cookies.clear()
+    _login(api, outsider_id)
+    unknown = api.client.post(_league_invites_path(league_id), json={"role": "admin"})
+
+    assert forbidden.status_code == 403
+    assert forbidden.json()["detail"]["code"] == "forbidden"
+    assert unknown.status_code == 404
+    assert unknown.json()["detail"]["code"] == "not_found"
+
+
+def test_AC_AU_21_invite_role_must_be_admin_or_member(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=admin_id, league_id=league_id)
+    _login(api, admin_id)
+
+    response = api.client.post(_league_invites_path(league_id), json={"role": "superuser"})
+
+    assert response.status_code == 422
+    assert _count_where(api, Invite, Invite.league_id == league_id) == 0
+
+
+def test_AC_AU_22_delete_league_removes_only_that_leagues_data(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    member_id = _create_user(api, "member@example.com")
+    doomed = _seed_league(api, external_id="doomed-league")
+    survivor = _seed_league(api, external_id="survivor-league")
+    _seed_league_data(api, league_id=doomed)
+    _seed_league_data(api, league_id=survivor)
+    _seed_membership(api, user_id=admin_id, league_id=doomed)
+    _seed_membership(api, user_id=admin_id, league_id=survivor)
+    _seed_membership(api, user_id=member_id, league_id=doomed)
+    _seed_invite(api, code="league-less-admin", role="admin", league_id=None)
+    _login(api, admin_id)
+
+    response = api.client.delete(f"/api/v1/leagues/{doomed}")
+
+    assert response.status_code == 204
+    assert response.content == b""
+    assert _count_where(api, League, League.id == doomed) == 0
+    for model in (LeagueSeason, Owner, Team, Matchup, Score, UserLeague, Invite):
+        assert _count_where(api, model, model.league_id == doomed) == 0
+    # Only the other league and its rows survive, along with every account and admin invite.
+    assert _count_where(api, League, League.id == survivor) == 1
+    assert _count_where(api, LeagueSeason, LeagueSeason.league_id == survivor) == 1
+    assert _count_where(api, Owner, Owner.league_id == survivor) == 2
+    assert _count_where(api, Team, Team.league_id == survivor) == 1
+    assert _count_where(api, Matchup, Matchup.league_id == survivor) == 1
+    assert _count_where(api, Score, Score.league_id == survivor) == 1
+    assert _count_where(api, UserLeague, UserLeague.league_id == survivor) == 1
+    assert _count_where(api, Invite, Invite.league_id == survivor) == 1
+    assert _count_where(api, AppUser, AppUser.id == admin_id) == 1
+    assert _count_where(api, AppUser, AppUser.id == member_id) == 1
+    assert _count_where(api, Invite, Invite.league_id.is_(None)) == 1
+
+
+def test_AC_AU_22_delete_league_requires_an_admin_member(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    member_id = _create_user(api, "member@example.com")
+    outsider_id = _create_user(api, "outsider@example.com")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=member_id, league_id=league_id)
+    _login(api, member_id)
+
+    forbidden = api.client.delete(f"/api/v1/leagues/{league_id}")
+    api.client.cookies.clear()
+    _login(api, outsider_id)
+    non_member = api.client.delete(f"/api/v1/leagues/{league_id}")
+    unknown = api.client.delete("/api/v1/leagues/999")
+
+    assert forbidden.status_code == 403
+    assert forbidden.json()["detail"]["code"] == "forbidden"
+    assert non_member.status_code == 404
+    assert non_member.json()["detail"]["code"] == "not_found"
+    assert unknown.status_code == 404
+    assert _count_where(api, League, League.id == league_id) == 1

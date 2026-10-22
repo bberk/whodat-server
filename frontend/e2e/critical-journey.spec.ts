@@ -190,10 +190,19 @@ test("admin reads the league admin page without blocking accessibility issues", 
   await page.getByRole("button", { name: "Log in" }).click();
   await expect(page).toHaveURL(/\/$/);
 
-  // AC-FE-11: the Admin nav item is for admins and opens the league admin page.
+  // AC-FE-11/13: the Admin nav item is for admins and opens the league admin page. The shell's
+  // season picker is hidden here because the page names the season it administers.
   await page.getByRole("link", { name: "Admin" }).click();
   await expect(page).toHaveURL(/\/leagues\/\d+\/admin$/);
   await expect(page.getByRole("heading", { level: 1, name: "League admin" })).toBeVisible();
+  await expect(page.getByLabel("Season", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("League", { exact: true })).toBeVisible();
+
+  // AC-AU-19: every member is listed by email.
+  await expect(
+    page.getByRole("row", { name: new RegExp(fixture.users.admin.email) }),
+  ).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: "Members" })).toBeVisible();
 
   const select = page.getByLabel("Cup week for this season");
   await expect(select).toBeVisible();
@@ -204,6 +213,18 @@ test("admin reads the league admin page without blocking accessibility issues", 
       (_, index) => `Week ${index + 1}`,
     ),
   ]);
+
+  // AC-AU-21/AC-FE-14: a generated invite shows its raw code once with a one-time warning.
+  await page.getByRole("button", { name: "Generate invite" }).click();
+  await expect(page.getByLabel("Invite code")).toBeVisible();
+  await expect(page.getByText(/shown only once/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Copy code" })).toBeVisible();
+
+  // AC-AU-22: the destructive action sits apart and needs the league name typed.
+  await expect(
+    page.getByRole("heading", { level: 2, name: "Danger zone: delete this league" }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Delete league permanently" })).toBeDisabled();
 
   await expectPageDoesNotScrollSideways(page);
   await expectNoBlockingAxeViolations(page, "league admin");

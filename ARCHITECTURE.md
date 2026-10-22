@@ -137,8 +137,8 @@ Unique: (`code_hash`). Index: (`league_id`).
 Invariant: a `member` invite has a `league_id`; an `admin` invite has none. Creation rejects either
 mismatch.
 
-The raw invite code is shown only once by the admin CLI that creates it and is never retrievable
-afterwards; only its hash is stored. Regenerating an invite means creating a new one.
+The raw invite code is shown only once by the admin CLI or the admin invite endpoint and is never
+retrievable afterwards; only its hash is stored. Regenerating an invite means creating a new one.
 
 ### `user_league`
 Membership linking a user to a league: `user_id` → app_user, `league_id` → league, `owner_id` →
@@ -152,6 +152,13 @@ self-describing versioned token produced by `app.security.crypto.encrypt`
 AES-256-GCM under `LEAGUE_CREDENTIALS_KEY`; the nonce and authentication tag are part of that
 token, not separate columns. An `owner_id` must belong to the membership's league (enforced by the
 service).
+
+### League deletion
+
+Deleting a league is a single transaction that removes its dependent rows child-first: scores,
+matchups, teams, memberships, owners, invites bound to the league, seasons, then the league. The
+order satisfies foreign-key enforcement on Postgres as well as SQLite. Accounts and league-less
+admin invites are never part of that deletion.
 
 ### Numeric rules
 
@@ -257,6 +264,10 @@ All endpoints are under `/api/v1`, JSON, cookie-session or bearer-token auth (ba
 | `GET /leagues/{league_id}/seasons/{season}/wapdate` | member | Offered WAPDate periods with status, counted weeks, and lowest-first rows |
 | `GET /leagues/{league_id}/seasons/{season}/cup-week` | member | Season, cup_week (nullable), and regular_season_length |
 | `PUT /leagues/{league_id}/seasons/{season}/cup-week` | admin member | Set `{cup_week: int\|null}`, persist it, and recompute the season from stored data |
+| `GET /leagues/{league_id}/members` | admin member | Accounts in the league by email, with role, owner association, and whether credentials are stored |
+| `DELETE /leagues/{league_id}/members/{user_id}` | admin member | Remove that user's membership only; blocked when it would leave no admin member |
+| `POST /leagues/{league_id}/invites` | admin member | Create a member invite bound to this league or a league-less admin invite; returns the raw code once |
+| `DELETE /leagues/{league_id}` | admin member | Delete the league and its own data (seasons, teams, owners, matchups, scores, memberships, bound invites) |
 
 "member" = authenticated user with a `user_league` membership in the league. League-scoped requests
 from non-members return 403 or 404, and unauthenticated requests return 401. Only admins may add a
@@ -265,11 +276,17 @@ league, add a season to an existing league, or supply league credentials; a memb
 Adding a season uses the caller's own stored credentials, like a refresh. A refresh requires a
 membership that holds credentials.
 
-Invite creation is an admin CLI operation, not a public endpoint:
-`python -m app.cli create-invite --role admin|member [--league <id>] --expires 7d`.
-`--league` is required for a member invite and rejected for an admin invite, which is league-less.
-The command prints the raw invite code once at creation; only its hash is stored, and the raw code
-is never retrievable afterwards.
+Invite creation is available from the admin CLI and the league admin page:
+`python -m app.cli create-invite --role admin|member [--league <id>] --expires 7d`, and
+`POST /leagues/{league_id}/invites` with `{role, expires_in_days}`. `--league`/the endpoint's league
+is required for a member invite and rejected (impossible) for an admin invite, which is league-less.
+The CLI prints the raw invite code once at creation; the API returns it once in that response. Only
+its hash is stored, and the raw code is never retrievable afterwards.
+
+League administration is scoped to an admin who is a member of the league. The member list and the
+removal, invite, and delete-league operations all return 403 for a non-admin member and 404 for a
+non-member (or an unknown league). Removal of the last admin member returns 409. Deleting a league
+removes only that league's rows; accounts, league-less admin invites, and other leagues remain.
 
 ### Standings response (shape)
 
@@ -343,13 +360,23 @@ finish last in the current period.
 
 - **Routing**: `/login`, `/signup`, `/leagues/:leagueId/owner`, `/leagues/:leagueId/admin` (admin
   only; non-admins are redirected to `/`), `/` (standings for the selected league and current
-  season). The `Admin` nav item appears only for an admin with a selected league.
-- **Admin page**: one `League admin` shell at `/leagues/:leagueId/admin` hosting the admin-only,
-  season-scoped sections: add a stored season (`AddSeasonSection`) and choose the cup week
-  (`CupWeekSection`: `No cup week` or weeks 1..`regular_season_length` for the selected season,
-  saved through the cup-week API with loading, error, and success states).
+  season). The `Admin` nav item appears only for an admin with a selected league. The shell's
+  `SeasonPicker` renders on the standings route only: the owner and admin pages keep the league
+  switcher and refresh control but own their own context.
+- **Admin page**: one `League admin` shell at `/leagues/:leagueId/admin` hosting the admin-only
+  sections: the member list (`MembersSection`: email, role, owner, credential status; confirmed
+  removal with a last-admin guard and a credential warning), add a stored season
+  (`AddSeasonSection`), choose the cup week (`CupWeekSection`: `No cup week` or weeks
+  1..`regular_season_length` for the selected season, saved through the cup-week API with loading,
+  error, and success states), invite generation (`InvitesSection`: member invite bound to the league
+  or league-less admin invite, raw code shown once with a copy control), and a separated
+  `DeleteLeagueSection` that requires the league name typed before the destructive action.
 - **State**: server state via TanStack Query; local UI state (selected team, hidden chart series) in component state or a small store. No global state library needed.
-- **Components**: `StandingsTable` (reused for overall and per-division), `WapdateSection` (period toggle plus a lowest-first table below the chart), `WeeklyVPCells`, `VPChart`, `TeamSelector`/legend, `SeasonPicker`, layout/nav, and states (`Loading`, `Empty`, `ErrorState`).
+- **Components**: `StandingsTable` (reused for overall and per-division), `WapdateSection` (period
+  toggle plus a lowest-first table below the chart), `WeeklyVPCells`, `VPChart`,
+  `TeamSelector`/legend, `SeasonPicker`, `LeagueSwitcher`, `RefreshButton`, `MembersSection`,
+  `InvitesSection`, `DeleteLeagueSection`, layout/nav, and states (`Loading`, `Empty`,
+  `ErrorState`).
 - **Responsive strategy**: mobile-first. Tables scroll horizontally in a container with a sticky first column. The chart supports tap-to-highlight, legend toggles, and a reduced default of highlighted lines on small screens.
 - **Styling**: Tailwind with design tokens (colors, spacing, radius) defined once; consistent light/dark tokens if dark mode is implemented.
 - **Dev without backend**: an MSW (mock service worker) or fixture-based mock of the API, generated from the OpenAPI contract and `docs/fixtures/`, so frontend work can proceed in parallel with the backend.

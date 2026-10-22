@@ -6,6 +6,7 @@
 import { vi } from "vitest";
 
 import type {
+  LeagueMemberSummary,
   LeagueSummary,
   MeResponse,
   OwnerSummary,
@@ -64,6 +65,25 @@ export const owners: OwnerSummary[] = [
   { id: 7, external_id: "{7}", display_name: "Alex" },
   { id: 3, external_id: "{3}", display_name: "Blair" },
   { id: 9, external_id: "{9}", display_name: "Casey" },
+];
+
+export const leagueMembers: LeagueMemberSummary[] = [
+  {
+    user_id: 1,
+    email: "admin@example.com",
+    role: "admin",
+    owner_id: 7,
+    owner_name: "Alex",
+    has_credentials: true,
+  },
+  {
+    user_id: 2,
+    email: "member@example.com",
+    role: "member",
+    owner_id: null,
+    owner_name: null,
+    has_credentials: false,
+  },
 ];
 
 export const standingsResponse: StandingsResponse = {
