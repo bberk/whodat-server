@@ -8,11 +8,13 @@ API and sync-service suites.
 
 from __future__ import annotations
 
+import asyncio
 import unicodedata
 
 import pytest
 from pydantic import ValidationError
 
+from app.api.body_limit import RequestBodyLimitMiddleware
 from app.api.schemas_auth import SignupRequest
 from app.api.schemas_leagues import AddLeagueRequest, RedeemInviteRequest
 from app.security.invite_codes import (
@@ -196,3 +198,122 @@ def test_signup_and_redeem_schemas_apply_the_invite_charset() -> None:
             SignupRequest(email="fan@example.com", password=PASSWORD, invite_code=value)
         with pytest.raises(ValidationError):
             RedeemInviteRequest(invite_code=value)
+
+
+# ---------------------------------------------------------------------------
+# Request-body limit middleware internals
+# ---------------------------------------------------------------------------
+
+
+def _http_scope(*, headers: list[tuple[bytes, bytes]] | None = None) -> dict[str, object]:
+    return {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/v1/auth/login",
+        "headers": headers or [],
+    }
+
+
+def test_body_limit_passes_non_http_scopes_through() -> None:
+    """Lifespan and websocket scopes are not request bodies and must not be buffered."""
+    asyncio.run(_assert_non_http_scope())
+
+
+async def _assert_non_http_scope() -> None:
+    seen: list[str] = []
+
+    async def app(scope: dict[str, object], receive: object, send: object) -> None:
+        seen.append(str(scope["type"]))
+
+    async def receive() -> dict[str, object]:
+        return {"type": "lifespan.startup"}
+
+    async def send(_message: dict[str, object]) -> None:
+        return None
+
+    await RequestBodyLimitMiddleware(app)({"type": "lifespan"}, receive, send)  # type: ignore[arg-type]
+    assert seen == ["lifespan"]
+
+
+def test_body_limit_returns_without_calling_the_app_on_disconnect() -> None:
+    """A client that disconnects before sending a body is not passed to the application."""
+    asyncio.run(_assert_disconnect())
+
+
+async def _assert_disconnect() -> None:
+    called = False
+
+    async def app(scope: object, receive: object, send: object) -> None:
+        nonlocal called
+        called = True
+
+    async def receive() -> dict[str, object]:
+        return {"type": "http.disconnect"}
+
+    async def send(_message: dict[str, object]) -> None:
+        return None
+
+    await RequestBodyLimitMiddleware(app)(_http_scope(), receive, send)  # type: ignore[arg-type]
+    assert called is False
+
+
+@pytest.mark.parametrize("declared", [b"not-a-number", b"-1"])
+def test_body_limit_ignores_malformed_or_negative_content_length(declared: bytes) -> None:
+    """Only a valid non-negative Content-Length can trigger the early declaration check."""
+    asyncio.run(_assert_body_replayed([(b"content-length", declared)], [b"payload"]))
+
+
+def test_body_limit_replays_chunked_messages_and_serves_a_second_receive() -> None:
+    """Multiple more_body chunks are joined; a later receive reaches the original stream."""
+    asyncio.run(_assert_chunked_replay())
+
+
+async def _assert_body_replayed(headers: list[tuple[bytes, bytes]], chunks: list[bytes]) -> None:
+    bodies: list[bytes] = []
+
+    async def app(scope: object, receive: object, send: object) -> None:
+        message = await receive()  # type: ignore[operator]
+        bodies.append(message["body"])
+
+    remaining = list(chunks)
+
+    async def receive() -> dict[str, object]:
+        chunk = remaining.pop(0)
+        return {"type": "http.request", "body": chunk, "more_body": bool(remaining)}
+
+    async def send(_message: dict[str, object]) -> None:
+        return None
+
+    await RequestBodyLimitMiddleware(app)(_http_scope(headers=headers), receive, send)  # type: ignore[arg-type]
+    assert bodies == [b"".join(chunks)]
+
+
+async def _assert_chunked_replay() -> None:
+    messages: list[dict[str, object]] = [
+        {"type": "http.request", "body": b"ab", "more_body": True},
+        {"type": "http.request", "body": b"cd", "more_body": False},
+    ]
+    received: list[dict[str, object]] = []
+
+    async def app(scope: object, receive: object, send: object) -> None:
+        received.append(await receive())  # type: ignore[operator]
+        received.append(await receive())  # type: ignore[operator]
+
+    async def receive() -> dict[str, object]:
+        if messages:
+            return messages.pop(0)
+        return {"type": "http.disconnect"}
+
+    async def send(_message: dict[str, object]) -> None:
+        return None
+
+    await RequestBodyLimitMiddleware(app)(_http_scope(), receive, send)  # type: ignore[arg-type]
+    assert received[0] == {"type": "http.request", "body": b"abcd", "more_body": False}
+    assert received[1] == {"type": "http.disconnect"}
+
+
+def test_validators_reject_non_text_input_without_echoing_it() -> None:
+    """Programmatic callers get the same fixed errors as HTTP callers."""
+    with pytest.raises(ValueError):
+        normalize_external_id(None)  # type: ignore[arg-type]
+    assert normalize_display_text(None) == ""  # type: ignore[arg-type]
