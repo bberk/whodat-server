@@ -68,6 +68,8 @@ export function DeleteLeagueSection({ leagueId, leagueName, onDeleted }: DeleteL
           id="delete-league-name"
           name="league_name"
           autoComplete="off"
+          spellCheck={false}
+          maxLength={Math.max(leagueName.length, 1)}
           required
           value={confirmation}
           onChange={(event) => setConfirmation(event.target.value)}
