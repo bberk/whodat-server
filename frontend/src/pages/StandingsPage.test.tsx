@@ -63,8 +63,7 @@ afterEach(() => {
 });
 
 describe("StandingsPage", () => {
-  it("renders the overall table, one table per division, the chart, and the weekly breakdown", async () => {
-    const user = userEvent.setup();
+  it("renders the overall table, one table per division, and the chart", async () => {
     readyFetch();
     renderPage();
     const overall = await screen.findByRole("table", { name: /overall 2026 standings/i });
@@ -82,15 +81,7 @@ describe("StandingsPage", () => {
         .map((cell) => cell.textContent),
     ).toEqual(["4", "5", "6"]);
     expect(screen.getByRole("img", { name: /cumulative victory points/i })).toBeInTheDocument();
-    expect(
-      screen.getByRole("table", { name: /week 4 victory points per team/i }),
-    ).toBeInTheDocument();
     expect(screen.getByText(/4 completed weeks/i)).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "W1" }));
-    expect(
-      await screen.findByRole("table", { name: /week 1 victory points per team/i }),
-    ).toBeInTheDocument();
   });
 
   it("shows W-L-T when a team recorded an H2H tie", async () => {
@@ -139,7 +130,7 @@ describe("StandingsPage", () => {
   it("shows loading, empty, and error states for every data view", async () => {
     mockFetch(() => new Promise<Response>(() => {}));
     const loading = renderPage();
-    expect(screen.getAllByRole("status")).toHaveLength(4);
+    expect(screen.getAllByRole("status")).toHaveLength(3);
     loading.unmount();
 
     mockFetch((url) =>
@@ -150,13 +141,12 @@ describe("StandingsPage", () => {
     const empty = renderPage();
     await screen.findByText("No chart yet");
     expect(screen.getAllByText("No completed weeks yet")).toHaveLength(2);
-    expect(screen.getByText("No weekly VP yet")).toBeInTheDocument();
     empty.unmount();
 
     mockFetch(() => errorResponse(500, { code: "boom", message: "The API is unavailable." }));
     renderPage();
     const alerts = await screen.findAllByRole("alert");
-    expect(alerts).toHaveLength(4);
+    expect(alerts).toHaveLength(3);
     expect(alerts[0]).toHaveTextContent("The API is unavailable.");
   });
 
@@ -173,7 +163,7 @@ describe("StandingsPage", () => {
     });
     const user = userEvent.setup();
     renderPage();
-    expect(await screen.findAllByRole("alert")).toHaveLength(4);
+    expect(await screen.findAllByRole("alert")).toHaveLength(3);
     await user.click(screen.getAllByRole("button", { name: "Retry" })[0]);
     await waitFor(() => {
       expect(screen.getByRole("table", { name: /overall 2026 standings/i })).toBeInTheDocument();
@@ -228,6 +218,5 @@ describe("StandingsPage", () => {
     );
     renderPage();
     expect(await screen.findByText("No chart yet")).toBeInTheDocument();
-    expect(screen.getByText("No weekly VP yet")).toBeInTheDocument();
   });
 });

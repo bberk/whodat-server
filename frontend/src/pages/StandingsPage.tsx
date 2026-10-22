@@ -4,23 +4,21 @@ import { DataState, EmptyState, ErrorState, LoadingState } from "../components/D
 import { StandingsTable } from "../components/StandingsTable";
 import { VPRulesTooltip } from "../components/VPRulesTooltip";
 import { useMediaQuery } from "../components/useMediaQuery";
-import { WeeklyVPBreakdown } from "../components/WeeklyVPBreakdown";
 import { VPChart } from "../components/VPChart";
 import { useLeague } from "../leagues/LeagueContext";
 import {
   buildHistorySeries,
   seasonHasHeadToHeadTies,
   seriesIndexByTeamId,
-  weeklyBreakdownFor,
 } from "../standings/model";
 import { useStandingsData } from "../standings/useStandingsData";
 
 const EMPTY_STYLES: ReadonlyMap<number, number> = new Map<number, number>();
 
 /**
- * The standings dashboard: overall and per-division tables, the cumulative VP chart, and the
- * weekly VP breakdown, each with loading, empty, and error states. Data comes from the API for the
- * league and season selected in the app shell.
+ * The standings dashboard: overall and per-division tables and the cumulative VP chart, each with
+ * loading, empty, and error states. Data comes from the API for the league and season selected in
+ * the app shell.
  */
 export function StandingsPage() {
   const {
@@ -40,7 +38,6 @@ export function StandingsPage() {
   );
   const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null);
   const [hiddenTeamIds, setHiddenTeamIds] = useState<ReadonlySet<number>>(() => new Set<number>());
-  const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
   const compact = useMediaQuery("(max-width: 767px)");
 
   if (leaguesStatus === "loading") {
@@ -105,11 +102,6 @@ export function StandingsPage() {
   const visibleTeamIds = series
     .filter((entry) => !hiddenTeamIds.has(entry.teamId))
     .map((entry) => entry.teamId);
-  const activeWeek = selectedWeek ?? weeks[weeks.length - 1];
-  const weekly =
-    bundle === null || activeWeek === undefined
-      ? null
-      : weeklyBreakdownFor(bundle.history, bundle.standings.overall, activeWeek);
 
   const selectTeam = (teamId: number) => {
     setSelectedTeamId((current) => (current === teamId ? null : teamId));
@@ -253,38 +245,6 @@ export function StandingsPage() {
             selectedTeamId={selectedTeamId}
             onToggleTeam={toggleSeries}
             compact={compact}
-          />
-        )}
-      </section>
-
-      <section aria-labelledby="h-weekly" className="mt-7 md:mt-9">
-        <h2 id="h-weekly" className="text-base font-bold">
-          Weekly VP breakdown
-        </h2>
-        <p className="mt-1 text-[13px] text-gray-500">
-          Each team&rsquo;s VP for the selected week and its cumulative total through that week.
-        </p>
-        {bundle === null ? (
-          <DataState
-            state={state}
-            loadingLabel="Loading weekly VP…"
-            emptyTitle="No weekly VP yet"
-            emptyDetail="Weekly VP appears after the first completed week."
-            onRetry={reload}
-          />
-        ) : weekly === null || activeWeek === undefined ? (
-          <EmptyState
-            title="No weekly VP yet"
-            detail="Weekly VP appears after the first completed week."
-          />
-        ) : (
-          <WeeklyVPBreakdown
-            weeks={weeks}
-            selectedWeek={activeWeek}
-            onSelectWeek={setSelectedWeek}
-            rows={weekly.rows}
-            note={weekly.note}
-            selectedTeamId={selectedTeamId}
           />
         )}
       </section>

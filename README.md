@@ -8,9 +8,9 @@ custom **Victory Points (VP)** scoring system instead of a plain win/loss record
 Each regular-season week, every team earns VP from four components: a head-to-head win (+1),
 a top-half score (+1), the highest score of the week (+1), and the lowest score of the week
 (-1). Ties split the points exactly (for example, three teams tied for the high score get
-1/3 each). The app shows overall standings, per-division standings, a per-week VP table, and a
-cumulative VP chart. Members sign up, are linked to their team owner, and see only their
-league's data.
+1/3 each). The app shows overall standings with a VP column for each week, per-division
+standings, and a cumulative VP chart. Members sign up, are linked to their team owner, and see
+only their league's data.
 
 ESPN access is isolated behind a provider interface, so other league providers can be added
 later without changing the VP engine, database, API, or frontend.
