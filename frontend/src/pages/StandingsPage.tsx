@@ -12,6 +12,7 @@ import {
   seriesIndexByTeamId,
 } from "../standings/model";
 import { useStandingsData } from "../standings/useStandingsData";
+import { WapdateSection } from "../standings/WapdateSection";
 
 const EMPTY_STYLES: ReadonlyMap<number, number> = new Map<number, number>();
 
@@ -248,6 +249,12 @@ export function StandingsPage() {
           />
         )}
       </section>
+
+      <WapdateSection
+        leagueId={selectedLeague.league_id}
+        season={season}
+        dataVersion={dataVersion}
+      />
 
       <footer className="mt-8">
         <div className="rounded-xl border border-gray-200 bg-white p-4 text-[12.5px] text-gray-500">

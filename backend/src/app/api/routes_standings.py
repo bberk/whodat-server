@@ -1,6 +1,6 @@
-"""Standings and VP-history routes (ARCHITECTURE.md section 8).
+"""Standings, VP-history, and WAPDate routes (ARCHITECTURE.md section 8).
 
-Both endpoints are cookie-authenticated and member-only. The auth dependency returns 401 for a
+Every endpoint is cookie-authenticated and member-only. The auth dependency returns 401 for a
 missing or invalid session, and the reused league membership check returns 404 for a non-member so
 the response never confirms that a league exists. Unknown leagues and seasons are structured 404s;
 stored data that cannot produce standings is a structured 400, never a 500 that leaks an exception
@@ -20,8 +20,10 @@ from app.api.schemas_auth import PublicUser, error_detail
 from app.api.schemas_standings import (
     StandingsResponse,
     VpHistoryResponse,
+    WapdateResponse,
     to_standings_response,
     to_vp_history_response,
+    to_wapdate_response,
 )
 from app.db.session import get_session
 from app.services.league_service import LeagueService, LeagueServiceError
@@ -114,3 +116,21 @@ def get_vp_history(
     except StandingsServiceError as error:
         _raise_standings_error(error)
     return to_vp_history_response(history)
+
+
+@router.get(
+    "/leagues/{league_id}/seasons/{season}/wapdate",
+    response_model=WapdateResponse,
+)
+def get_wapdate(
+    league_id: int,
+    season: int,
+    _member: MemberDep,
+    service: StandingsServiceDep,
+) -> WapdateResponse:
+    """Return the offered WAPDate periods with their lowest-first rows."""
+    try:
+        wapdate = service.get_wapdate(league_id, season)
+    except StandingsServiceError as error:
+        _raise_standings_error(error)
+    return to_wapdate_response(wapdate)

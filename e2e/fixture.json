@@ -127,23 +127,93 @@
       {
         "name": "East",
         "teams": [
-          { "team": "Alpha", "rank": 1 },
-          { "team": "Bravo", "rank": 2 }
+          {
+            "team": "Alpha",
+            "rank": 1
+          },
+          {
+            "team": "Bravo",
+            "rank": 2
+          }
         ]
       },
       {
         "name": "West",
         "teams": [
-          { "team": "Delta", "rank": 3 },
-          { "team": "Charlie", "rank": 4 }
+          {
+            "team": "Delta",
+            "rank": 3
+          },
+          {
+            "team": "Charlie",
+            "rank": 4
+          }
         ]
       }
     ],
     "history": [
-      { "team": "Alpha", "weekly": ["3", "3"], "cumulative": ["3", "6"] },
-      { "team": "Bravo", "weekly": ["2", "0"], "cumulative": ["2", "2"] },
-      { "team": "Charlie", "weekly": ["0", "-1"], "cumulative": ["0", "-1"] },
-      { "team": "Delta", "weekly": ["-1", "2"], "cumulative": ["-1", "1"] }
-    ]
+      {
+        "team": "Alpha",
+        "weekly": ["3", "3"],
+        "cumulative": ["3", "6"]
+      },
+      {
+        "team": "Bravo",
+        "weekly": ["2", "0"],
+        "cumulative": ["2", "2"]
+      },
+      {
+        "team": "Charlie",
+        "weekly": ["0", "-1"],
+        "cumulative": ["0", "-1"]
+      },
+      {
+        "team": "Delta",
+        "weekly": ["-1", "2"],
+        "cumulative": ["-1", "1"]
+      }
+    ],
+    "wapdate": {
+      "highestCompletedWeek": 2,
+      "periods": [
+        {
+          "period": 1,
+          "startWeek": 1,
+          "endWeek": 4,
+          "status": "current",
+          "weeks": [1, 2],
+          "rows": [
+            {
+              "team": "Charlie",
+              "victoryPoints": "-1",
+              "wins": 0,
+              "pointsFor": "195.00",
+              "eliminated": false
+            },
+            {
+              "team": "Delta",
+              "victoryPoints": "1",
+              "wins": 1,
+              "pointsFor": "205.00",
+              "eliminated": false
+            },
+            {
+              "team": "Bravo",
+              "victoryPoints": "2",
+              "wins": 1,
+              "pointsFor": "215.00",
+              "eliminated": false
+            },
+            {
+              "team": "Alpha",
+              "victoryPoints": "6",
+              "wins": 2,
+              "pointsFor": "250.00",
+              "eliminated": false
+            }
+          ]
+        }
+      ]
+    }
   }
 }

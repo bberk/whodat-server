@@ -18,6 +18,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from fractions import Fraction
+from typing import Literal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -27,6 +28,12 @@ from app.db.repositories import SyncRepository
 from app.domain.standings import SeasonRow, rank_teams
 from app.domain.types import TeamWeek
 from app.domain.vp_engine import compute_week_vp
+from app.domain.wapdate import (
+    TeamPeriodStats,
+    WapdateRow,
+    build_wapdate_rows,
+    offered_periods,
+)
 
 
 class StandingsServiceError(Exception):
@@ -134,6 +141,28 @@ class VpHistory:
 
     weeks: tuple[int, ...]
     teams: tuple[TeamVpHistory, ...]
+
+
+@dataclass(frozen=True)
+class WapdatePeriod:
+    """One offered WAPDate period with its lowest-first rows."""
+
+    period: int
+    start_week: int
+    end_week: int
+    status: Literal["complete", "current"]
+    weeks: tuple[int, ...]
+    rows: tuple[WapdateRow, ...]
+
+
+@dataclass(frozen=True)
+class Wapdate:
+    """The offered WAPDate periods for one league season."""
+
+    league_id: int
+    season: int
+    highest_completed_week: int | None
+    periods: tuple[WapdatePeriod, ...]
 
 
 @dataclass(frozen=True)
@@ -267,6 +296,56 @@ class StandingsService:
             for team in sorted(context.teams, key=lambda stored_team: stored_team.id)
         )
         return VpHistory(weeks=weeks, teams=teams)
+
+    def get_wapdate(self, league_id: int, season: int) -> Wapdate:
+        """Return the offered WAPDate periods with lowest-first rows.
+
+        Periods are fixed and independent: weeks 1-4, 5-8 and 9-12 only, with no VP, wins, or
+        points for carried between them. Each period's totals come from the same weekly engine
+        the standings use, so a cup week keeps its cup-week VP and points for while adding no
+        wins. Only offered periods are returned; with no completed regular-season weeks the
+        result has no periods.
+        """
+        context = self._load_context(league_id, season)
+        weeks = self._completed_weeks(context)
+        highest = weeks[-1] if weeks else None
+
+        periods: list[WapdatePeriod] = []
+        for window in offered_periods(weeks):
+            aggregate = self._aggregate(context, window.weeks)
+            stats = tuple(
+                TeamPeriodStats(
+                    team_id=team.id,
+                    team_name=team.name,
+                    vp=aggregate.season_vp[team.id],
+                    wins=aggregate.wins[team.id],
+                    points_for=aggregate.points_for[team.id],
+                )
+                for team in context.teams
+            )
+            rows = build_wapdate_rows(
+                stats,
+                window,
+                highest_completed_week=highest,
+                cup_week=context.cup_week,
+            )
+            periods.append(
+                WapdatePeriod(
+                    period=window.period.number,
+                    start_week=window.period.start_week,
+                    end_week=window.period.end_week,
+                    status=window.status,
+                    weeks=window.weeks,
+                    rows=rows,
+                )
+            )
+
+        return Wapdate(
+            league_id=league_id,
+            season=season,
+            highest_completed_week=highest,
+            periods=tuple(periods),
+        )
 
     def _load_context(self, league_id: int, season: int) -> _SeasonContext:
         """Validate the league, league season, settings, teams, and owners."""

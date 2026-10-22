@@ -11,12 +11,14 @@ from __future__ import annotations
 
 from decimal import ROUND_HALF_UP, Decimal
 from fractions import Fraction
+from typing import Literal
 
 from pydantic import BaseModel
 
 from app.services.standings_service import StandingRow as ServiceStandingRow
 from app.services.standings_service import Standings as ServiceStandings
 from app.services.standings_service import VpHistory as ServiceVpHistory
+from app.services.standings_service import Wapdate as ServiceWapdate
 
 _TWO_PLACES = Decimal("0.01")
 
@@ -68,6 +70,37 @@ class VpHistoryResponse(BaseModel):
 
     weeks: list[int]
     teams: list[TeamVpHistory]
+
+
+class WapdateRow(BaseModel):
+    """One team's WAPDate row, ordered lowest first by the service."""
+
+    team_id: int
+    team_name: str
+    victory_points: str
+    wins: int
+    points_for: str
+    eliminated: bool
+
+
+class WapdatePeriod(BaseModel):
+    """One offered WAPDate period with its completed weeks and rows."""
+
+    period: int
+    start_week: int
+    end_week: int
+    status: Literal["complete", "current"]
+    weeks: list[int]
+    rows: list[WapdateRow]
+
+
+class WapdateResponse(BaseModel):
+    """The offered WAPDate periods for one league season."""
+
+    league_id: int
+    season: int
+    highest_completed_week: int | None
+    periods: list[WapdatePeriod]
 
 
 def _trim_display(text: str) -> str:
@@ -138,5 +171,35 @@ def to_vp_history_response(history: ServiceVpHistory) -> VpHistoryResponse:
                 cumulative=[format_vp(value) for value in team.cumulative],
             )
             for team in history.teams
+        ],
+    )
+
+
+def to_wapdate_response(wapdate: ServiceWapdate) -> WapdateResponse:
+    """Build the wire response for the offered WAPDate periods."""
+    return WapdateResponse(
+        league_id=wapdate.league_id,
+        season=wapdate.season,
+        highest_completed_week=wapdate.highest_completed_week,
+        periods=[
+            WapdatePeriod(
+                period=period.period,
+                start_week=period.start_week,
+                end_week=period.end_week,
+                status=period.status,
+                weeks=list(period.weeks),
+                rows=[
+                    WapdateRow(
+                        team_id=row.team_id,
+                        team_name=row.team_name,
+                        victory_points=format_vp(row.vp),
+                        wins=row.wins,
+                        points_for=format_points(row.points_for),
+                        eliminated=row.eliminated,
+                    )
+                    for row in period.rows
+                ],
+            )
+            for period in wapdate.periods
         ],
     )

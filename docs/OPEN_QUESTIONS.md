@@ -8,6 +8,20 @@ Follow the format used below. Newest entries at the top.
 
 ---
 
+## OQ-0014 — WAPDate elimination ignores points for and uses fixed period end weeks
+
+- **Found:** The confirmed WAPDate rule greys a team in the current period when another team can
+  no longer finish below it on VP and wins. The bound ignores points for, even though points for
+  is the final ordering key, and it uses `end_week - highest_completed_week` as the remaining-week
+  count even when a short regular season ends before a period's end week.
+- **Decision (owner-confirmed):** follow the stated rule: VP and wins only, fixed period end weeks,
+  and weeks 13+ ignored. The domain function documents that the flag means "no other team can beat
+  this team on the period's VP and wins", not a guarantee about points for.
+- **In the meantime:** `app/domain/wapdate.py` implements the bound and its tests pin the equality
+  and cup-week cases. No schema or migration change.
+
+---
+
 ## OQ-0013 — `braces` <=3.0.3 advisory accepted until Tailwind updates it
 
 - **Found:** `pnpm audit` reports GHSA-vfj7-8cjw-p6xm (high, stack-exhaustion DoS via deeply nested

@@ -7,6 +7,7 @@ import { LeagueContext } from "../leagues/LeagueContext";
 import {
   emptyHistoryResponse,
   emptyStandingsResponse,
+  emptyWapdateResponse,
   errorResponse,
   historyResponse,
   jsonResponse,
@@ -14,6 +15,7 @@ import {
   mockFetch,
   requestPath,
   standingsResponse,
+  wapdateResponse,
 } from "../test/fixtures";
 import { StandingsPage } from "./StandingsPage";
 
@@ -56,6 +58,9 @@ function readyFetch() {
     if (path.endsWith("/vp-history")) {
       return jsonResponse(historyResponse);
     }
+    if (path.endsWith("/wapdate")) {
+      return jsonResponse(wapdateResponse);
+    }
     return errorResponse(404, { code: "not_found", message: "Not found" });
   });
 }
@@ -84,6 +89,8 @@ describe("StandingsPage", () => {
     ).toEqual(["4", "5", "6"]);
     expect(screen.getByRole("img", { name: /cumulative victory points/i })).toBeInTheDocument();
     expect(screen.getByText(/4 completed weeks/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "WAPDate standings" })).toBeInTheDocument();
+    expect(await screen.findByRole("radio", { name: /weeks 5-8 · in progress/i })).toBeChecked();
   });
 
   it("shows W-L-T when a team recorded an H2H tie", async () => {
@@ -93,9 +100,15 @@ describe("StandingsPage", () => {
         index === 0 ? { ...row, ties: 1 } : row,
       ),
     };
-    mockFetch((url) =>
-      requestPath(url).endsWith("/standings") ? jsonResponse(tied) : jsonResponse(historyResponse),
-    );
+    mockFetch((url) => {
+      const path = requestPath(url);
+      if (path.endsWith("/standings")) {
+        return jsonResponse(tied);
+      }
+      return path.endsWith("/wapdate")
+        ? jsonResponse(wapdateResponse)
+        : jsonResponse(historyResponse);
+    });
     renderPage();
     const overall = await screen.findByRole("table", { name: /overall 2026 standings/i });
     expect(within(overall).getByRole("columnheader", { name: "W-L-T" })).toBeInTheDocument();
@@ -132,30 +145,40 @@ describe("StandingsPage", () => {
   it("shows loading, empty, and error states for every data view", async () => {
     mockFetch(() => new Promise<Response>(() => {}));
     const loading = renderPage();
-    expect(screen.getAllByRole("status")).toHaveLength(3);
+    expect(screen.getAllByRole("status")).toHaveLength(4);
     loading.unmount();
 
-    mockFetch((url) =>
-      requestPath(url).endsWith("/standings")
-        ? jsonResponse(emptyStandingsResponse)
-        : jsonResponse(emptyHistoryResponse),
-    );
+    mockFetch((url) => {
+      const path = requestPath(url);
+      if (path.endsWith("/standings")) {
+        return jsonResponse(emptyStandingsResponse);
+      }
+      return path.endsWith("/wapdate")
+        ? jsonResponse(emptyWapdateResponse)
+        : jsonResponse(emptyHistoryResponse);
+    });
     const empty = renderPage();
     await screen.findByText("No chart yet");
     expect(screen.getAllByText("No completed weeks yet")).toHaveLength(2);
+    expect(screen.getByText("No WAPDate periods yet")).toBeInTheDocument();
     empty.unmount();
 
     mockFetch(() => errorResponse(500, { code: "boom", message: "The API is unavailable." }));
     renderPage();
-    const alerts = await screen.findAllByRole("alert");
-    expect(alerts).toHaveLength(3);
-    expect(alerts[0]).toHaveTextContent("The API is unavailable.");
+    await waitFor(() => {
+      expect(screen.getAllByRole("alert")).toHaveLength(4);
+    });
+    expect(screen.getAllByRole("alert")[0]).toHaveTextContent("The API is unavailable.");
   });
 
   it("retries a failed load", async () => {
     let standingsCalls = 0;
     mockFetch((url) => {
-      if (!requestPath(url).endsWith("/standings")) {
+      const path = requestPath(url);
+      if (path.endsWith("/wapdate")) {
+        return jsonResponse(wapdateResponse);
+      }
+      if (!path.endsWith("/standings")) {
         return jsonResponse(historyResponse);
       }
       standingsCalls += 1;
@@ -192,32 +215,44 @@ describe("StandingsPage", () => {
   });
 
   it("handles unnamed divisions and a season with no completed weeks", async () => {
-    mockFetch((url) =>
-      requestPath(url).endsWith("/standings")
-        ? jsonResponse({
-            ...standingsResponse,
-            divisions: [{ name: null, standings: standingsResponse.overall }],
-          })
-        : jsonResponse(historyResponse),
-    );
+    mockFetch((url) => {
+      const path = requestPath(url);
+      if (path.endsWith("/standings")) {
+        return jsonResponse({
+          ...standingsResponse,
+          divisions: [{ name: null, standings: standingsResponse.overall }],
+        });
+      }
+      return path.endsWith("/wapdate")
+        ? jsonResponse(wapdateResponse)
+        : jsonResponse(historyResponse);
+    });
     const unnamed = renderPage();
     expect(await screen.findByText("Division 1")).toBeInTheDocument();
     unnamed.unmount();
 
-    mockFetch((url) =>
-      requestPath(url).endsWith("/standings")
-        ? jsonResponse({ ...standingsResponse, divisions: [] })
-        : jsonResponse(historyResponse),
-    );
+    mockFetch((url) => {
+      const path = requestPath(url);
+      if (path.endsWith("/standings")) {
+        return jsonResponse({ ...standingsResponse, divisions: [] });
+      }
+      return path.endsWith("/wapdate")
+        ? jsonResponse(wapdateResponse)
+        : jsonResponse(historyResponse);
+    });
     const noDivisions = renderPage();
     expect(await screen.findByText("No divisions")).toBeInTheDocument();
     noDivisions.unmount();
 
-    mockFetch((url) =>
-      requestPath(url).endsWith("/standings")
-        ? jsonResponse(standingsResponse)
-        : jsonResponse(emptyHistoryResponse),
-    );
+    mockFetch((url) => {
+      const path = requestPath(url);
+      if (path.endsWith("/standings")) {
+        return jsonResponse(standingsResponse);
+      }
+      return path.endsWith("/wapdate")
+        ? jsonResponse(wapdateResponse)
+        : jsonResponse(emptyHistoryResponse);
+    });
     renderPage();
     expect(await screen.findByText("No chart yet")).toBeInTheDocument();
   });

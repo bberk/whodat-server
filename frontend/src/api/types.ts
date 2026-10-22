@@ -44,3 +44,8 @@ export type DivisionStandings = components["schemas"]["DivisionStandings"];
 export type StandingsResponse = components["schemas"]["StandingsResponse"];
 export type TeamVpHistory = components["schemas"]["TeamVpHistory"];
 export type VpHistoryResponse = components["schemas"]["VpHistoryResponse"];
+
+/** The worst-team-per-four-week-block view: fixed periods with lowest-first rows. */
+export type WapdateRow = components["schemas"]["WapdateRow"];
+export type WapdatePeriod = components["schemas"]["WapdatePeriod"];
+export type WapdateResponse = components["schemas"]["WapdateResponse"];

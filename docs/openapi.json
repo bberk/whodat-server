@@ -841,6 +841,133 @@
         ],
         "title": "VpHistoryResponse",
         "type": "object"
+      },
+      "WapdatePeriod": {
+        "description": "One offered WAPDate period with its completed weeks and rows.",
+        "properties": {
+          "end_week": {
+            "title": "End Week",
+            "type": "integer"
+          },
+          "period": {
+            "title": "Period",
+            "type": "integer"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/WapdateRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "start_week": {
+            "title": "Start Week",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "complete",
+              "current"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "weeks": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Weeks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "period",
+          "start_week",
+          "end_week",
+          "status",
+          "weeks",
+          "rows"
+        ],
+        "title": "WapdatePeriod",
+        "type": "object"
+      },
+      "WapdateResponse": {
+        "description": "The offered WAPDate periods for one league season.",
+        "properties": {
+          "highest_completed_week": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Highest Completed Week"
+          },
+          "league_id": {
+            "title": "League Id",
+            "type": "integer"
+          },
+          "periods": {
+            "items": {
+              "$ref": "#/components/schemas/WapdatePeriod"
+            },
+            "title": "Periods",
+            "type": "array"
+          },
+          "season": {
+            "title": "Season",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "league_id",
+          "season",
+          "highest_completed_week",
+          "periods"
+        ],
+        "title": "WapdateResponse",
+        "type": "object"
+      },
+      "WapdateRow": {
+        "description": "One team's WAPDate row, ordered lowest first by the service.",
+        "properties": {
+          "eliminated": {
+            "title": "Eliminated",
+            "type": "boolean"
+          },
+          "points_for": {
+            "title": "Points For",
+            "type": "string"
+          },
+          "team_id": {
+            "title": "Team Id",
+            "type": "integer"
+          },
+          "team_name": {
+            "title": "Team Name",
+            "type": "string"
+          },
+          "victory_points": {
+            "title": "Victory Points",
+            "type": "string"
+          },
+          "wins": {
+            "title": "Wins",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "team_id",
+          "team_name",
+          "victory_points",
+          "wins",
+          "points_for",
+          "eliminated"
+        ],
+        "title": "WapdateRow",
+        "type": "object"
       }
     }
   },
@@ -1389,6 +1516,58 @@
           }
         },
         "summary": "Get Vp History",
+        "tags": [
+          "standings"
+        ]
+      }
+    },
+    "/api/v1/leagues/{league_id}/seasons/{season}/wapdate": {
+      "get": {
+        "description": "Return the offered WAPDate periods with their lowest-first rows.",
+        "operationId": "get_wapdate_api_v1_leagues__league_id__seasons__season__wapdate_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "league_id",
+            "required": true,
+            "schema": {
+              "title": "League Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "season",
+            "required": true,
+            "schema": {
+              "title": "Season",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WapdateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Wapdate",
         "tags": [
           "standings"
         ]
