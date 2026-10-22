@@ -33,10 +33,37 @@ EXTERNAL_ID_PATTERN = re.compile(r"[A-Za-z0-9._-]+")
 #: division names, so it caps pathological input without narrowing legitimate ESPN data.
 MAX_DISPLAY_TEXT_LENGTH = 200
 
-#: Unicode categories removed from display text: C0/C1 controls, format characters (zero-width
-#: joiners, bidi overrides, soft hyphens), surrogates, private-use characters, and unassigned code
-#: points. Line and paragraph separators are handled by whitespace collapsing below.
-_REMOVED_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Co", "Cn"})
+#: Unicode categories removed outright from display text: C0/C1 controls (including NUL) and
+#: surrogates. Line and paragraph separators are whitespace, so the collapsing pass below turns
+#: them into a single space instead.
+_REMOVED_CATEGORIES = frozenset({"Cc", "Cs"})
+
+#: Individual invisible or bidi-affecting code points removed from display text. This is
+#: deliberately *not* a blanket ``Cf`` strip: ZWJ (U+200D) and ZWNJ (U+200C) are meaningful in
+#: emoji sequences and in Persian/Indic text, and Arabic number signs are meaningful too.
+_REMOVED_CODE_POINTS = frozenset(
+    {
+        0x061C,  # Arabic letter mark
+        0x200B,  # zero width space
+        0x200E,  # left-to-right mark
+        0x200F,  # right-to-left mark
+        0x2060,  # word joiner
+        0xFEFF,  # BOM / zero width no-break space
+    }
+)
+
+#: Ranges of bidi embedding/override and isolate controls that can reorder rendered text.
+_REMOVED_CODE_POINT_RANGES = ((0x202A, 0x202E), (0x2066, 0x2069))
+
+
+def _is_removed_code_point(character: str) -> bool:
+    """Return whether a display-text character is invisible or unsafe to render."""
+    code_point = ord(character)
+    if code_point in _REMOVED_CODE_POINTS:
+        return True
+    if unicodedata.category(character) in _REMOVED_CATEGORIES:
+        return True
+    return any(start <= code_point <= end for start, end in _REMOVED_CODE_POINT_RANGES)
 
 
 def normalize_external_id(value: str) -> str:
@@ -63,10 +90,12 @@ def normalize_display_text(
 ) -> str:
     """Return provider display text safe to persist, without escaping markup.
 
-    The result is NFC-normalized, has NUL/control/format characters and Unicode line/paragraph
-    separators removed, collapses every run of internal whitespace to one space, is trimmed, and is
-    capped at ``max_length`` code points. HTML characters such as ``<`` and ``>`` are preserved as
-    literal text; rendering, not storage, owns escaping.
+    The result is NFC-normalized, has NUL/C0-C1 controls, surrogates, Unicode line/paragraph
+    separators, bidi embedding/override/isolate controls, bidi marks, zero-width spacing
+    characters, and any BOM removed, collapses every run of internal whitespace to one space, is
+    trimmed, and is capped at ``max_length`` code points. Meaningful format characters — notably
+    ZWJ/ZWNJ used by emoji and Persian/Indic text, and Arabic number signs — are preserved. HTML
+    characters such as ``<`` and ``>`` stay literal text; rendering, not storage, owns escaping.
     """
     if not isinstance(value, str):
         return ""
@@ -75,7 +104,7 @@ def normalize_display_text(
     for character in normalized:
         if character.isspace():
             kept.append(" ")
-        elif unicodedata.category(character) in _REMOVED_CATEGORIES:
+        elif _is_removed_code_point(character):
             continue
         else:
             kept.append(character)
