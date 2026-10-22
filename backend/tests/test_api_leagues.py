@@ -15,6 +15,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
+import httpx
 import pytest
 from fastapi import HTTPException, Response
 from fastapi.testclient import TestClient
@@ -29,7 +30,7 @@ from app.api.session import SESSION_COOKIE_NAME, set_session
 from app.config import get_settings
 from app.db.auth_repositories import InviteRepository, MembershipRepository, UserRepository
 from app.db.base import Base
-from app.db.models import League, Owner, UserLeague
+from app.db.models import League, Owner, Team, UserLeague
 from app.db.repositories import SyncRepository
 from app.db.session import get_session as db_get_session
 from app.providers.base import (
@@ -48,6 +49,7 @@ from app.services.league_service import (
     AdminRequiredError,
     AlreadyMemberError,
     CredentialsRequiredError,
+    DuplicateSeasonError,
     IncompleteCredentialsError,
     InvalidLeagueRequestError,
     InviteNotRedeemableError,
@@ -358,6 +360,7 @@ def _add_payload(*, credentials: bool = True) -> dict[str, object]:
         ("post", "/api/v1/me/leagues/redeem-invite", {"invite_code": "code"}),
         ("get", "/api/v1/me/leagues", None),
         ("get", "/api/v1/leagues/1/seasons", None),
+        ("post", "/api/v1/leagues/1/seasons", {"season": 2025}),
         ("get", "/api/v1/leagues/1/owners", None),
         ("put", "/api/v1/me/leagues/1/owner", {"owner_id": 1}),
         ("post", "/api/v1/leagues/1/refresh", None),
@@ -822,6 +825,153 @@ def test_AC_AU_09_refresh_returns_429_with_retry_after(api_factory: Callable[...
 
 
 # ---------------------------------------------------------------------------
+# Add a season to an existing league
+# ---------------------------------------------------------------------------
+
+
+def _add_season(api: Api, league_id: int, season: int) -> httpx.Response:
+    return api.client.post(f"/api/v1/leagues/{league_id}/seasons", json={"season": season})
+
+
+def test_AC_AU_18_admin_adds_a_season_and_returns_the_weeks_synced(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory(seed=_seed(season=2025))
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=admin_id, league_id=league_id, credentials=True)
+    _login(api, admin_id)
+
+    response = _add_season(api, league_id, 2025)
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["league_id"] == league_id
+    assert body["season"] == 2025
+    assert body["weeks_synced"] == [1]
+    assert api.provider_factory.decrypted == [(S2, SWID)]
+    for secret in (S2, SWID, "espn_s2_encrypted", "espn_swid_encrypted"):
+        assert secret not in response.text
+
+    with api.factory() as session:
+        seasons = [row.season for row in SyncRepository(session).list_league_seasons(league_id)]
+        assert seasons == [2025, SEASON]
+
+
+def test_AC_AU_18_duplicate_season_returns_409_and_skips_the_provider(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=admin_id, league_id=league_id, credentials=True)
+    _login(api, admin_id)
+
+    response = _add_season(api, league_id, SEASON)
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "season_exists"
+    assert api.provider_factory.calls == []
+
+
+def test_AC_AU_18_add_season_requires_an_admin(api_factory: Callable[..., Api]) -> None:
+    api = api_factory()
+    member_id = _create_user(api, "member@example.com")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=member_id, league_id=league_id, credentials=True)
+    _login(api, member_id)
+
+    response = _add_season(api, league_id, 2025)
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "forbidden"
+    assert api.provider_factory.calls == []
+
+
+@pytest.mark.parametrize("role", ["admin", "member"])
+def test_AC_AU_18_add_season_by_a_non_member_returns_404(
+    api_factory: Callable[..., Api], role: str
+) -> None:
+    api = api_factory(seed=_seed(season=2025))
+    user_id = _create_user(api, "outsider@example.com", role=role)
+    league_id = _seed_league(api)
+    _login(api, user_id)
+
+    response = _add_season(api, league_id, 2025)
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "not_found"
+    assert api.provider_factory.calls == []
+
+
+def test_AC_AU_18_add_season_for_an_unknown_league_returns_404(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory(seed=_seed(season=2025))
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    _login(api, admin_id)
+
+    response = _add_season(api, 999, 2025)
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "not_found"
+
+
+def test_AC_AU_18_add_season_without_stored_credentials_returns_403(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory(seed=_seed(season=2025))
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=admin_id, league_id=league_id)
+    _login(api, admin_id)
+
+    response = _add_season(api, league_id, 2025)
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "credentials_required"
+    assert api.provider_factory.calls == []
+
+
+@pytest.mark.parametrize("season", [1999, 2101])
+def test_AC_AU_18_invalid_season_year_returns_422_before_any_work(
+    api_factory: Callable[..., Api], season: int
+) -> None:
+    api = api_factory(seed=_seed(season=2025))
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=admin_id, league_id=league_id, credentials=True)
+    _login(api, admin_id)
+
+    response = _add_season(api, league_id, season)
+
+    assert response.status_code == 422
+    assert all("input" not in error for error in response.json()["detail"])
+    assert api.provider_factory.calls == []
+
+
+def test_AC_AU_18_provider_failure_returns_400_and_leaves_no_season(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory(provider_factory=FailingFactory(_seed(season=2025)))
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=admin_id, league_id=league_id, credentials=True)
+    _login(api, admin_id)
+
+    response = _add_season(api, league_id, 2025)
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "sync_failed"
+    assert "sensitive url" not in response.text
+    with api.factory() as session:
+        seasons = [row.season for row in SyncRepository(session).list_league_seasons(league_id)]
+        assert seasons == [SEASON]
+        teams = session.scalar(select(func.count()).select_from(Team).where(Team.season == 2025))
+        assert teams == 0
+
+
+# ---------------------------------------------------------------------------
 # Secret hygiene
 # ---------------------------------------------------------------------------
 
@@ -887,6 +1037,7 @@ def test_production_league_service_dependency_builds(api_factory: Callable[..., 
         (NotAMemberError("x"), 404, "not_found"),
         (OwnerNotFoundError("x"), 404, "not_found"),
         (AlreadyMemberError("x"), 409, "already_member"),
+        (DuplicateSeasonError("x"), 409, "season_exists"),
         (IncompleteCredentialsError("x"), 400, "invalid_credentials"),
         (InvalidLeagueRequestError("x"), 400, "invalid_request"),
         (LeagueAccessError("x"), 400, "league_unavailable"),

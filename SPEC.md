@@ -105,6 +105,11 @@ All ESPN-specific code lives behind a provider interface that returns normalized
   ESPN_S2/ESPN_SWID; no invite is required. The backend validates by constructing an ESPN league
   object before storing anything; on success it stores the league, the membership, the encrypted
   credentials, and syncs the requested season.
+- An admin who belongs to an existing league can add another season to it. The backend syncs that
+  season immediately using the caller's own stored league credentials (the same credential model
+  as refresh), with no fallback to another member's credentials or the environment. A caller with
+  no stored credentials for that league, a season that already exists, or a provider failure is
+  rejected without leaving a partial season behind.
 - A user who signs up with an admin invite has no league and must complete a mandatory "create your
   league" step (ESPN league id, season, ESPN_S2, ESPN_SWID) before reaching standings. A user who
   signs up with a member invite already has that league and goes straight in.

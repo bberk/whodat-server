@@ -25,6 +25,7 @@ export function LeagueProvider({ children }: { children: ReactNode }) {
   const [seasonsError, setSeasonsError] = useState<string | null>(null);
   const [season, setSeason] = useState<number | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [seasonsAttempt, setSeasonsAttempt] = useState(0);
   const [dataVersion, setDataVersion] = useState(0);
 
   const userId = user?.id ?? null;
@@ -97,7 +98,7 @@ export function LeagueProvider({ children }: { children: ReactNode }) {
     return () => {
       controller.abort();
     };
-  }, [selectedLeagueId, leaguesStatus]);
+  }, [selectedLeagueId, leaguesStatus, seasonsAttempt]);
 
   const selectLeague = useCallback((leagueId: number) => {
     setSelectedLeagueId(leagueId);
@@ -129,6 +130,19 @@ export function LeagueProvider({ children }: { children: ReactNode }) {
     setAttempt((current) => current + 1);
   }, []);
 
+  const reloadSeasons = useCallback(() => {
+    setSeasonsAttempt((current) => current + 1);
+  }, []);
+
+  const addStoredSeason = useCallback((added: number) => {
+    setSeasons((current) =>
+      current.includes(added) ? current : [...current, added].sort((a, b) => a - b),
+    );
+    setSeasonsStatus("ready");
+    setSeasonsError(null);
+    setSeason(added);
+  }, []);
+
   const notifyDataChanged = useCallback(() => {
     setDataVersion((current) => current + 1);
   }, []);
@@ -147,6 +161,8 @@ export function LeagueProvider({ children }: { children: ReactNode }) {
       seasonsError,
       season,
       selectSeason,
+      reloadSeasons,
+      addStoredSeason,
       upsertLeague,
       reloadLeagues,
       dataVersion,
@@ -163,6 +179,8 @@ export function LeagueProvider({ children }: { children: ReactNode }) {
       seasonsError,
       season,
       selectSeason,
+      reloadSeasons,
+      addStoredSeason,
       upsertLeague,
       reloadLeagues,
       dataVersion,

@@ -1,4 +1,4 @@
-"""League membership, owner, seasons, and refresh routes (ARCHITECTURE.md section 8).
+"""League membership, owner, seasons, season-add, and refresh routes (ARCHITECTURE.md section 8).
 
 All routes are cookie-authenticated and league-scoped operations enforce membership in the
 service. Non-members receive 404 so the response does not confirm that a league exists;
@@ -19,6 +19,8 @@ from app.api.schemas_auth import PublicUser, error_detail
 from app.api.schemas_leagues import (
     AddLeagueRequest,
     AddLeagueResponse,
+    AddSeasonRequest,
+    AddSeasonResponse,
     LeagueSummary,
     OwnersResponse,
     OwnerSummary,
@@ -35,6 +37,7 @@ from app.services.league_service import (
     AdminRequiredError,
     AlreadyMemberError,
     CredentialsRequiredError,
+    DuplicateSeasonError,
     EspnCredentials,
     IncompleteCredentialsError,
     InvalidLeagueRequestError,
@@ -111,7 +114,7 @@ def _http_error(error: LeagueServiceError) -> HTTPException:
     if isinstance(error, AdminRequiredError):
         return HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=error_detail("forbidden", "Only an admin may add a league"),
+            detail=error_detail("forbidden", "Only an admin may perform this action"),
         )
     if isinstance(error, InviteNotRedeemableError):
         return HTTPException(
@@ -132,6 +135,11 @@ def _http_error(error: LeagueServiceError) -> HTTPException:
         return HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=error_detail("already_member", "You already belong to this league"),
+        )
+    if isinstance(error, DuplicateSeasonError):
+        return HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=error_detail("season_exists", "This season already exists for this league"),
         )
     if isinstance(error, IncompleteCredentialsError):
         return HTTPException(
@@ -254,6 +262,35 @@ def list_league_seasons(
     except LeagueServiceError as error:
         _raise(error)
     return SeasonsResponse(seasons=seasons)
+
+
+@router.post(
+    "/leagues/{league_id}/seasons",
+    response_model=AddSeasonResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_league_season(
+    league_id: int,
+    payload: AddSeasonRequest,
+    current_user: CurrentUserDep,
+    service: ServiceDep,
+) -> AddSeasonResponse:
+    """Add and sync one more season for an existing league.
+
+    Only a global admin who belongs to the league may call this. The season sync uses the caller's
+    own stored credentials, and the whole write is atomic: a provider failure returns a structured
+    error and leaves no partial season behind. Credential values never appear in the response.
+    """
+    try:
+        result = service.add_season(_actor(current_user), league_id, payload.season)
+        service.commit()
+    except LeagueServiceError as error:
+        _raise(error)
+    return AddSeasonResponse(
+        league_id=result.league_id,
+        season=result.season,
+        weeks_synced=list(result.weeks_synced),
+    )
 
 
 @router.get("/leagues/{league_id}/owners", response_model=OwnersResponse)

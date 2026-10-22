@@ -87,6 +87,50 @@
         "title": "AddLeagueResponse",
         "type": "object"
       },
+      "AddSeasonRequest": {
+        "additionalProperties": false,
+        "description": "Add and sync one more season for an existing league.",
+        "properties": {
+          "season": {
+            "maximum": 2100.0,
+            "minimum": 2000.0,
+            "title": "Season",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "season"
+        ],
+        "title": "AddSeasonRequest",
+        "type": "object"
+      },
+      "AddSeasonResponse": {
+        "description": "The season added to a league and the weeks the sync ingested.",
+        "properties": {
+          "league_id": {
+            "title": "League Id",
+            "type": "integer"
+          },
+          "season": {
+            "title": "Season",
+            "type": "integer"
+          },
+          "weeks_synced": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Weeks Synced",
+            "type": "array"
+          }
+        },
+        "required": [
+          "league_id",
+          "season",
+          "weeks_synced"
+        ],
+        "title": "AddSeasonResponse",
+        "type": "object"
+      },
       "DivisionStandings": {
         "description": "A division's rows in overall-rank order; each row keeps its overall league rank.",
         "properties": {
@@ -1024,6 +1068,57 @@
           }
         },
         "summary": "List League Seasons",
+        "tags": [
+          "leagues"
+        ]
+      },
+      "post": {
+        "description": "Add and sync one more season for an existing league.\n\nOnly a global admin who belongs to the league may call this. The season sync uses the caller's\nown stored credentials, and the whole write is atomic: a provider failure returns a structured\nerror and leaves no partial season behind. Credential values never appear in the response.",
+        "operationId": "add_league_season_api_v1_leagues__league_id__seasons_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "league_id",
+            "required": true,
+            "schema": {
+              "title": "League Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddSeasonRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddSeasonResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add League Season",
         "tags": [
           "leagues"
         ]

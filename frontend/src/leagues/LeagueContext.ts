@@ -16,6 +16,10 @@ export interface LeagueContextValue {
   seasonsError: string | null;
   season: number | null;
   selectSeason: (season: number) => void;
+  /** Re-fetch the selected league's seasons (for example after an admin adds one). */
+  reloadSeasons: () => void;
+  /** Merge a just-added season into the list and select it. */
+  addStoredSeason: (season: number) => void;
 
   /** Insert or replace one membership after adding a league or changing its owner. */
   upsertLeague: (league: LeagueSummary) => void;

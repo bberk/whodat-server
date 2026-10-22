@@ -18,6 +18,8 @@ function value(overrides: Partial<LeagueContextValue> = {}): LeagueContextValue 
     seasonsError: null,
     season: 2026,
     selectSeason: vi.fn(),
+    reloadSeasons: vi.fn(),
+    addStoredSeason: vi.fn(),
     upsertLeague: vi.fn(),
     reloadLeagues: vi.fn(),
     dataVersion: 0,

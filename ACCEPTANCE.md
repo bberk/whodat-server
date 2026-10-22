@@ -122,6 +122,7 @@ Three tied teams each get exactly 1/3 high-score VP (tests must use exact fracti
 | AC-AU-15 | A user who signs up with a member invite already holds that league's membership and reaches its standings without the create-league step. |
 | AC-AU-16 | Redeeming a member invite for an additional league creates exactly one membership; an expired, unknown, or wrong-role (admin) invite is rejected and creates nothing. |
 | AC-AU-17 | Invite creation rejects a member invite with no league and an admin invite with a league; the role/league invariant is enforced at creation. |
+| AC-AU-18 | Only a global admin who holds a membership in an existing league can add a season to it. The season must not already be stored, and the call syncs immediately using the caller's own stored league credentials (the same model as refresh), with no fallback to another member's credentials or the environment. A non-admin member gets 403, a non-member gets 404, a duplicate season gets 409, and a caller without stored credentials is rejected. The write is atomic: a provider failure leaves no partial league or season rows, and no credential value or provider exception text appears in a response or log. |
 
 ## 6. API
 
@@ -132,6 +133,7 @@ Three tied teams each get exactly 1/3 high-score VP (tests must use exact fracti
 | AC-API-03 | The cumulative VP response for a team at week W equals the sum of its weekly VP for weeks 1..W. |
 | AC-API-04 | Invalid inputs (unknown season, week out of range) return 4xx with a structured error body, never a 500. |
 | AC-API-05 | Standings for a 12-team, 18-week season respond in under 500 ms (p95) against SQLite in a local benchmark test. |
+| AC-API-06 | `POST /api/v1/leagues/{league_id}/seasons` accepts `{season: int}` with a year from 2000 to 2100 and returns 201 with the league id, season, and weeks synced. Admin-only, membership, duplicate-season, missing-credential, and provider failures map to structured 4xx responses, and the committed OpenAPI document includes the endpoint. |
 
 ## 7. Frontend
 
@@ -146,6 +148,7 @@ Three tied teams each get exactly 1/3 high-score VP (tests must use exact fracti
 | AC-FE-07 | Automated accessibility check (axe) reports no serious or critical violations on the login and standings pages. |
 | AC-FE-08 | Unauthenticated users are redirected to login; after login they return to the page they requested. |
 | AC-FE-09 | (manual) A human reviewer confirms the UI looks modern and polished on a real phone and a desktop browser. |
+| AC-FE-10 | An admin can add a season for the selected league from the admin page (`/leagues/:leagueId/admin`): a labelled whole-year input (2000-2100, required, defaulting to the current year), an Add action with a loading state, clear success and error messages, and no colour-only signalling. On success the league's seasons refresh and the newly added season is selected. |
 
 ## 8. Repository and delivery
 
