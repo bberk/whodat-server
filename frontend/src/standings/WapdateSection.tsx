@@ -51,10 +51,6 @@ export function WapdateSection({ leagueId, season, dataVersion }: WapdateSection
       <h2 id="h-wapdate" className="text-base font-bold">
         WAPDate standings
       </h2>
-      <p className="mt-1 text-[13px] text-gray-500">
-        The worst team in each four-week block. Rows are ordered lowest first by victory points,
-        then wins, then points for. Greyed teams are safe from last place.
-      </p>
 
       {state.status === "loading" ? <LoadingState label="Loading WAPDate standings…" /> : null}
 

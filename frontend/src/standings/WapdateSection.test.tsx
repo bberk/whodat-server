@@ -40,6 +40,7 @@ describe("WapdateSection (AC-WD-08)", () => {
 
     const current = await screen.findByRole("radio", { name: /weeks 5-8 · in progress/i });
     expect(current).toBeChecked();
+    expect(screen.queryByText(/The worst team in each four-week block/i)).not.toBeInTheDocument();
     expect(screen.getByRole("radio", { name: /weeks 1-4 · complete/i })).not.toBeChecked();
     expect(screen.queryByRole("radio", { name: /weeks 9-12/i })).not.toBeInTheDocument();
 

@@ -377,6 +377,9 @@ def _add_payload(*, credentials: bool = True) -> dict[str, object]:
         ("get", "/api/v1/me/leagues", None),
         ("get", "/api/v1/leagues/1/seasons", None),
         ("post", "/api/v1/leagues/1/seasons", {"season": 2025}),
+        ("get", "/api/v1/leagues/1/seasons/settings", None),
+        ("post", "/api/v1/leagues/1/seasons/2026/refresh", None),
+        ("delete", "/api/v1/leagues/1/seasons/2026", None),
         ("get", "/api/v1/leagues/1/owners", None),
         ("put", "/api/v1/me/leagues/1/owner", {"owner_id": 1}),
         ("post", "/api/v1/leagues/1/refresh", None),
@@ -877,6 +880,12 @@ def test_AC_AU_18_admin_adds_a_season_and_returns_the_weeks_synced(
         seasons = [row.season for row in SyncRepository(session).list_league_seasons(league_id)]
         assert seasons == [2025, SEASON]
 
+    settings = api.client.get(f"/api/v1/leagues/{league_id}/seasons/settings")
+    assert settings.status_code == 200
+    by_season = {row["season"]: row for row in settings.json()["seasons"]}
+    assert by_season[2025]["last_refreshed_at"] is not None
+    assert by_season[SEASON]["last_refreshed_at"] is None
+
 
 def test_AC_AU_18_duplicate_season_returns_409_and_skips_the_provider(
     api_factory: Callable[..., Api],
@@ -1204,6 +1213,9 @@ def test_AC_API_07_admin_setting_cup_week_recomputes_stored_scores(
     }
     assert all(value == Decimal(0) for value in _stored_h2h(api, league_id, 2).values())
     assert any(value != Decimal(0) for value in _stored_h2h(api, league_id, 1).values())
+    # A cup-week change is provider-free: it recomputes only from stored data.
+    assert api.provider_factory.calls == []
+    assert api.provider_factory.public_calls == 0
 
     standings = api.client.get(f"/api/v1/leagues/{league_id}/seasons/{SEASON}/standings").json()
     rows = {row["team_name"]: row for row in standings["overall"]}
@@ -1344,6 +1356,250 @@ def test_AC_API_07_unauthenticated_cup_week_requests_return_401(
     for response in (get_response, put_response):
         assert response.status_code == 401
         assert response.json()["detail"]["code"] == "not_authenticated"
+
+
+# ---------------------------------------------------------------------------
+# AC-AU-23/24/25 and AC-API-09: season settings, per-season refresh, delete season
+# ---------------------------------------------------------------------------
+
+
+def _season_settings_path(league_id: int) -> str:
+    return f"/api/v1/leagues/{league_id}/seasons/settings"
+
+
+def _season_path(league_id: int, season: int = SEASON) -> str:
+    return f"/api/v1/leagues/{league_id}/seasons/{season}"
+
+
+def _refresh_season_path(league_id: int, season: int = SEASON) -> str:
+    return f"{_season_path(league_id, season)}/refresh"
+
+
+def _seed_two_synced_seasons(api: Api) -> int:
+    """Sync 2025 and 2026 fixture seasons into one league through the sync service."""
+    with api.factory() as session:
+        seed = {**_seed(season=2025), **_seed(season=SEASON)}
+        sync = SyncService(FakeProvider(seed), session)
+        summary = sync.sync_league(LeagueRef(external_id=LEAGUE_EXTERNAL), "fake", 2025)
+        sync.sync_league(LeagueRef(external_id=LEAGUE_EXTERNAL), "fake", SEASON)
+        session.commit()
+        return summary.league_id
+
+
+def _season_row_counts(api: Api, league_id: int, season: int) -> dict[str, int]:
+    with api.factory() as session:
+        return {
+            model.__tablename__: int(
+                session.scalar(
+                    select(func.count())
+                    .select_from(model)
+                    .where(model.league_id == league_id, model.season == season)
+                )
+                or 0
+            )
+            for model in (Team, Matchup, Score)
+        }
+
+
+def test_AC_AU_23_admin_lists_season_settings_with_nulls(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    league_id = _seed_league(api)
+    with api.factory() as session:
+        SyncRepository(session).upsert_league_season(league_id, 2025, {"regular_season_length": 14})
+        session.commit()
+    _seed_membership(api, user_id=admin_id, league_id=league_id)
+    _login(api, admin_id)
+
+    response = api.client.get(_season_settings_path(league_id))
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "seasons": [
+            {
+                "season": 2025,
+                "cup_week": None,
+                "regular_season_length": 14,
+                "last_refreshed_at": None,
+            },
+            {
+                "season": SEASON,
+                "cup_week": None,
+                "regular_season_length": 1,
+                "last_refreshed_at": None,
+            },
+        ]
+    }
+    assert api.provider_factory.calls == []
+    assert api.provider_factory.public_calls == 0
+
+
+def test_AC_AU_23_season_settings_requires_an_admin_member(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    member_id = _create_user(api, "member@example.com")
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=member_id, league_id=league_id)
+    _login(api, member_id)
+
+    forbidden = api.client.get(_season_settings_path(league_id))
+    api.client.cookies.clear()
+    _login(api, admin_id)
+    non_member = api.client.get(_season_settings_path(league_id))
+    unknown = api.client.get(_season_settings_path(999))
+
+    assert forbidden.status_code == 403
+    assert forbidden.json()["detail"]["code"] == "forbidden"
+    for response in (non_member, unknown):
+        assert response.status_code == 404
+        assert response.json()["detail"]["code"] == "not_found"
+
+
+def test_AC_AU_24_admin_refreshes_one_season_and_records_the_timestamp(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=admin_id, league_id=league_id, credentials=True)
+    _login(api, admin_id)
+
+    response = api.client.post(_refresh_season_path(league_id))
+
+    assert response.status_code == 200
+    assert response.json() == {"season": SEASON, "weeks_synced": [1]}
+    assert api.provider_factory.decrypted == [(S2, SWID)]
+    for secret in (S2, SWID):
+        assert secret not in response.text
+    # Refreshing a stored season neither creates a league nor duplicates the season.
+    assert _count(api, League) == 1
+    assert _count(api, LeagueSeason) == 1
+    assert _count(api, Team) == 2
+
+    settings = api.client.get(_season_settings_path(league_id)).json()["seasons"]
+    refreshed_at = settings[0]["last_refreshed_at"]
+    assert refreshed_at is not None
+    assert datetime.fromisoformat(refreshed_at.replace("Z", "+00:00")) == datetime(
+        SEASON, 1, 1, tzinfo=UTC
+    )
+
+
+def test_AC_AU_24_refresh_season_is_rate_limited(api_factory: Callable[..., Api]) -> None:
+    api = api_factory()
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=admin_id, league_id=league_id, credentials=True)
+    _login(api, admin_id)
+
+    first = api.client.post(_refresh_season_path(league_id))
+    second = api.client.post(_refresh_season_path(league_id))
+
+    assert first.status_code == 200
+    assert second.status_code == 429
+    assert second.headers["Retry-After"] == "300"
+    assert second.json()["detail"]["code"] == "rate_limited"
+    assert len(api.provider_factory.calls) == 1
+
+    api.clock.advance(300)
+    assert api.client.post(_refresh_season_path(league_id)).status_code == 200
+
+
+def test_AC_AU_24_refresh_season_requires_admin_membership_and_a_stored_season(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    member_id = _create_user(api, "member@example.com")
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    outsider_id = _create_user(api, "outsider@example.com")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=member_id, league_id=league_id, credentials=True)
+    _seed_membership(api, user_id=admin_id, league_id=league_id)
+    _login(api, member_id)
+
+    forbidden = api.client.post(_refresh_season_path(league_id))
+    api.client.cookies.clear()
+    _login(api, outsider_id)
+    non_member = api.client.post(_refresh_season_path(league_id))
+    api.client.cookies.clear()
+    _login(api, admin_id)
+    no_credentials = api.client.post(_refresh_season_path(league_id))
+    unknown_season = api.client.post(_refresh_season_path(league_id, 1999))
+
+    assert forbidden.status_code == 403
+    assert forbidden.json()["detail"]["code"] == "forbidden"
+    assert no_credentials.status_code == 403
+    assert no_credentials.json()["detail"]["code"] == "credentials_required"
+    for response in (non_member, unknown_season):
+        assert response.status_code == 404
+        assert response.json()["detail"]["code"] == "not_found"
+    assert api.provider_factory.calls == []
+
+
+def test_AC_AU_25_delete_season_removes_only_that_seasons_data(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    member_id = _create_user(api, "member@example.com")
+    league_id = _seed_two_synced_seasons(api)
+    _seed_membership(api, user_id=admin_id, league_id=league_id)
+    _seed_membership(api, user_id=member_id, league_id=league_id)
+    _seed_invite(api, league_id=league_id)
+    _login(api, admin_id)
+
+    response = api.client.delete(_season_path(league_id, 2025))
+
+    assert response.status_code == 204
+    assert response.content == b""
+    assert _count(api, League) == 1
+    assert _count(api, Owner) == 2
+    assert _count(api, UserLeague) == 2
+    assert _count(api, Invite) == 1
+    with api.factory() as session:
+        seasons = [row.season for row in SyncRepository(session).list_league_seasons(league_id)]
+    assert seasons == [SEASON]
+    assert _season_row_counts(api, league_id, 2025) == {"team": 0, "matchup": 0, "score": 0}
+    assert _season_row_counts(api, league_id, SEASON) == {
+        "team": 2,
+        "matchup": 1,
+        "score": 2,
+    }
+
+
+def test_AC_AU_25_delete_season_requires_an_admin_member(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    member_id = _create_user(api, "member@example.com")
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    outsider_id = _create_user(api, "outsider@example.com")
+    league_id = _seed_two_synced_seasons(api)
+    _seed_membership(api, user_id=member_id, league_id=league_id)
+    _seed_membership(api, user_id=admin_id, league_id=league_id)
+    _login(api, member_id)
+
+    forbidden = api.client.delete(_season_path(league_id, 2025))
+    api.client.cookies.clear()
+    _login(api, outsider_id)
+    non_member = api.client.delete(_season_path(league_id, 2025))
+    api.client.cookies.clear()
+    _login(api, admin_id)
+    unknown = api.client.delete(_season_path(league_id, 1999))
+
+    assert forbidden.status_code == 403
+    assert forbidden.json()["detail"]["code"] == "forbidden"
+    for response in (non_member, unknown):
+        assert response.status_code == 404
+        assert response.json()["detail"]["code"] == "not_found"
+    assert _season_row_counts(api, league_id, 2025) == {
+        "team": 2,
+        "matchup": 1,
+        "score": 2,
+    }
 
 
 # ---------------------------------------------------------------------------

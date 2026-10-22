@@ -80,8 +80,9 @@ and the season's regular-season length. Choosing the cup week is an admin action
   logged, and never returned by the API.
 - Adding a league validates the credentials by constructing an ESPN league object before anything is
   stored; a failed validation stores nothing.
-- A league-wide refresh can be triggered from the UI by a member whose membership holds credentials.
-  Refresh is rate limited per league and per user; members without credentials cannot refresh.
+- A league-wide refresh can be triggered through the API by a member whose membership holds
+  credentials; the UI exposes a per-season refresh in the admin seasons table. Refresh is rate
+  limited per league and per user; members without credentials cannot refresh.
 - Historical seasons can be backfilled by specifying a season.
 - Each season optionally stores one **cup week** (section 3.4): the week number, within the season's
   regular-season length, where H2H VP and W/L/T do not apply. `null` means no cup week. Only an
@@ -145,7 +146,8 @@ All ESPN-specific code lives behind a provider interface that returns normalized
   season immediately using the caller's own stored league credentials (the same credential model
   as refresh), with no fallback to another member's credentials or the environment. A caller with
   no stored credentials for that league, a season that already exists, or a provider failure is
-  rejected without leaving a partial season behind.
+  rejected without leaving a partial season behind. A successful add records that season's
+  last-refreshed time.
 - A user who signs up with an admin invite has no league and must complete a mandatory "create your
   league" step (ESPN league id, season, ESPN_S2, ESPN_SWID) before reaching standings. A user who
   signs up with a member invite already has that league and goes straight in.
@@ -153,8 +155,18 @@ All ESPN-specific code lives behind a provider interface that returns normalized
   supplying a bare league id. Admins may add any league with credentials without an invite.
 - Credentials are encrypted at rest with AES-256-GCM under `LEAGUE_CREDENTIALS_KEY`, decrypted only
   in the provider layer, and never logged or returned by the API.
-- A member whose membership holds credentials can trigger a league-wide refresh from the UI; refresh
-  is rate limited per league and per user. Members without credentials cannot refresh.
+- A member whose membership holds credentials can trigger a league-wide refresh through the API;
+  refresh is rate limited per league and per user. Members without credentials cannot refresh.
+  The only refresh control in the UI is the admin seasons table, where an admin member refreshes
+  one stored season at a time using the same credential and rate-limit rules.
+- An admin who belongs to a league can refresh or delete a single stored season from the admin
+  seasons table. Refreshing a season syncs only that season through the provider and updates its
+  last-refreshed time; it never creates or duplicates a league or season. Deleting a season removes
+  only that season's stored data (the `league_season` row, teams, matchups, and scores) while
+  keeping the league, owners, memberships, invites, and every other stored season. Both operations
+  are atomic.
+- Each stored season records the instant of its last successful provider sync as a nullable
+  timestamp. Add-season and refresh set it; changing the cup week never does.
 - After joining, a user may associate their membership with one of that league's owners.
 - An admin who belongs to a league can manage its membership from the league admin page. The page
   lists every account associated with the league by email (the account identifier; there is no
@@ -191,19 +203,24 @@ Pages and views:
 3. **VP chart**: a line chart of cumulative VP over time, x-axis = week, one line per team. Users can highlight a team and toggle teams on and off. Must be legible on a phone.
 4. **League admin**: a page available only to signed-in admins for a selected league. It manages the
    league's membership (member list by email with role, owner association, and credential status, and
-   confirmed removal with a last-admin guard and a credential warning), add-season, that season's cup
-   week (no cup week, or weeks 1..regular-season length) with a save action, invite generation (a
-   member invite bound to the league or a league-less admin invite, with the raw code shown once and a
-   copy control), and a clearly separated destructive action that deletes the league after typing its
-   name to confirm. Every section has loading, error, and success states. Non-admins are redirected
-   to the standings and do not see the Admin navigation item.
+   confirmed removal with a last-admin guard and a credential warning), a single **seasons table**
+   with one row per stored season (season year, cup-week dropdown, last refreshed time, a per-season
+   refresh action, and a confirmed per-season delete action) plus a "+" action that adds a season,
+   invite generation (a member invite bound to the league or a league-less admin invite, with the raw
+   code shown once and a copy control), and a clearly separated destructive action that deletes the
+   league after typing its name to confirm. Cup-week changes save immediately for that row and
+   recompute standings from stored data without contacting the provider. Every section and every row
+   has loading, error, and success states. Non-admins are redirected to the standings and do not see
+   the Admin navigation item.
 
 UI requirements:
 
 - Responsive: usable on phones (~360px wide) through desktop.
 - The season picker belongs to the standings view. It is not shown on the owner page or the league
-  admin page; those pages keep the league switcher and refresh controls, and the admin page names
-  the season it administers in its own heading.
+  admin page; those pages keep the league switcher. There is no refresh control in the shell: the
+  admin seasons table is the only refresh mechanism in the UI.
+- The standings page keeps its section headings, tables, chart, and the meta line under the page
+  title, but shows no instructional subheader paragraph under a section and no footer note.
 - Modern, clean visual design; light and dark mode is nice to have, not required.
 - Wide tables scroll horizontally inside their own container, with the team column pinned (sticky).
 - Accessible: sufficient color contrast, keyboard navigable, chart series distinguishable without relying on color alone (e.g., highlight on select, labels).

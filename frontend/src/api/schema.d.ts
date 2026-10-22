@@ -253,6 +253,54 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/leagues/{league_id}/seasons/settings": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * List League Season Settings
+     * @description Return every stored season's admin settings for an admin member.
+     *
+     *     A non-member gets 404 (the league is not confirmed to exist) and a member without the admin
+     *     role gets 403. The cup week, regular-season week range, and last successful provider sync are
+     *     read from stored rows; no provider is contacted.
+     */
+    get: operations["list_league_season_settings_api_v1_leagues__league_id__seasons_settings_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/leagues/{league_id}/seasons/{season}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /**
+     * Delete League Season
+     * @description Delete one stored season's data, keeping the league, accounts, and other seasons.
+     *
+     *     Scores, matchups, teams, and the season row go in one transaction; owners, memberships,
+     *     invites, the league, and every other season remain. An unknown or unreadable season returns a
+     *     structured 404.
+     */
+    delete: operations["delete_league_season_api_v1_leagues__league_id__seasons__season__delete"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/leagues/{league_id}/seasons/{season}/cup-week": {
     parameters: {
       query?: never;
@@ -271,6 +319,29 @@ export interface paths {
      */
     put: operations["update_cup_week_api_v1_leagues__league_id__seasons__season__cup_week_put"];
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/leagues/{league_id}/seasons/{season}/refresh": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Refresh League Season
+     * @description Refresh one stored season through the provider with the caller's stored credentials.
+     *
+     *     The season must already exist, so a refresh never creates or duplicates a season. Rate limits,
+     *     credential requirements, and structured errors match the league-wide refresh.
+     */
+    post: operations["refresh_league_season_api_v1_leagues__league_id__seasons__season__refresh_post"];
     delete?: never;
     options?: never;
     head?: never;
@@ -727,6 +798,38 @@ export interface components {
       weeks_synced: number[];
       /** Weeks With Vp Recomputed */
       weeks_with_vp_recomputed: number[];
+    };
+    /**
+     * SeasonRefreshResponse
+     * @description The season refreshed through the provider and the weeks its sync ingested.
+     */
+    SeasonRefreshResponse: {
+      /** Season */
+      season: number;
+      /** Weeks Synced */
+      weeks_synced: number[];
+    };
+    /**
+     * SeasonSettingsResponse
+     * @description Every stored season for a league, ascending, for the admin seasons table.
+     */
+    SeasonSettingsResponse: {
+      /** Seasons */
+      seasons: components["schemas"]["SeasonSettingsSummary"][];
+    };
+    /**
+     * SeasonSettingsSummary
+     * @description One stored season's admin settings: cup week, week range, and last provider sync.
+     */
+    SeasonSettingsSummary: {
+      /** Cup Week */
+      cup_week: number | null;
+      /** Last Refreshed At */
+      last_refreshed_at: string | null;
+      /** Regular Season Length */
+      regular_season_length: number;
+      /** Season */
+      season: number;
     };
     /**
      * SeasonsResponse
@@ -1296,6 +1399,67 @@ export interface operations {
       };
     };
   };
+  list_league_season_settings_api_v1_leagues__league_id__seasons_settings_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        league_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SeasonSettingsResponse"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  delete_league_season_api_v1_leagues__league_id__seasons__season__delete: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        league_id: number;
+        season: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
   get_cup_week_api_v1_leagues__league_id__seasons__season__cup_week_get: {
     parameters: {
       query?: never;
@@ -1351,6 +1515,38 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["CupWeekResponse"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  refresh_league_season_api_v1_leagues__league_id__seasons__season__refresh_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        league_id: number;
+        season: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SeasonRefreshResponse"];
         };
       };
       /** @description Validation Error */

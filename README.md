@@ -172,9 +172,11 @@ add any league from the UI with its ESPN id and credentials.
 `--role admin` rejects it.
 
 Credentials are per membership. Members enter the league's `ESPN_S2` and `ESPN_SWID` in the UI;
-they are stored encrypted under `LEAGUE_CREDENTIALS_KEY` and never returned by the API. A refresh
-uses the caller's own stored credentials and is rate limited (one league-wide refresh every five
-minutes, and three per user per hour).
+they are stored encrypted under `LEAGUE_CREDENTIALS_KEY` and never returned by the API. The admin
+page's **Seasons** table is the only refresh control: each row refreshes one season with the
+caller's own stored credentials. Refresh is rate limited (one league-wide refresh every five
+minutes, and three per user per hour), and changing a cup week recomputes standings without
+contacting ESPN.
 
 ## Run the tests
 

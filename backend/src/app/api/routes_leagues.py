@@ -35,6 +35,9 @@ from app.api.schemas_leagues import (
     RedeemInviteRequest,
     RedeemInviteResponse,
     RefreshResponse,
+    SeasonRefreshResponse,
+    SeasonSettingsResponse,
+    SeasonSettingsSummary,
     SeasonsResponse,
 )
 from app.db.session import get_session
@@ -317,6 +320,38 @@ def list_league_seasons(
     return SeasonsResponse(seasons=seasons)
 
 
+@router.get(
+    "/leagues/{league_id}/seasons/settings",
+    response_model=SeasonSettingsResponse,
+)
+def list_league_season_settings(
+    league_id: int,
+    current_user: CurrentUserDep,
+    service: ServiceDep,
+) -> SeasonSettingsResponse:
+    """Return every stored season's admin settings for an admin member.
+
+    A non-member gets 404 (the league is not confirmed to exist) and a member without the admin
+    role gets 403. The cup week, regular-season week range, and last successful provider sync are
+    read from stored rows; no provider is contacted.
+    """
+    try:
+        settings = service.list_season_settings(_actor(current_user), league_id)
+    except LeagueServiceError as error:
+        _raise(error)
+    return SeasonSettingsResponse(
+        seasons=[
+            SeasonSettingsSummary(
+                season=view.season,
+                cup_week=view.cup_week,
+                regular_season_length=view.regular_season_length,
+                last_refreshed_at=view.last_refreshed_at,
+            )
+            for view in settings
+        ]
+    )
+
+
 @router.post(
     "/leagues/{league_id}/seasons",
     response_model=AddSeasonResponse,
@@ -344,6 +379,56 @@ def add_league_season(
         season=result.season,
         weeks_synced=list(result.weeks_synced),
     )
+
+
+@router.post(
+    "/leagues/{league_id}/seasons/{season}/refresh",
+    response_model=SeasonRefreshResponse,
+)
+def refresh_league_season(
+    league_id: int,
+    season: int,
+    current_user: CurrentUserDep,
+    service: ServiceDep,
+) -> SeasonRefreshResponse:
+    """Refresh one stored season through the provider with the caller's stored credentials.
+
+    The season must already exist, so a refresh never creates or duplicates a season. Rate limits,
+    credential requirements, and structured errors match the league-wide refresh.
+    """
+    try:
+        result = service.refresh_season(_actor(current_user), league_id, season)
+        service.commit()
+    except LeagueServiceError as error:
+        _raise(error)
+    return SeasonRefreshResponse(
+        season=result.season,
+        weeks_synced=list(result.weeks_synced),
+    )
+
+
+@router.delete(
+    "/leagues/{league_id}/seasons/{season}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_league_season(
+    league_id: int,
+    season: int,
+    current_user: CurrentUserDep,
+    service: ServiceDep,
+) -> Response:
+    """Delete one stored season's data, keeping the league, accounts, and other seasons.
+
+    Scores, matchups, teams, and the season row go in one transaction; owners, memberships,
+    invites, the league, and every other season remain. An unknown or unreadable season returns a
+    structured 404.
+    """
+    try:
+        service.delete_season(_actor(current_user), league_id, season)
+        service.commit()
+    except LeagueServiceError as error:
+        _raise(error)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/leagues/{league_id}/seasons/{season}/cup-week", response_model=CupWeekResponse)
