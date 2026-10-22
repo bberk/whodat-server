@@ -58,6 +58,10 @@ function signedInFetch(
     if (/^\/api\/v1\/leagues\/\d+\/seasons\/\d+\/vp-history$/.test(path)) {
       return jsonResponse(historyResponse);
     }
+    if (/^\/api\/v1\/leagues\/\d+\/seasons\/\d+\/cup-week$/.test(path)) {
+      const season = Number(path.match(/seasons\/(\d+)\/cup-week/)?.[1]);
+      return jsonResponse({ season, cup_week: null, regular_season_length: 2 });
+    }
     if (path === "/api/v1/leagues/1/owners") {
       return jsonResponse({ owners });
     }
@@ -394,7 +398,7 @@ describe("App routing", () => {
     expect(screen.queryByRole("dialog", { name: "Add a league" })).not.toBeInTheDocument();
   });
 
-  it("shows admins the admin nav item and the league admin page", async () => {
+  it("shows admins the admin nav item and both admin sections", async () => {
     signedInFetch();
     renderAt("/leagues/1/admin");
 
@@ -402,20 +406,38 @@ describe("App routing", () => {
       expect(screen.getByLabelText("Season")).toHaveValue("2026");
     });
     expect(screen.getByRole("heading", { level: 1, name: "League admin" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Admin" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Admin" })).toHaveAttribute("href", "/leagues/1/admin");
     expect(screen.getByRole("heading", { level: 2, name: "Add a season" })).toBeInTheDocument();
     expect(screen.getByLabelText("Season year")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Cup week for this season")).toHaveValue("");
   });
 
-  it("hides admin controls from members", async () => {
+  it("keeps the admin route when a league is switched", async () => {
+    const user = userEvent.setup();
+    signedInFetch();
+    renderAt("/leagues/1/admin");
+    await screen.findByRole("heading", { level: 1, name: "League admin" });
+
+    await user.selectOptions(screen.getByLabelText("League"), "2");
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "League admin" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Beta League", { selector: "p" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Admin" })).toHaveAttribute("href", "/leagues/2/admin");
+  });
+
+  it("hides Admin from members and redirects them away from the admin route", async () => {
     signedInFetch({ user: memberUser });
     renderAt("/leagues/1/admin");
 
-    await waitFor(() => {
-      expect(screen.getByLabelText("Season")).toHaveValue("2026");
-    });
-    expect(screen.getByText("Only league admins can manage this league.")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Alpha League — standings" }),
+    ).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Admin" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { level: 1, name: "League admin" }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Season year")).not.toBeInTheDocument();
   });
 

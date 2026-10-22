@@ -164,6 +164,23 @@ def test_repository_league_season_upsert_is_idempotent_and_reports_changes(
     assert session.scalar(select(func.count()).select_from(LeagueSeason)) == 1
 
 
+def test_AC_DB_09_league_season_upsert_preserves_an_existing_cup_week(session: Session) -> None:
+    """A sync rewrites provider metadata but never clears the season's admin-chosen cup week."""
+    repository = SyncRepository(session)
+    league_id = repository.upsert_league("fake", "league-1", "League", {}, "config").row.id
+    row = repository.upsert_league_season(league_id, 2026, {"regular_season_length": 14}).row
+    row.cup_week = 7
+    session.flush()
+
+    updated = repository.upsert_league_season(league_id, 2026, {"regular_season_length": 15})
+
+    assert updated.changed
+    assert updated.row.cup_week == 7
+    stored = repository.get_league_season(league_id, 2026)
+    assert stored is not None
+    assert stored.cup_week == 7
+
+
 def test_league_season_metadata_defaults_to_an_empty_object(session: Session) -> None:
     """A league season created without settings stores an empty JSON object."""
     league_id = SyncRepository(session).upsert_league("fake", "league-1", "League", {}, "c").row.id

@@ -37,6 +37,19 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
 }
 
 /**
+ * Route guard for admin-only pages. It runs inside {@link ProtectedRoute}, so the session is
+ * already resolved; a signed-in non-admin is sent to the standings (AC-FE-11).
+ */
+export function AdminRoute({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+
+  if (user === null || user.role !== "admin") {
+    return <Navigate to="/" replace />;
+  }
+  return <>{children}</>;
+}
+
+/**
  * Route guard for the onboarding page. It needs a session but not a league.
  *
  * An account that already holds a league is sent to the standings instead, so onboarding cannot be

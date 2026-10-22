@@ -40,7 +40,7 @@ APPLICATION_TABLES = {
 # Columns whose presence in the migrated head DDL prove the migrations ran (migrated-DDL check).
 HEAD_COLUMNS = {
     "score": {"points", "victory_points", "vp_h2h", "vp_top_half", "vp_high", "vp_low"},
-    "league_season": {"league_id", "season", "metadata"},
+    "league_season": {"league_id", "season", "metadata", "cup_week"},
     "app_user": {"email", "password_hash", "role"},
     "invite": {"league_id", "code_hash", "role", "expires_at"},
     "user_league": {
@@ -126,6 +126,21 @@ def _assert_nullable_invite_league_round_trip(database_url: str) -> None:
     assert _column_is_nullable(database_url, "invite", "league_id") is True
 
 
+def _assert_cup_week_round_trip(database_url: str) -> None:
+    """0006 adds a nullable cup_week and its downgrade removes the column again."""
+    config = _config(database_url)
+
+    command.upgrade(config, "0006_cup_week")
+    assert _column_is_nullable(database_url, "league_season", "cup_week") is True
+    assert "cup_week" in _column_names(database_url, "league_season")
+
+    command.downgrade(config, "0005_invite_optional_league")
+    assert "cup_week" not in _column_names(database_url, "league_season")
+
+    command.upgrade(config, "0006_cup_week")
+    assert _column_is_nullable(database_url, "league_season", "cup_week") is True
+
+
 def _assert_migrated_ddl(database_url: str) -> None:
     """Assert the migrated head DDL has the application tables and their required columns."""
     assert _table_names(database_url) >= APPLICATION_TABLES
@@ -181,6 +196,11 @@ def test_invite_league_downgrade_rejects_rows_without_a_league(tmp_path: Path) -
     with pytest.raises(RuntimeError, match="invite row\\(s\\) have no league_id"):
         command.downgrade(_config(database_url), "0004_auth_memberships")
     assert _column_is_nullable(database_url, "invite", "league_id") is True
+
+
+def test_cup_week_nullability_round_trips_on_sqlite(tmp_path: Path) -> None:
+    """0006 adds a nullable league_season.cup_week and its downgrade drops it on SQLite."""
+    _assert_cup_week_round_trip(f"sqlite:///{tmp_path / 'cup-week.db'}")
 
 
 def test_migration_chain_is_a_single_linear_head() -> None:
@@ -240,6 +260,17 @@ def test_invite_league_nullability_round_trips_on_postgres() -> None:
 
     with _temporary_postgres_database(admin_url) as database_url:
         _assert_nullable_invite_league_round_trip(database_url)
+
+
+@pytest.mark.postgres
+def test_cup_week_nullability_round_trips_on_postgres() -> None:
+    """0006's upgrade and downgrade behave the same on Postgres as on SQLite."""
+    admin_url = _configured_postgres_admin_url()
+    if admin_url is None:
+        pytest.skip("configured DATABASE_URL is not Postgres")
+
+    with _temporary_postgres_database(admin_url) as database_url:
+        _assert_cup_week_round_trip(database_url)
 
 
 def test_import_boundary_modules_load() -> None:

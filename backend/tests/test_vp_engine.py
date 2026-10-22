@@ -133,6 +133,30 @@ def test_AC_VP_10_weekly_total_is_sum_of_components() -> None:
     )
 
 
+def test_AC_VP_15_cup_week_scores_no_h2h_but_keeps_other_components() -> None:
+    week = _week(
+        [
+            (1, "130", 3),
+            (2, "120", 4),
+            (3, "100", 1),
+            (4, "90", 2),
+        ]
+    )
+
+    normal = compute_week_vp(week)
+    cup = compute_week_vp(week, h2h=False)
+
+    # The cup week removes only head-to-head VP; every other component is unchanged.
+    for team_id in (1, 2, 3, 4):
+        assert cup[team_id].h2h == Fraction(0)
+        assert cup[team_id].top_half == normal[team_id].top_half
+        assert cup[team_id].high == normal[team_id].high
+        assert cup[team_id].low == normal[team_id].low
+        assert cup[team_id].total == (cup[team_id].top_half + cup[team_id].high + cup[team_id].low)
+    assert normal[1].h2h == Fraction(1)
+    assert normal[2].h2h == Fraction(1)
+
+
 def test_AC_VP_11_decimal_scores_compare_exactly_without_float_rounding() -> None:
     equal_values = compute_week_vp(_week([(1, "123.40", None), (2, "123.4", None)]))
     distinct_values = compute_week_vp(_week([(1, "1.0000000000000001", None), (2, "1.0", None)]))

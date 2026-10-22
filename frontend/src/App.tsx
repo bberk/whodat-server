@@ -2,7 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import { AuthProvider } from "./auth/AuthProvider";
 import { LoginPage } from "./auth/LoginPage";
-import { OnboardingRoute, ProtectedRoute } from "./auth/ProtectedRoute";
+import { AdminRoute, OnboardingRoute, ProtectedRoute } from "./auth/ProtectedRoute";
 import { SignupPage } from "./auth/SignupPage";
 import { AppShell } from "./components/AppShell";
 import { LeagueProvider } from "./leagues/LeagueProvider";
@@ -38,7 +38,14 @@ export function AppRoutes() {
         >
           <Route index element={<StandingsPage />} />
           <Route path="leagues/:leagueId/owner" element={<OwnerPage />} />
-          <Route path="leagues/:leagueId/admin" element={<AdminPage />} />
+          <Route
+            path="leagues/:leagueId/admin"
+            element={
+              <AdminRoute>
+                <AdminPage />
+              </AdminRoute>
+            }
+          />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

@@ -51,10 +51,13 @@ from app.services.league_service import (
     CredentialsRequiredError,
     DuplicateSeasonError,
     IncompleteCredentialsError,
+    InvalidCupWeekError,
     InvalidLeagueRequestError,
+    InvalidSeasonSettingsError,
     InviteNotRedeemableError,
     LeagueAccessError,
     LeagueProviderError,
+    LeagueSeasonNotFoundError,
     LeagueService,
     LeagueServiceError,
     LeagueSyncError,
@@ -63,7 +66,7 @@ from app.services.league_service import (
     RefreshRateLimitedError,
     RefreshRateLimiter,
 )
-from app.services.sync_service import PROVIDER_CONFIG_REF
+from app.services.sync_service import PROVIDER_CONFIG_REF, SyncService
 
 SEASON = 2026
 LEAGUE_EXTERNAL = "espn-league-1"
@@ -1032,10 +1035,13 @@ def test_production_league_service_dependency_builds(api_factory: Callable[..., 
     [
         (RefreshRateLimitedError(7), 429, "rate_limited"),
         (AdminRequiredError("x"), 403, "forbidden"),
+        (InvalidCupWeekError("x"), 400, "invalid_cup_week"),
+        (InvalidSeasonSettingsError("x"), 400, "invalid_season_settings"),
         (InviteNotRedeemableError("x"), 400, "invalid_invite"),
         (CredentialsRequiredError("x"), 403, "credentials_required"),
         (NotAMemberError("x"), 404, "not_found"),
         (OwnerNotFoundError("x"), 404, "not_found"),
+        (LeagueSeasonNotFoundError("x"), 404, "not_found"),
         (AlreadyMemberError("x"), 409, "already_member"),
         (DuplicateSeasonError("x"), 409, "season_exists"),
         (IncompleteCredentialsError("x"), 400, "invalid_credentials"),
@@ -1068,3 +1074,253 @@ def test_add_league_schema_rejects_control_characters_and_whitespace() -> None:
             espn_s2="bad\x00cookie",
             espn_swid=SWID,
         )
+
+
+# ---------------------------------------------------------------------------
+# AC-API-07: cup-week read/update routes, authorization, validation, recompute
+# ---------------------------------------------------------------------------
+
+
+def _cup_week_path(league_id: int, season: int = SEASON) -> str:
+    return f"/api/v1/leagues/{league_id}/seasons/{season}/cup-week"
+
+
+def _seed_cup_week_league(api: Api, *, cup_week: int | None = None) -> int:
+    """Sync a two-team, two-week league so cup-week scoring is observable in stored rows."""
+    seed: dict[tuple[str, int], FakeSeed] = {
+        (LEAGUE_EXTERNAL, SEASON): (
+            LeagueDTO(
+                external_id=LEAGUE_EXTERNAL,
+                name="Cup Week League",
+                metadata={"regular_season_length": 2, "teams": 2},
+            ),
+            [
+                OwnerDTO(external_id="owner-1", display_name="Alice"),
+                OwnerDTO(external_id="owner-2", display_name="Bob"),
+            ],
+            [
+                TeamDTO("team-1", "Team A", "East", "owner-1"),
+                TeamDTO("team-2", "Team B", "West", "owner-2"),
+            ],
+            {
+                1: [
+                    MatchupDTO(
+                        week=1,
+                        home=MatchupSideDTO(team_external_id="team-1", points=Decimal("100.00")),
+                        away=MatchupSideDTO(team_external_id="team-2", points=Decimal("90.00")),
+                        is_playoff=False,
+                        is_complete=True,
+                    )
+                ],
+                2: [
+                    MatchupDTO(
+                        week=2,
+                        home=MatchupSideDTO(team_external_id="team-1", points=Decimal("95.00")),
+                        away=MatchupSideDTO(team_external_id="team-2", points=Decimal("110.00")),
+                        is_playoff=False,
+                        is_complete=True,
+                    )
+                ],
+            },
+            WeekStatus(last_completed_week=2),
+        )
+    }
+    with api.factory() as session:
+        summary = SyncService(FakeProvider(seed), session).sync_league(
+            LeagueRef(external_id=LEAGUE_EXTERNAL),
+            "fake",
+            SEASON,
+        )
+        if cup_week is not None:
+            league_season = SyncRepository(session).get_league_season(summary.league_id, SEASON)
+            assert league_season is not None
+            league_season.cup_week = cup_week
+        session.commit()
+        return summary.league_id
+
+
+def _stored_h2h(api: Api, league_id: int, week: int) -> dict[int, Decimal]:
+    with api.factory() as session:
+        return {
+            score.team_id: score.vp_h2h
+            for score in SyncRepository(session).get_week_scores(league_id, SEASON, week)
+        }
+
+
+def test_AC_API_07_get_cup_week_returns_null_by_default(api_factory: Callable[..., Api]) -> None:
+    api = api_factory(seed={})
+    league_id = _seed_cup_week_league(api)
+    member_id = _create_user(api, "member@example.com")
+    _seed_membership(api, user_id=member_id, league_id=league_id)
+    _login(api, member_id)
+
+    response = api.client.get(_cup_week_path(league_id))
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "season": SEASON,
+        "cup_week": None,
+        "regular_season_length": 2,
+    }
+
+
+def test_AC_API_07_admin_setting_cup_week_recomputes_stored_scores(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory(seed={})
+    league_id = _seed_cup_week_league(api)
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    _seed_membership(api, user_id=admin_id, league_id=league_id)
+    _login(api, admin_id)
+    assert any(value != Decimal(0) for value in _stored_h2h(api, league_id, 2).values())
+
+    response = api.client.put(_cup_week_path(league_id), json={"cup_week": 2})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "season": SEASON,
+        "cup_week": 2,
+        "regular_season_length": 2,
+    }
+    assert all(value == Decimal(0) for value in _stored_h2h(api, league_id, 2).values())
+    assert any(value != Decimal(0) for value in _stored_h2h(api, league_id, 1).values())
+
+    standings = api.client.get(f"/api/v1/leagues/{league_id}/seasons/{SEASON}/standings").json()
+    rows = {row["team_name"]: row for row in standings["overall"]}
+    assert (rows["Team A"]["wins"], rows["Team A"]["losses"]) == (1, 0)
+    assert (rows["Team B"]["wins"], rows["Team B"]["losses"]) == (0, 1)
+    assert rows["Team A"]["weekly_vp"] == ["3", "-1"]
+    assert rows["Team B"]["weekly_vp"] == ["-1", "2"]
+    assert rows["Team A"]["victory_points"] == "2"
+    assert rows["Team B"]["victory_points"] == "1"
+    assert rows["Team A"]["points_for"] == "195"
+    assert rows["Team B"]["points_for"] == "200"
+
+
+def test_AC_API_07_null_clears_the_cup_week_and_restores_wlt(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory(seed={})
+    league_id = _seed_cup_week_league(api, cup_week=2)
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    _seed_membership(api, user_id=admin_id, league_id=league_id)
+    _login(api, admin_id)
+
+    response = api.client.put(_cup_week_path(league_id), json={"cup_week": None})
+
+    assert response.status_code == 200
+    assert response.json()["cup_week"] is None
+    # Week 2 is normal again: the winner gets +1 H2H and both weeks count for W/L.
+    h2h = _stored_h2h(api, league_id, 2)
+    assert sorted(h2h.values()) == [Decimal("0.000000"), Decimal("1.000000")]
+
+    standings = api.client.get(f"/api/v1/leagues/{league_id}/seasons/{SEASON}/standings").json()
+    rows = {row["team_name"]: row for row in standings["overall"]}
+    assert (rows["Team A"]["wins"], rows["Team A"]["losses"]) == (1, 1)
+    assert (rows["Team B"]["wins"], rows["Team B"]["losses"]) == (1, 1)
+
+
+def test_AC_API_07_member_can_read_but_not_change_the_cup_week(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory(seed={})
+    league_id = _seed_cup_week_league(api)
+    member_id = _create_user(api, "member@example.com")
+    _seed_membership(api, user_id=member_id, league_id=league_id)
+    _login(api, member_id)
+
+    assert api.client.get(_cup_week_path(league_id)).status_code == 200
+    response = api.client.put(_cup_week_path(league_id), json={"cup_week": 1})
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "forbidden"
+    with api.factory() as session:
+        stored = SyncRepository(session).get_league_season(league_id, SEASON)
+        assert stored is not None
+        assert stored.cup_week is None
+
+
+def test_AC_API_07_non_member_and_unknown_season_return_404(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory(seed={})
+    league_id = _seed_cup_week_league(api)
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    _login(api, admin_id)
+
+    non_member_get = api.client.get(_cup_week_path(league_id))
+    non_member_put = api.client.put(_cup_week_path(league_id), json={"cup_week": 1})
+    unknown_league = api.client.get(_cup_week_path(999))
+    unknown_season = api.client.get(_cup_week_path(league_id, season=1999))
+
+    for response in (non_member_get, non_member_put, unknown_league, unknown_season):
+        assert response.status_code == 404
+        assert response.json()["detail"]["code"] == "not_found"
+
+
+def test_AC_API_07_member_unknown_season_and_unusable_settings_are_structured(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory(seed={})
+    league_id = _seed_cup_week_league(api)
+    member_id = _create_user(api, "member@example.com")
+    _seed_membership(api, user_id=member_id, league_id=league_id)
+    _login(api, member_id)
+
+    unknown_season = api.client.get(_cup_week_path(league_id, season=1999))
+    assert unknown_season.status_code == 404
+    assert unknown_season.json()["detail"]["code"] == "not_found"
+
+    with api.factory() as session:
+        league_season = SyncRepository(session).get_league_season(league_id, SEASON)
+        assert league_season is not None
+        league_season.league_season_metadata = {"teams": 2}
+        session.commit()
+
+    settings_error = api.client.get(_cup_week_path(league_id))
+    assert settings_error.status_code == 400
+    assert settings_error.json()["detail"]["code"] == "invalid_season_settings"
+
+
+def test_AC_API_07_invalid_cup_week_values_are_rejected_without_a_write(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory(seed={})
+    league_id = _seed_cup_week_league(api)
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    _seed_membership(api, user_id=admin_id, league_id=league_id)
+    _login(api, admin_id)
+    scores_before = _stored_h2h(api, league_id, 2)
+
+    for value in (0, -1, "one"):
+        response = api.client.put(_cup_week_path(league_id), json={"cup_week": value})
+        assert response.status_code == 422
+
+    out_of_range = api.client.put(_cup_week_path(league_id), json={"cup_week": 3})
+    assert out_of_range.status_code == 400
+    assert out_of_range.json()["detail"]["code"] == "invalid_cup_week"
+
+    missing = api.client.put(_cup_week_path(league_id), json={})
+    assert missing.status_code == 422
+    extra = api.client.put(_cup_week_path(league_id), json={"cup_week": 1, "other": True})
+    assert extra.status_code == 422
+
+    with api.factory() as session:
+        stored = SyncRepository(session).get_league_season(league_id, SEASON)
+        assert stored is not None
+        assert stored.cup_week is None
+    assert _stored_h2h(api, league_id, 2) == scores_before
+
+
+def test_AC_API_07_unauthenticated_cup_week_requests_return_401(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory(seed={})
+    league_id = _seed_cup_week_league(api)
+
+    get_response = api.client.get(_cup_week_path(league_id))
+    put_response = api.client.put(_cup_week_path(league_id), json={"cup_week": 1})
+
+    for response in (get_response, put_response):
+        assert response.status_code == 401
+        assert response.json()["detail"]["code"] == "not_authenticated"

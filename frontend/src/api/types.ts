@@ -35,6 +35,10 @@ export type AddSeasonRequest = components["schemas"]["AddSeasonRequest"];
 export type AddSeasonResponse = components["schemas"]["AddSeasonResponse"];
 export type RefreshResponse = components["schemas"]["RefreshResponse"];
 
+/** A season's cup week plus the regular-season week range the admin UI offers. */
+export type CupWeekResponse = components["schemas"]["CupWeekResponse"];
+export type CupWeekUpdateRequest = components["schemas"]["CupWeekUpdateRequest"];
+
 export type StandingsRow = components["schemas"]["StandingsRow"];
 export type DivisionStandings = components["schemas"]["DivisionStandings"];
 export type StandingsResponse = components["schemas"]["StandingsResponse"];

@@ -358,6 +358,87 @@ def test_AC_DB_02_idempotent_repeat_sync(session: Session) -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_AC_DB_09_recompute_stores_zero_h2h_on_cup_week(session: Session) -> None:
+    """A stored cup week recomputes every team's H2H VP to zero and keeps other components."""
+    SyncService(_build_provider(_basic_seed()), session).sync_league(_league_ref(), "fake", 2026)
+    session.commit()
+
+    repo = SyncRepository(session)
+    league = repo.get_league("fake", "league-1")
+    assert league is not None
+    league_season = repo.get_league_season(league.id, 2026)
+    assert league_season is not None
+    week1_before = {
+        score.team_id: score.vp_h2h for score in repo.get_week_scores(league.id, 2026, 1)
+    }
+    league_season.cup_week = 1
+    session.commit()
+
+    summary = SyncService(None, session).recompute_league(_league_ref(), "fake", 2026)
+    session.commit()
+
+    assert summary.weeks_recomputed == (1, 2)
+    week1_after = repo.get_week_scores(league.id, 2026, 1)
+    week2_after = repo.get_week_scores(league.id, 2026, 2)
+    assert all(score.vp_h2h == Decimal(0) for score in week1_after)
+    # Week 2 is not the cup week and keeps its ordinary head-to-head VP.
+    assert any(score.vp_h2h != Decimal(0) for score in week2_after)
+    for score in week1_after:
+        assert score.victory_points == (
+            score.vp_h2h + score.vp_top_half + score.vp_high + score.vp_low
+        )
+    # Week 1 was not a bye week, so clearing the cup week restores its H2H values.
+    assert any(value != Decimal(0) for value in week1_before.values())
+
+    league_season.cup_week = None
+    session.commit()
+    SyncService(None, session).recompute_league(_league_ref(), "fake", 2026)
+    session.commit()
+
+    restored = {score.team_id: score.vp_h2h for score in repo.get_week_scores(league.id, 2026, 1)}
+    assert restored == week1_before
+
+
+def test_sync_honours_an_already_stored_cup_week(session: Session) -> None:
+    """A sync that changes a cup-week score recomputes it with zero head-to-head VP."""
+    provider = _build_provider(_basic_seed())
+    SyncService(provider, session).sync_league(_league_ref(), "fake", 2026)
+    session.commit()
+
+    repo = SyncRepository(session)
+    league = repo.get_league("fake", "league-1")
+    assert league is not None
+    league_season = repo.get_league_season(league.id, 2026)
+    assert league_season is not None
+    league_season.cup_week = 2
+    session.commit()
+
+    corrected_seed = _basic_seed()
+    week2 = corrected_seed[("league-1", 2026)][3][2]
+    corrected_seed[("league-1", 2026)][3][2] = [
+        MatchupDTO(
+            week=2,
+            home=MatchupSideDTO(
+                team_external_id=week2[0].home.team_external_id,
+                points=Decimal("131.00"),
+            ),
+            away=week2[0].away,
+            is_playoff=week2[0].is_playoff,
+            is_complete=week2[0].is_complete,
+        ),
+        *week2[1:],
+    ]
+
+    summary = SyncService(_build_provider(corrected_seed), session).sync_league(
+        _league_ref(), "fake", 2026
+    )
+    session.commit()
+
+    assert 2 in summary.weeks_with_vp_recomputed
+    assert all(score.vp_h2h == Decimal(0) for score in repo.get_week_scores(league.id, 2026, 2))
+    assert any(score.vp_h2h != Decimal(0) for score in repo.get_week_scores(league.id, 2026, 1))
+
+
 def test_AC_DB_03_score_correction_recomputes_full_week(session: Session) -> None:
     """Changing one team's score causes VP to be recomputed for every team in that week."""
     provider = _build_provider(_basic_seed())

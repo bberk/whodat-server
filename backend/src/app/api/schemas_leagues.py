@@ -169,3 +169,23 @@ class RefreshResponse(BaseModel):
     season: int
     weeks_synced: list[int]
     weeks_with_vp_recomputed: list[int]
+
+
+class CupWeekResponse(BaseModel):
+    """A season's cup week and the week range an admin may choose from."""
+
+    season: int
+    cup_week: int | None
+    regular_season_length: int
+
+
+class CupWeekUpdateRequest(BaseModel):
+    """Set a season's cup week, or clear it with ``null``.
+
+    The field is required so a malformed body cannot silently clear an existing cup week; the upper
+    bound depends on stored season metadata and is validated by the service.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    cup_week: Annotated[int | None, Field(ge=1)]

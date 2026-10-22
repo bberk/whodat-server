@@ -163,6 +163,30 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/leagues/{league_id}/seasons/{season}/cup-week": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Get Cup Week
+     * @description Return a stored season's cup week and the regular-season week range it may use.
+     */
+    get: operations["get_cup_week_api_v1_leagues__league_id__seasons__season__cup_week_get"];
+    /**
+     * Update Cup Week
+     * @description Set or clear a season's cup week and recompute its stored VP in the same transaction.
+     */
+    put: operations["update_cup_week_api_v1_leagues__league_id__seasons__season__cup_week_put"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/leagues/{league_id}/seasons/{season}/standings": {
     parameters: {
       query?: never;
@@ -358,6 +382,29 @@ export interface components {
       season: number;
       /** Weeks Synced */
       weeks_synced: number[];
+    };
+    /**
+     * CupWeekResponse
+     * @description A season's cup week and the week range an admin may choose from.
+     */
+    CupWeekResponse: {
+      /** Cup Week */
+      cup_week: number | null;
+      /** Regular Season Length */
+      regular_season_length: number;
+      /** Season */
+      season: number;
+    };
+    /**
+     * CupWeekUpdateRequest
+     * @description Set a season's cup week, or clear it with ``null``.
+     *
+     *     The field is required so a malformed body cannot silently clear an existing cup week; the upper
+     *     bound depends on stored season metadata and is validated by the service.
+     */
+    CupWeekUpdateRequest: {
+      /** Cup Week */
+      cup_week: number | null;
     };
     /**
      * DivisionStandings
@@ -883,6 +930,74 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["AddSeasonResponse"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  get_cup_week_api_v1_leagues__league_id__seasons__season__cup_week_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        league_id: number;
+        season: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CupWeekResponse"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  update_cup_week_api_v1_leagues__league_id__seasons__season__cup_week_put: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        league_id: number;
+        season: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CupWeekUpdateRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CupWeekResponse"];
         };
       };
       /** @description Validation Error */

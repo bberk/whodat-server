@@ -12,6 +12,8 @@ import type {
   AddLeagueResponse,
   AddSeasonRequest,
   AddSeasonResponse,
+  CupWeekResponse,
+  CupWeekUpdateRequest,
   LeagueSummary,
   LoginRequest,
   LogoutResponse,
@@ -102,5 +104,22 @@ export const api = {
       `/api/v1/leagues/${leagueId}/seasons/${season}/vp-history`,
       { signal },
     );
+  },
+
+  cupWeek(leagueId: number, season: number, signal?: AbortSignal): Promise<CupWeekResponse> {
+    return apiRequest<CupWeekResponse>(`/api/v1/leagues/${leagueId}/seasons/${season}/cup-week`, {
+      signal,
+    });
+  },
+
+  updateCupWeek(
+    leagueId: number,
+    season: number,
+    body: CupWeekUpdateRequest,
+  ): Promise<CupWeekResponse> {
+    return apiRequest<CupWeekResponse>(`/api/v1/leagues/${leagueId}/seasons/${season}/cup-week`, {
+      method: "PUT",
+      body,
+    });
   },
 };

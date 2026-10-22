@@ -6,7 +6,7 @@ in test_migrations.py, and repository behaviour lives in test_repositories.py an
 test_auth_schema.py, so neither repeats these shapes.
 """
 
-from sqlalchemy import JSON, Index, Numeric, Text, UniqueConstraint
+from sqlalchemy import JSON, Index, Integer, Numeric, Text, UniqueConstraint
 
 from app.db.models import (
     AppUser,
@@ -33,7 +33,15 @@ EXPECTED_COLUMNS = {
         "created_at",
         "updated_at",
     },
-    "league_season": {"id", "league_id", "season", "metadata", "created_at", "updated_at"},
+    "league_season": {
+        "id",
+        "league_id",
+        "season",
+        "metadata",
+        "cup_week",
+        "created_at",
+        "updated_at",
+    },
     "owner": {"id", "league_id", "external_id", "display_name", "created_at", "updated_at"},
     "team": {
         "id",
@@ -193,6 +201,10 @@ def test_AC_DB_01_model_metadata_matches_the_schema_contract() -> None:
     assert isinstance(season_settings.type, JSON)
     assert season_settings.nullable is False
     assert season_settings.default is not None
+    # The optional cup week is a nullable integer; no cup week is stored as NULL.
+    cup_week = LeagueSeason.__table__.c.cup_week
+    assert isinstance(cup_week.type, Integer)
+    assert cup_week.nullable is True
 
     # Accounts carry a validated role and no owner link; owner associations live on user_league.
     app_user_role = AppUser.__table__.c.role
