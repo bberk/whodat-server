@@ -66,6 +66,13 @@ pre-commit install --hook-type pre-commit --hook-type pre-push
 cp .env.example .env   # then edit values as needed
 ```
 
+`.env` is read by both the host backend and Compose: the backend loads it for a host-run process,
+and Compose reads the repo-root file for variable substitution before starting containers. Leaving
+`DATABASE_URL` unset (the `.env.example` default) lets the Compose backend use its `postgres`
+service; setting `DATABASE_URL` overrides that for the containers too. `CORS_ORIGINS` must include
+every frontend origin you use: `http://localhost:5173` for the Vite dev server and
+`http://localhost:8080` for the Compose frontend.
+
 ESPN credentials are **not** environment variables. Each member enters the league's `ESPN_S2`
 and `ESPN_SWID` cookies for that membership in the UI; they are stored encrypted per membership
 (under `LEAGUE_CREDENTIALS_KEY`) and never logged or returned by the API.
@@ -91,6 +98,10 @@ Or run the whole stack in Docker, with the built frontend on `http://localhost:8
 ```bash
 docker compose up -d --build
 ```
+
+Compose reads the same repo-root `.env` for substitution. With `DATABASE_URL` unset the backend
+uses the compose `postgres` service; `CORS_ORIGINS` must include `http://localhost:8080` for the
+composed frontend.
 
 Apply database migrations before first use:
 
