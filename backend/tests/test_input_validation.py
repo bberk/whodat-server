@@ -132,6 +132,47 @@ def test_normalize_display_text_returns_empty_for_only_unsafe_characters() -> No
     assert normalize_display_text("   ") == ""
 
 
+def test_normalize_display_text_preserves_zwj_emoji_sequences() -> None:
+    """ZWJ is meaningful in emoji sequences and must survive normalization unchanged."""
+    family = "\U0001f468\u200d\U0001f469\u200d\U0001f467\u200d\U0001f466"
+    pirate_flag = "\U0001f3f4\u200d\u2620\ufe0f"
+
+    assert normalize_display_text(family) == family
+    assert normalize_display_text(pirate_flag) == pirate_flag
+
+
+def test_normalize_display_text_preserves_persian_zwnj() -> None:
+    """ZWNJ is part of Persian orthography, so the name is stored exactly as provided."""
+    name = "\u0645\u06cc\u200c\u062e\u0648\u0627\u0647\u0645"  # میخواهم
+
+    assert normalize_display_text(name) == name
+
+
+def test_normalize_display_text_preserves_indic_zwj_sequences() -> None:
+    """Indic conjuncts can carry ZWJ; normalization must not split them apart."""
+    name = "\u0915\u094d\u200d\u0937"  # Devanagari ksha with ZWJ
+
+    assert normalize_display_text(name) == name
+
+
+def test_normalize_display_text_removes_bidi_controls_and_marks() -> None:
+    assert normalize_display_text("\u202eEvil\u202c") == "Evil"
+    assert normalize_display_text("\u2066a\u2069") == "a"
+    assert normalize_display_text("\u061c\u200e\u200f") == ""
+    assert normalize_display_text("\ufeffLeague") == "League"
+
+
+def test_normalize_display_text_preserves_arabic_number_signs() -> None:
+    """Arabic number signs are format characters with meaning, not decoration to strip."""
+    value = "\u0600\u0661\u0662"
+
+    assert normalize_display_text(value) == value
+
+
+def test_normalize_display_text_still_strips_nul_and_controls() -> None:
+    assert normalize_display_text("a\x00b\x01c\x7fd\x80e") == "abcde"
+
+
 # ---------------------------------------------------------------------------
 # Invite codes
 # ---------------------------------------------------------------------------

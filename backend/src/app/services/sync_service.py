@@ -217,7 +217,9 @@ class SyncService:
                 season,
                 team_dto.external_id,
                 normalize_display_text(team_dto.name),
-                normalize_display_text(team_dto.division) if team_dto.division else None,
+                # A division that normalizes to empty (whitespace/NUL only) means no division,
+                # not a group with an empty name.
+                normalize_display_text(team_dto.division or "") or None,
                 owner_id,
             )
             team_external_to_id[team_dto.external_id] = team_result.row.id

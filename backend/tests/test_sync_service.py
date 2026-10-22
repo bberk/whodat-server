@@ -1197,7 +1197,9 @@ def test_provider_display_text_is_normalized_before_persistence(session: Session
         select(Owner).where(Owner.external_id == "owner-1", Owner.league_id == stored_league.id)
     )
     assert stored_owner is not None
-    assert stored_owner.display_name == "Alice Smith"
+    # The control character is stripped, whitespace collapses, and the ZWJ is preserved because
+    # it is meaningful in emoji and some scripts.
+    assert stored_owner.display_name == "Alice\u200d Smith"
 
     stored_team = session.scalar(
         select(Team).where(Team.external_id == "team-1", Team.season == 2026)
@@ -1210,6 +1212,33 @@ def test_provider_display_text_is_normalized_before_persistence(session: Session
     for stored_text in (stored_league.name, stored_owner.display_name, stored_team.name):
         assert "\x00" not in stored_text
         assert all(
-            unicodedata.category(character) not in {"Cc", "Cf", "Zl", "Zp", "Cs"}
+            unicodedata.category(character) not in {"Cc", "Cs", "Zl", "Zp"}
             for character in stored_text
         )
+        assert not any(
+            character in "\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069"
+            for character in stored_text
+        )
+
+
+def test_whitespace_only_division_is_stored_as_no_division(session: Session) -> None:
+    """A division that normalizes away must not create an empty-named division group."""
+    seed = _basic_seed()
+    league, owners, teams, matchups, week_status = seed[("league-1", 2026)]
+    teams_with_blank_division = [
+        replace(teams[0], division="\x00   "),
+        *teams[1:],
+    ]
+    blank_division_seed = {
+        ("league-1", 2026): (league, owners, teams_with_blank_division, matchups, week_status)
+    }
+
+    SyncService(FakeProvider(blank_division_seed), session).sync_league(_league_ref(), "fake", 2026)
+    session.commit()
+    session.expire_all()
+
+    stored_team = session.scalar(
+        select(Team).where(Team.external_id == "team-1", Team.season == 2026)
+    )
+    assert stored_team is not None
+    assert stored_team.division is None
