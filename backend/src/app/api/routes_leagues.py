@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Annotated, Never
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -21,8 +21,12 @@ from app.api.schemas_leagues import (
     AddLeagueResponse,
     AddSeasonRequest,
     AddSeasonResponse,
+    CreateInviteRequest,
+    CreateInviteResponse,
     CupWeekResponse,
     CupWeekUpdateRequest,
+    LeagueMembersResponse,
+    LeagueMemberSummary,
     LeagueSummary,
     OwnersResponse,
     OwnerSummary,
@@ -43,10 +47,14 @@ from app.services.league_service import (
     EspnCredentials,
     IncompleteCredentialsError,
     InvalidCupWeekError,
+    InvalidInviteRequestError,
     InvalidLeagueRequestError,
     InvalidSeasonSettingsError,
     InviteNotRedeemableError,
+    LastAdminError,
     LeagueAccessError,
+    LeagueMemberNotFoundError,
+    LeagueMemberView,
     LeagueProviderError,
     LeagueSeasonNotFoundError,
     LeagueService,
@@ -105,6 +113,18 @@ def _owner_summary(view: OwnerView) -> OwnerSummary:
     )
 
 
+def _member_summary(view: LeagueMemberView) -> LeagueMemberSummary:
+    """Project a service member view into the public schema (no credential material)."""
+    return LeagueMemberSummary(
+        user_id=view.user_id,
+        email=view.email,
+        role=view.role,
+        owner_id=view.owner_id,
+        owner_name=view.owner_name,
+        has_credentials=view.has_credentials,
+    )
+
+
 def _http_error(error: LeagueServiceError) -> HTTPException:
     """Map a typed service failure to a structured HTTP response.
 
@@ -129,6 +149,16 @@ def _http_error(error: LeagueServiceError) -> HTTPException:
                 "cup_week must be between 1 and the season's regular season length",
             ),
         )
+    if isinstance(error, InvalidInviteRequestError):
+        return HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_detail("invalid_invite", "The invite request is not valid"),
+        )
+    if isinstance(error, LastAdminError):
+        return HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=error_detail("last_admin", "A league must keep at least one admin member"),
+        )
     if isinstance(error, InvalidSeasonSettingsError):
         return HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -144,7 +174,7 @@ def _http_error(error: LeagueServiceError) -> HTTPException:
             status_code=status.HTTP_403_FORBIDDEN,
             detail=error_detail("credentials_required", "This membership holds no credentials"),
         )
-    if isinstance(error, (NotAMemberError, OwnerNotFoundError)):
+    if isinstance(error, (NotAMemberError, OwnerNotFoundError, LeagueMemberNotFoundError)):
         return HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=error_detail("not_found", "League or owner not found"),
@@ -404,3 +434,93 @@ def refresh_league(
         weeks_synced=list(result.weeks_synced),
         weeks_with_vp_recomputed=list(result.weeks_with_vp_recomputed),
     )
+
+
+@router.get("/leagues/{league_id}/members", response_model=LeagueMembersResponse)
+def list_league_members(
+    league_id: int,
+    current_user: CurrentUserDep,
+    service: ServiceDep,
+) -> LeagueMembersResponse:
+    """List the accounts associated with a league for an admin member.
+
+    A non-member gets 404 (the league is not confirmed to exist) and a member without the admin
+    role gets 403. Emails are the account identifier; passwords, credentials, and hashes are never
+    part of the response.
+    """
+    try:
+        members = service.list_members(_actor(current_user), league_id)
+    except LeagueServiceError as error:
+        _raise(error)
+    return LeagueMembersResponse(members=[_member_summary(view) for view in members])
+
+
+@router.delete(
+    "/leagues/{league_id}/members/{member_user_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+def remove_league_member(
+    league_id: int,
+    member_user_id: int,
+    current_user: CurrentUserDep,
+    service: ServiceDep,
+) -> Response:
+    """Remove one user's membership in this league, subject to the last-admin guard.
+
+    The account and its other memberships are untouched. Removing the last admin member returns a
+    structured 409; a user without a membership in this league returns 404.
+    """
+    try:
+        service.remove_member(_actor(current_user), league_id, member_user_id)
+        service.commit()
+    except LeagueServiceError as error:
+        _raise(error)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/leagues/{league_id}/invites",
+    response_model=CreateInviteResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_league_invite(
+    league_id: int,
+    payload: CreateInviteRequest,
+    current_user: CurrentUserDep,
+    service: ServiceDep,
+) -> CreateInviteResponse:
+    """Generate one invite from the admin page and return its raw code exactly once.
+
+    A member invite is bound to this league; an admin invite is league-less. Only the code hash is
+    stored, so no other endpoint can return the code again. Defaults to a seven-day expiry.
+    """
+    try:
+        invite = service.create_invite(
+            _actor(current_user),
+            league_id,
+            payload.role,
+            payload.expires_in_days,
+        )
+        service.commit()
+    except LeagueServiceError as error:
+        _raise(error)
+    return CreateInviteResponse(
+        code=invite.code,
+        role=invite.role,
+        league_id=invite.league_id,
+        expires_at=invite.expires_at,
+    )
+
+
+@router.delete("/leagues/{league_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_league(
+    league_id: int,
+    current_user: CurrentUserDep,
+    service: ServiceDep,
+) -> Response:
+    """Delete this league and all of its data, leaving accounts and other leagues intact."""
+    try:
+        service.delete_league(_actor(current_user), league_id)
+        service.commit()
+    except LeagueServiceError as error:
+        _raise(error)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

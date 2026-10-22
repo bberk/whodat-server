@@ -7,21 +7,34 @@ Every test is offline: provider construction is injected and backed by the in-me
 from __future__ import annotations
 
 import base64
+import uuid
 from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, func, select, text
+from sqlalchemy.engine import URL, make_url
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db.auth_repositories import DuplicateMembershipError as DatabaseDuplicateMembershipError
 from app.db.auth_repositories import InviteRepository, MembershipRepository, UserRepository
 from app.db.base import Base
-from app.db.models import AppUser, League, LeagueSeason, Owner, Score, Team, UserLeague
+from app.db.models import (
+    AppUser,
+    Invite,
+    League,
+    LeagueSeason,
+    Matchup,
+    Owner,
+    Score,
+    Team,
+    UserLeague,
+)
 from app.db.repositories import SyncRepository
 from app.providers.base import (
     LeagueDTO,
@@ -44,9 +57,12 @@ from app.services.league_service import (
     DuplicateSeasonError,
     EspnCredentials,
     IncompleteCredentialsError,
+    InvalidInviteRequestError,
     InvalidLeagueRequestError,
     InviteNotRedeemableError,
+    LastAdminError,
     LeagueAccessError,
+    LeagueMemberNotFoundError,
     LeagueProviderError,
     LeagueService,
     LeagueSyncError,
@@ -1092,3 +1108,241 @@ def test_AC_AU_06_unexpected_write_failure_rolls_back_and_is_typed(
     session.commit()
     assert _count(session, League) == 0
     assert _count(session, UserLeague) == 0
+
+
+# ---------------------------------------------------------------------------
+# AC-AU-19/20/21/22: member administration, invites, league deletion
+# ---------------------------------------------------------------------------
+
+
+def _scoped_count(session: Session, model: type[Base], condition: object) -> int:
+    return int(session.scalar(select(func.count()).select_from(model).where(condition)) or 0)
+
+
+def _seed_league_data(session: Session, league: League, *, suffix: str = "1") -> None:
+    """Give a stored league a team, matchup, score, and one league-bound invite."""
+    repository = SyncRepository(session)
+    owner = repository.upsert_owner(league.id, f"owner-{suffix}", f"Owner {suffix}").row
+    team = repository.upsert_team(
+        league.id, SEASON, f"team-{suffix}", f"Team {suffix}", "East", owner.id
+    ).row
+    repository.upsert_matchup(league.id, SEASON, 1, team.id, None, False, True)
+    repository.upsert_score(team.id, league.id, SEASON, 1, Decimal("100.00"))
+    InviteRepository(session).create(
+        league.id,
+        hash_invite_code(f"bound-{suffix}"),
+        datetime.now(UTC) + timedelta(days=7),
+        role="member",
+    )
+    session.commit()
+
+
+def test_AC_AU_19_list_members_requires_admin_and_lists_accounts(session: Session) -> None:
+    admin = _create_user(session, "admin@example.com", "admin")
+    member = _create_user(session, "member@example.com")
+    outsider = _create_user(session, "outsider@example.com")
+    league = _seed_existing_league(session)
+    owner = SyncRepository(session).upsert_owner(league.id, "owner-1", "Alice").row
+    session.commit()
+    _seed_membership(session, user=admin, league=league)
+    MembershipRepository(session).set_owner(admin.id, league.id, owner.id)
+    _seed_membership(session, user=member, league=league, credentials=False)
+    session.commit()
+    service = LeagueService(session, RecordingFactory({}), provider_id="fake")
+
+    members = service.list_members(_actor(admin), league.id)
+
+    assert [(view.email, view.role) for view in members] == [
+        ("admin@example.com", "admin"),
+        ("member@example.com", "member"),
+    ]
+    assert members[0].has_credentials is True
+    assert members[1].has_credentials is False
+    assert members[0].owner_id is not None and members[0].owner_name == "Alice"
+    with pytest.raises(AdminRequiredError):
+        service.list_members(_actor(member), league.id)
+    with pytest.raises(NotAMemberError):
+        service.list_members(_actor(outsider), league.id)
+
+
+def test_AC_AU_20_remove_member_keeps_the_account_and_other_memberships(
+    session: Session,
+) -> None:
+    admin = _create_user(session, "admin@example.com", "admin")
+    member = _create_user(session, "member@example.com")
+    first = _seed_existing_league(session, external_id="league-a")
+    second = _seed_existing_league(session, external_id="league-b")
+    _seed_membership(session, user=admin, league=first)
+    _seed_membership(session, user=member, league=first)
+    _seed_membership(session, user=member, league=second)
+    service = LeagueService(session, RecordingFactory({}), provider_id="fake")
+
+    service.remove_member(_actor(admin), first.id, member.id)
+    service.commit()
+
+    assert _scoped_count(session, UserLeague, UserLeague.league_id == first.id) == 1
+    assert _scoped_count(session, UserLeague, UserLeague.league_id == second.id) == 1
+    assert session.get(AppUser, member.id) is not None
+
+
+def test_AC_AU_20_remove_member_blocks_the_last_admin(session: Session) -> None:
+    admin = _create_user(session, "admin@example.com", "admin")
+    member = _create_user(session, "member@example.com")
+    league = _seed_existing_league(session)
+    _seed_membership(session, user=admin, league=league)
+    _seed_membership(session, user=member, league=league, credentials=False)
+    service = LeagueService(session, RecordingFactory({}), provider_id="fake")
+
+    with pytest.raises(LastAdminError):
+        service.remove_member(_actor(admin), league.id, admin.id)
+
+    assert _scoped_count(session, UserLeague, UserLeague.league_id == league.id) == 2
+
+    with pytest.raises(LeagueMemberNotFoundError):
+        service.remove_member(_actor(admin), league.id, 9999)
+
+
+def test_AC_AU_20_admin_may_remove_themselves_when_another_admin_remains(
+    session: Session,
+) -> None:
+    first = _create_user(session, "first-admin@example.com", "admin")
+    second = _create_user(session, "second-admin@example.com", "admin")
+    league = _seed_existing_league(session)
+    _seed_membership(session, user=first, league=league)
+    _seed_membership(session, user=second, league=league)
+    service = LeagueService(session, RecordingFactory({}), provider_id="fake")
+
+    service.remove_member(_actor(first), league.id, first.id)
+    service.commit()
+
+    assert _scoped_count(session, UserLeague, UserLeague.league_id == league.id) == 1
+
+
+def test_AC_AU_21_create_invite_stores_only_the_hash_and_keeps_role_league_invariants(
+    session: Session,
+) -> None:
+    admin = _create_user(session, "admin@example.com", "admin")
+    league = _seed_existing_league(session)
+    _seed_membership(session, user=admin, league=league)
+    fixed_now = datetime(2026, 1, 1, tzinfo=UTC)
+    service = LeagueService(
+        session, RecordingFactory({}), provider_id="fake", clock=lambda: fixed_now
+    )
+
+    member_invite = service.create_invite(_actor(admin), league.id, "member")
+    admin_invite = service.create_invite(_actor(admin), league.id, "admin")
+    session.commit()
+
+    assert member_invite.league_id == league.id
+    assert member_invite.expires_at == fixed_now + timedelta(days=7)
+    assert admin_invite.league_id is None
+    assert member_invite.code != admin_invite.code
+    assert member_invite.code not in repr(member_invite)
+    stored = list(session.scalars(select(Invite).order_by(Invite.id)))
+    assert [invite.code_hash for invite in stored] == [
+        hash_invite_code(member_invite.code),
+        hash_invite_code(admin_invite.code),
+    ]
+    assert all(invite.code_hash != member_invite.code for invite in stored)
+
+    with pytest.raises(InvalidInviteRequestError):
+        service.create_invite(_actor(admin), league.id, "owner")
+    with pytest.raises(InvalidInviteRequestError):
+        service.create_invite(_actor(admin), league.id, "member", 0)
+    with pytest.raises(InvalidInviteRequestError):
+        service.create_invite(_actor(admin), league.id, "member", 3651)
+
+
+def test_AC_AU_22_delete_league_removes_only_its_own_rows(session: Session) -> None:
+    admin = _create_user(session, "admin@example.com", "admin")
+    doomed = _seed_existing_league(session, external_id="doomed")
+    survivor = _seed_existing_league(session, external_id="survivor")
+    _seed_league_data(session, doomed, suffix="doomed")
+    _seed_league_data(session, survivor, suffix="survivor")
+    _seed_membership(session, user=admin, league=doomed)
+    _seed_membership(session, user=admin, league=survivor)
+    _seed_invite(session, code="league-less", role="admin")
+    service = LeagueService(session, RecordingFactory({}), provider_id="fake")
+
+    service.delete_league(_actor(admin), doomed.id)
+    service.commit()
+
+    assert session.get(League, doomed.id) is None
+    for model in (LeagueSeason, Owner, Team, Matchup, Score, UserLeague, Invite):
+        assert _scoped_count(session, model, model.league_id == doomed.id) == 0
+    assert _scoped_count(session, League, League.id == survivor.id) == 1
+    assert _scoped_count(session, Team, Team.league_id == survivor.id) == 1
+    assert _scoped_count(session, UserLeague, UserLeague.league_id == survivor.id) == 1
+    assert _scoped_count(session, Invite, Invite.league_id.is_(None)) == 1
+    assert session.get(AppUser, admin.id) is not None
+
+
+def test_AC_AU_22_delete_league_requires_an_admin_member(session: Session) -> None:
+    member = _create_user(session, "member@example.com")
+    outsider = _create_user(session, "outsider@example.com")
+    league = _seed_existing_league(session)
+    _seed_membership(session, user=member, league=league)
+    service = LeagueService(session, RecordingFactory({}), provider_id="fake")
+
+    with pytest.raises(AdminRequiredError):
+        service.delete_league(_actor(member), league.id)
+    with pytest.raises(NotAMemberError):
+        service.delete_league(_actor(outsider), league.id)
+
+
+def _configured_postgres_url() -> URL | None:
+    """Return the configured Postgres URL, or ``None`` when the configured database is SQLite."""
+    configured = make_url(get_settings().database_url)
+    if configured.get_backend_name() != "postgresql":
+        return None
+    return configured
+
+
+@contextmanager
+def _temporary_postgres_database(admin_url: URL) -> Iterator[str]:
+    """Create a throwaway database for one cascade test and drop it afterwards."""
+    database_name = f"whodat_cascade_{uuid.uuid4().hex[:12]}"
+    admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+    try:
+        with admin_engine.connect() as connection:
+            connection.execute(text(f'CREATE DATABASE "{database_name}"'))
+        yield admin_url.set(database=database_name).render_as_string(hide_password=False)
+    finally:
+        with admin_engine.connect() as connection:
+            connection.execute(text(f'DROP DATABASE IF EXISTS "{database_name}" WITH (FORCE)'))
+        admin_engine.dispose()
+
+
+@pytest.mark.postgres
+def test_AC_AU_22_delete_league_cascade_honours_foreign_keys_on_postgres() -> None:
+    """The child-first deletion order also satisfies Postgres foreign-key enforcement."""
+    admin_url = _configured_postgres_url()
+    if admin_url is None:
+        pytest.skip("configured DATABASE_URL is not Postgres")
+
+    with _temporary_postgres_database(admin_url) as database_url:
+        engine = create_engine(database_url)
+        Base.metadata.create_all(engine)
+        try:
+            with Session(engine, expire_on_commit=False) as session:
+                admin = _create_user(session, "admin@example.com", "admin")
+                doomed = _seed_existing_league(session, external_id="doomed")
+                survivor = _seed_existing_league(session, external_id="survivor")
+                _seed_league_data(session, doomed, suffix="doomed")
+                _seed_league_data(session, survivor, suffix="survivor")
+                _seed_membership(session, user=admin, league=doomed)
+                _seed_membership(session, user=admin, league=survivor)
+                _seed_invite(session, code="league-less", role="admin")
+                service = LeagueService(session, RecordingFactory({}), provider_id="fake")
+
+                service.delete_league(_actor(admin), doomed.id)
+                service.commit()
+
+                assert session.get(League, doomed.id) is None
+                for model in (LeagueSeason, Owner, Team, Matchup, Score, UserLeague, Invite):
+                    assert _scoped_count(session, model, model.league_id == doomed.id) == 0
+                assert _scoped_count(session, League, League.id == survivor.id) == 1
+                assert _scoped_count(session, UserLeague, UserLeague.league_id == survivor.id) == 1
+        finally:
+            Base.metadata.drop_all(engine)
+            engine.dispose()

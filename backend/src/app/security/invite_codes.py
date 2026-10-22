@@ -19,6 +19,13 @@ import secrets
 #: Number of random bytes behind a generated code (``secrets.token_urlsafe`` uses 32 bytes).
 INVITE_CODE_BYTES = 32
 
+#: Documented default invite lifetime (AC-AU-01).
+DEFAULT_INVITE_LIFETIME_DAYS = 7
+
+#: A decade is far beyond any real invite lifetime and keeps expiry arithmetic inside datetime's
+#: range, so an absurd request becomes a validation error rather than a traceback.
+MAX_INVITE_LIFETIME_DAYS = 3650
+
 
 def generate_invite_code() -> str:
     """Return a fresh URL-safe invite code backed by 32 bytes of cryptographic randomness."""

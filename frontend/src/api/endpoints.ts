@@ -12,8 +12,11 @@ import type {
   AddLeagueResponse,
   AddSeasonRequest,
   AddSeasonResponse,
+  CreateInviteRequest,
+  CreateInviteResponse,
   CupWeekResponse,
   CupWeekUpdateRequest,
+  LeagueMembersResponse,
   LeagueSummary,
   LoginRequest,
   LogoutResponse,
@@ -128,5 +131,26 @@ export const api = {
       method: "PUT",
       body,
     });
+  },
+
+  members(leagueId: number, signal?: AbortSignal): Promise<LeagueMembersResponse> {
+    return apiRequest<LeagueMembersResponse>(`/api/v1/leagues/${leagueId}/members`, { signal });
+  },
+
+  removeMember(leagueId: number, userId: number): Promise<void> {
+    return apiRequest<void>(`/api/v1/leagues/${leagueId}/members/${userId}`, {
+      method: "DELETE",
+    });
+  },
+
+  createInvite(leagueId: number, body: CreateInviteRequest): Promise<CreateInviteResponse> {
+    return apiRequest<CreateInviteResponse>(`/api/v1/leagues/${leagueId}/invites`, {
+      method: "POST",
+      body,
+    });
+  },
+
+  deleteLeague(leagueId: number): Promise<void> {
+    return apiRequest<void>(`/api/v1/leagues/${leagueId}`, { method: "DELETE" });
   },
 };

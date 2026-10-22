@@ -8,7 +8,8 @@ membership has credentials, never a token or a hash.
 
 from __future__ import annotations
 
-from typing import Annotated
+from datetime import datetime
+from typing import Annotated, Literal
 
 from pydantic import (
     BaseModel,
@@ -18,6 +19,11 @@ from pydantic import (
     StringConstraints,
     field_validator,
     model_validator,
+)
+
+from app.security.invite_codes import (
+    DEFAULT_INVITE_LIFETIME_DAYS,
+    MAX_INVITE_LIFETIME_DAYS,
 )
 
 #: Bounds keep obviously wrong seasons and ids out before the service touches the database.
@@ -189,3 +195,48 @@ class CupWeekUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     cup_week: Annotated[int | None, Field(ge=1)]
+
+
+class LeagueMemberSummary(BaseModel):
+    """One account that belongs to a league, with no password or credential material.
+
+    ``email`` is the account identifier because the application has no username field.
+    ``has_credentials`` only says whether the membership holds stored league cookies; their values
+    are never exposed.
+    """
+
+    user_id: int
+    email: str
+    role: str
+    owner_id: int | None
+    owner_name: str | None
+    has_credentials: bool
+
+
+class LeagueMembersResponse(BaseModel):
+    """Every account associated with a league, ordered by email."""
+
+    members: list[LeagueMemberSummary]
+
+
+class CreateInviteRequest(BaseModel):
+    """Generate one member invite for this league or one league-less admin invite."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["admin", "member"]
+    expires_in_days: Annotated[int, Field(ge=1, le=MAX_INVITE_LIFETIME_DAYS)] = (
+        DEFAULT_INVITE_LIFETIME_DAYS
+    )
+
+
+class CreateInviteResponse(BaseModel):
+    """The one and only place a newly created invite's raw code is returned.
+
+    Only the hash is stored. The client must show this code once and cannot retrieve it later.
+    """
+
+    code: str
+    role: str
+    league_id: int | None
+    expires_at: datetime

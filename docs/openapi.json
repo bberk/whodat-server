@@ -131,6 +131,69 @@
         "title": "AddSeasonResponse",
         "type": "object"
       },
+      "CreateInviteRequest": {
+        "additionalProperties": false,
+        "description": "Generate one member invite for this league or one league-less admin invite.",
+        "properties": {
+          "expires_in_days": {
+            "default": 7,
+            "maximum": 3650.0,
+            "minimum": 1.0,
+            "title": "Expires In Days",
+            "type": "integer"
+          },
+          "role": {
+            "enum": [
+              "admin",
+              "member"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role"
+        ],
+        "title": "CreateInviteRequest",
+        "type": "object"
+      },
+      "CreateInviteResponse": {
+        "description": "The one and only place a newly created invite's raw code is returned.\n\nOnly the hash is stored. The client must show this code once and cannot retrieve it later.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "league_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "League Id"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "role",
+          "league_id",
+          "expires_at"
+        ],
+        "title": "CreateInviteResponse",
+        "type": "object"
+      },
       "CupWeekResponse": {
         "description": "A season's cup week and the week range an admin may choose from.",
         "properties": {
@@ -225,6 +288,76 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "LeagueMemberSummary": {
+        "description": "One account that belongs to a league, with no password or credential material.\n\n``email`` is the account identifier because the application has no username field.\n``has_credentials`` only says whether the membership holds stored league cookies; their values\nare never exposed.",
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "has_credentials": {
+            "title": "Has Credentials",
+            "type": "boolean"
+          },
+          "owner_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Id"
+          },
+          "owner_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Name"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "user_id",
+          "email",
+          "role",
+          "owner_id",
+          "owner_name",
+          "has_credentials"
+        ],
+        "title": "LeagueMemberSummary",
+        "type": "object"
+      },
+      "LeagueMembersResponse": {
+        "description": "Every account associated with a league, ordered by email.",
+        "properties": {
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/LeagueMemberSummary"
+            },
+            "title": "Members",
+            "type": "array"
+          }
+        },
+        "required": [
+          "members"
+        ],
+        "title": "LeagueMembersResponse",
         "type": "object"
       },
       "LeagueSummary": {
@@ -1120,6 +1253,183 @@
           }
         },
         "summary": "Add League",
+        "tags": [
+          "leagues"
+        ]
+      }
+    },
+    "/api/v1/leagues/{league_id}": {
+      "delete": {
+        "description": "Delete this league and all of its data, leaving accounts and other leagues intact.",
+        "operationId": "delete_league_api_v1_leagues__league_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "league_id",
+            "required": true,
+            "schema": {
+              "title": "League Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete League",
+        "tags": [
+          "leagues"
+        ]
+      }
+    },
+    "/api/v1/leagues/{league_id}/invites": {
+      "post": {
+        "description": "Generate one invite from the admin page and return its raw code exactly once.\n\nA member invite is bound to this league; an admin invite is league-less. Only the code hash is\nstored, so no other endpoint can return the code again. Defaults to a seven-day expiry.",
+        "operationId": "create_league_invite_api_v1_leagues__league_id__invites_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "league_id",
+            "required": true,
+            "schema": {
+              "title": "League Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInviteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateInviteResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create League Invite",
+        "tags": [
+          "leagues"
+        ]
+      }
+    },
+    "/api/v1/leagues/{league_id}/members": {
+      "get": {
+        "description": "List the accounts associated with a league for an admin member.\n\nA non-member gets 404 (the league is not confirmed to exist) and a member without the admin\nrole gets 403. Emails are the account identifier; passwords, credentials, and hashes are never\npart of the response.",
+        "operationId": "list_league_members_api_v1_leagues__league_id__members_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "league_id",
+            "required": true,
+            "schema": {
+              "title": "League Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeagueMembersResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List League Members",
+        "tags": [
+          "leagues"
+        ]
+      }
+    },
+    "/api/v1/leagues/{league_id}/members/{member_user_id}": {
+      "delete": {
+        "description": "Remove one user's membership in this league, subject to the last-admin guard.\n\nThe account and its other memberships are untouched. Removing the last admin member returns a\nstructured 409; a user without a membership in this league returns 404.",
+        "operationId": "remove_league_member_api_v1_leagues__league_id__members__member_user_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "league_id",
+            "required": true,
+            "schema": {
+              "title": "League Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "member_user_id",
+            "required": true,
+            "schema": {
+              "title": "Member User Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove League Member",
         "tags": [
           "leagues"
         ]

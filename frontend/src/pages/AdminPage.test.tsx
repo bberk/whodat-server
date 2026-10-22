@@ -2,9 +2,19 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { AuthContextValue } from "../auth/AuthContext";
+import { AuthContext } from "../auth/AuthContext";
 import type { LeagueContextValue } from "../leagues/LeagueContext";
 import { LeagueContext } from "../leagues/LeagueContext";
-import { errorResponse, jsonResponse, leagueAlpha, mockFetch, requestPath } from "../test/fixtures";
+import {
+  adminUser,
+  errorResponse,
+  jsonResponse,
+  leagueAlpha,
+  leagueMembers,
+  mockFetch,
+  requestPath,
+} from "../test/fixtures";
 import { AdminPage } from "./AdminPage";
 
 function leagueValue(overrides: Partial<LeagueContextValue> = {}): LeagueContextValue {
@@ -29,17 +39,47 @@ function leagueValue(overrides: Partial<LeagueContextValue> = {}): LeagueContext
   };
 }
 
-function renderPage(value: LeagueContextValue = leagueValue(), path = "/leagues/1/admin") {
+function authValue(overrides: Partial<AuthContextValue> = {}): AuthContextValue {
+  return {
+    status: "signed-in",
+    user: adminUser,
+    bootError: null,
+    login: vi.fn(),
+    signup: vi.fn(),
+    refreshUser: vi.fn(),
+    logout: vi.fn(),
+    ...overrides,
+  };
+}
+
+function renderPage(
+  value: LeagueContextValue = leagueValue(),
+  path = "/leagues/1/admin",
+  auth: AuthContextValue = authValue(),
+) {
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <LeagueContext.Provider value={value}>
-        <Routes>
-          <Route path="/leagues/:leagueId/admin" element={<AdminPage />} />
-          <Route path="/" element={<p>Standings stub</p>} />
-        </Routes>
-      </LeagueContext.Provider>
+      <AuthContext.Provider value={auth}>
+        <LeagueContext.Provider value={value}>
+          <Routes>
+            <Route path="/leagues/:leagueId/admin" element={<AdminPage />} />
+            <Route path="/" element={<p>Standings stub</p>} />
+          </Routes>
+        </LeagueContext.Provider>
+      </AuthContext.Provider>
     </MemoryRouter>,
   );
+}
+
+function defaultFetch(url: string) {
+  const path = requestPath(url);
+  if (path === "/api/v1/leagues/1/members") {
+    return jsonResponse({ members: leagueMembers });
+  }
+  if (path === "/api/v1/leagues/1/seasons/2026/cup-week") {
+    return jsonResponse({ season: 2026, cup_week: 1, regular_season_length: 2 });
+  }
+  return errorResponse(404, { code: "not_found", message: path });
 }
 
 afterEach(() => {
@@ -47,36 +87,42 @@ afterEach(() => {
 });
 
 describe("AdminPage", () => {
-  it("mounts the add-season and cup-week sections on one admin page", async () => {
-    mockFetch((url) => {
-      const path = requestPath(url);
-      if (path === "/api/v1/leagues/1/seasons/2026/cup-week") {
-        return jsonResponse({ season: 2026, cup_week: 1, regular_season_length: 2 });
-      }
-      return errorResponse(404, { code: "not_found", message: path });
-    });
+  it("mounts members, add-season, cup-week, invites, and the danger zone", async () => {
+    mockFetch(defaultFetch);
 
     renderPage();
 
     expect(screen.getByRole("heading", { level: 1, name: "League admin" })).toBeInTheDocument();
-    expect(screen.getByText("Alpha League")).toBeInTheDocument();
+    expect(screen.getByText("Alpha League · 2026 season")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Members" })).toBeInTheDocument();
+    expect(await screen.findByText("admin@example.com")).toBeInTheDocument();
+    expect(screen.getByText("member@example.com")).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: "Add a season" })).toBeInTheDocument();
     expect(screen.getByLabelText("Season year")).toBeInTheDocument();
     expect(await screen.findByLabelText("Cup week for this season")).toHaveValue("1");
-    expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(2);
+    expect(screen.getByRole("heading", { level: 2, name: "Invites" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Invite type")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 2, name: "Danger zone: delete this league" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Type the league name to confirm")).toBeInTheDocument();
   });
 
-  it("keeps the add-season section when no season is selected", () => {
+  it("keeps add-season and the other sections when no season is selected", async () => {
+    mockFetch(defaultFetch);
+
     renderPage(leagueValue({ season: null, seasons: [] }));
 
     expect(screen.getByRole("heading", { level: 2, name: "Add a season" })).toBeInTheDocument();
     expect(screen.getByText("No season selected")).toBeInTheDocument();
     expect(screen.queryByLabelText("Cup week for this season")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Invites" })).toBeInTheDocument();
+    expect(await screen.findByText("admin@example.com")).toBeInTheDocument();
   });
 
   it("selects the league named by the route when it differs from the shell selection", () => {
     const value = leagueValue({ selectedLeague: { ...leagueAlpha, league_id: 2 } });
-    mockFetch(() => jsonResponse({ season: 2026, cup_week: null, regular_season_length: 2 }));
+    mockFetch(defaultFetch);
 
     renderPage(value);
 
@@ -84,6 +130,8 @@ describe("AdminPage", () => {
   });
 
   it("returns to the standings for an invalid league id", () => {
+    mockFetch(defaultFetch);
+
     renderPage(leagueValue(), "/leagues/not-a-number/admin");
 
     expect(screen.getByText("Standings stub")).toBeInTheDocument();

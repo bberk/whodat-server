@@ -12,6 +12,7 @@ import {
   jsonResponse,
   leagueAlpha,
   leagueBeta,
+  leagueMembers,
   memberUser,
   mockFetch,
   owners,
@@ -68,6 +69,9 @@ function signedInFetch(
     }
     if (path === "/api/v1/leagues/1/owners") {
       return jsonResponse({ owners });
+    }
+    if (/^\/api\/v1\/leagues\/\d+\/members$/.test(path)) {
+      return jsonResponse({ members: leagueMembers });
     }
     if (path === "/api/v1/me/leagues/1/owner") {
       expect(init?.method).toBe("PUT");
@@ -138,12 +142,9 @@ describe("App routing", () => {
     await user.click(screen.getByRole("button", { name: "Log in" }));
 
     // The league shell remounts its outlet when the selected season arrives, so wait for the
-    // final season before asserting the routed page to avoid reading a soon-detached heading.
-    await waitFor(() => {
-      expect(screen.getByLabelText("Season")).toHaveValue("2026");
-    });
+    // routed page's own heading before asserting it.
     expect(
-      screen.getByRole("heading", { level: 1, name: "Owner · Alpha League" }),
+      await screen.findByRole("heading", { level: 1, name: "Owner · Alpha League" }),
     ).toBeInTheDocument();
   });
 
@@ -408,18 +409,50 @@ describe("App routing", () => {
     expect(screen.queryByRole("dialog", { name: "Add a league" })).not.toBeInTheDocument();
   });
 
-  it("shows admins the admin nav item and both admin sections", async () => {
+  it("shows admins the admin nav item and all admin sections", async () => {
     signedInFetch();
     renderAt("/leagues/1/admin");
 
-    await waitFor(() => {
-      expect(screen.getByLabelText("Season")).toHaveValue("2026");
-    });
+    expect(await screen.findByText("Alpha League · 2026 season")).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1, name: "League admin" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Admin" })).toHaveAttribute("href", "/leagues/1/admin");
+    expect(screen.getByRole("heading", { level: 2, name: "Members" })).toBeInTheDocument();
+    expect(await screen.findByRole("row", { name: /admin@example\.com/ })).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: "Add a season" })).toBeInTheDocument();
     expect(screen.getByLabelText("Season year")).toBeInTheDocument();
     expect(await screen.findByLabelText("Cup week for this season")).toHaveValue("");
+    expect(screen.getByRole("heading", { level: 2, name: "Invites" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 2, name: "Danger zone: delete this league" }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows the season picker on the standings route", async () => {
+    signedInFetch();
+    renderAt("/");
+
+    await screen.findByRole("heading", { level: 1, name: "Alpha League — standings" });
+    expect(await screen.findByLabelText("Season")).toHaveValue("2026");
+  });
+
+  it("hides the season picker on the owner route but keeps the league and refresh controls", async () => {
+    signedInFetch();
+    renderAt("/leagues/1/owner");
+
+    await screen.findByRole("heading", { level: 1, name: "Owner · Alpha League" });
+    expect(screen.queryByLabelText("Season")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("League")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Refresh" })).toBeInTheDocument();
+  });
+
+  it("hides the season picker on the admin route but keeps the league and refresh controls", async () => {
+    signedInFetch();
+    renderAt("/leagues/1/admin");
+
+    await screen.findByRole("heading", { level: 1, name: "League admin" });
+    expect(screen.queryByLabelText("Season")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("League")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Refresh" })).toBeInTheDocument();
   });
 
   it("keeps the admin route when a league is switched", async () => {
@@ -433,7 +466,7 @@ describe("App routing", () => {
     expect(
       await screen.findByRole("heading", { level: 1, name: "League admin" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Beta League", { selector: "p" })).toBeInTheDocument();
+    expect(await screen.findByText(/Beta League/, { selector: "p" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Admin" })).toHaveAttribute("href", "/leagues/2/admin");
   });
 

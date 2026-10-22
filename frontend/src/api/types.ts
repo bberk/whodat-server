@@ -39,6 +39,14 @@ export type RefreshResponse = components["schemas"]["RefreshResponse"];
 export type CupWeekResponse = components["schemas"]["CupWeekResponse"];
 export type CupWeekUpdateRequest = components["schemas"]["CupWeekUpdateRequest"];
 
+/** One account in a league: email is the identifier, and no credential value is exposed. */
+export type LeagueMemberSummary = components["schemas"]["LeagueMemberSummary"];
+export type LeagueMembersResponse = components["schemas"]["LeagueMembersResponse"];
+/** Body for generating a member invite for this league or a league-less admin invite. */
+export type CreateInviteRequest = components["schemas"]["CreateInviteRequest"];
+/** The one-time response carrying the raw invite code; it cannot be retrieved again. */
+export type CreateInviteResponse = components["schemas"]["CreateInviteResponse"];
+
 export type StandingsRow = components["schemas"]["StandingsRow"];
 export type DivisionStandings = components["schemas"]["DivisionStandings"];
 export type StandingsResponse = components["schemas"]["StandingsResponse"];
