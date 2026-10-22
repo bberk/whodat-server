@@ -48,9 +48,9 @@ Follow the format used below. Newest entries at the top.
   3. Remove the weekly breakdown section until components are exposed.
 - **Recommendation:** option 2 now; option 1 later if users need to see why a week's VP was
   awarded.
-- **In the meantime:** the frontend integrates against the real API and shows the weekly and
-  cumulative totals in the breakdown. No component value is invented, and the section keeps its
-  week selector, sticky team column, and empty/loading/error states.
+- **In the meantime:** the frontend integrates against the real API. The separate weekly breakdown
+  section was later removed at the owner's request, so weekly VP now appears only as the overall
+  standings table's one-column-per-week values (option 3); no component value is invented.
 
 ---
 
