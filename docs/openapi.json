@@ -1717,6 +1717,7 @@
             "name": "league_id",
             "required": true,
             "schema": {
+              "minimum": 1,
               "title": "League Id",
               "type": "integer"
             }
@@ -1760,6 +1761,7 @@
             "name": "league_id",
             "required": true,
             "schema": {
+              "minimum": 1,
               "title": "League Id",
               "type": "integer"
             }
@@ -1769,6 +1771,8 @@
             "name": "season",
             "required": true,
             "schema": {
+              "maximum": 2100,
+              "minimum": 2000,
               "title": "Season",
               "type": "integer"
             }
@@ -1923,6 +1927,7 @@
             "name": "league_id",
             "required": true,
             "schema": {
+              "minimum": 1,
               "title": "League Id",
               "type": "integer"
             }
@@ -1932,6 +1937,8 @@
             "name": "season",
             "required": true,
             "schema": {
+              "maximum": 2100,
+              "minimum": 2000,
               "title": "Season",
               "type": "integer"
             }

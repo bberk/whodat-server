@@ -326,7 +326,7 @@ def list_league_seasons(
     response_model=SeasonSettingsResponse,
 )
 def list_league_season_settings(
-    league_id: int,
+    league_id: LeagueIdPath,
     current_user: CurrentUserDep,
     service: ServiceDep,
 ) -> SeasonSettingsResponse:
@@ -387,8 +387,8 @@ def add_league_season(
     response_model=SeasonRefreshResponse,
 )
 def refresh_league_season(
-    league_id: int,
-    season: int,
+    league_id: LeagueIdPath,
+    season: SeasonPath,
     current_user: CurrentUserDep,
     service: ServiceDep,
 ) -> SeasonRefreshResponse:
@@ -413,8 +413,8 @@ def refresh_league_season(
     status_code=status.HTTP_204_NO_CONTENT,
 )
 def delete_league_season(
-    league_id: int,
-    season: int,
+    league_id: LeagueIdPath,
+    season: SeasonPath,
     current_user: CurrentUserDep,
     service: ServiceDep,
 ) -> Response:
