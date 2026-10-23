@@ -1,0 +1,113 @@
+# Production stack for a single Oracle Cloud Always Free ARM VM.
+#
+#   docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d --build
+#
+# Caddy is the only published service (80/443). Postgres, the backend, and the frontend stay on
+# the private Compose network, so the SPA and API share one origin and the SameSite=Lax session
+# cookie works without relaxing CORS or the cookie attributes.
+#
+# Values come from deploy/.env (see deploy/.env.example). The `:?` guards make Compose refuse to
+# start instead of silently falling back to a development default. See docs/DEPLOY_ORACLE.md.
+
+name: whodat
+
+services:
+  postgres:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      # No defaults: the local-dev app/app pair must never reach production. All three values
+      # come from deploy/.env.
+      POSTGRES_USER: "${POSTGRES_USER:?set POSTGRES_USER in deploy/.env}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}"
+      POSTGRES_DB: "${POSTGRES_DB:?set POSTGRES_DB in deploy/.env}"
+    volumes:
+      # Postgres 18 images expect a single mount at /var/lib/postgresql; the old
+      # /var/lib/postgresql/data path makes the entrypoint refuse to start.
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      # $$ defers expansion to the container so this follows the credentials above.
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # No published ports: only the Compose network can reach the database.
+
+  backend:
+    build:
+      context: ../backend
+    restart: unless-stopped
+    environment:
+      # Built from the same values the postgres service uses, so host, port, database, and
+      # password cannot drift between the two. POSTGRES_PASSWORD must be URL-safe (hex).
+      DATABASE_URL: "postgresql+psycopg://${POSTGRES_USER:?set POSTGRES_USER in deploy/.env}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in deploy/.env}"
+      ENV: "${ENV:-production}"
+      SECRET_KEY: "${SECRET_KEY:?set SECRET_KEY in deploy/.env}"
+      LEAGUE_CREDENTIALS_KEY: "${LEAGUE_CREDENTIALS_KEY:?set LEAGUE_CREDENTIALS_KEY in deploy/.env}"
+      # Same-origin deployment: the browser origin is the only allowed origin.
+      CORS_ORIGINS: "${CORS_ORIGINS:?set CORS_ORIGINS in deploy/.env}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import urllib.request;
+          urllib.request.urlopen('http://localhost:8000/health', timeout=3)"
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    # Migrations run before the new API process accepts traffic, exactly as in local Compose.
+    command: >
+      sh -c "uv run alembic upgrade head &&
+             uv run uvicorn app.api.main:app --host 0.0.0.0 --port 8000"
+    # No published ports: Caddy reaches the API at backend:8000.
+
+  frontend:
+    build:
+      context: ../frontend
+      args:
+        # Baked into the bundle at build time. Same origin as the API, so the session cookie is
+        # first-party. Changing DOMAIN requires a rebuild, which deploy.sh always performs.
+        VITE_API_BASE_URL: "https://${DOMAIN:?set DOMAIN in deploy/.env}"
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/ || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    # No published ports: Caddy serves the SPA at frontend:8080.
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports:
+      # The only ingress. 443/udp carries HTTP/3; 80 is used for ACME challenges and the
+      # HTTP-to-HTTPS redirect.
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: "${DOMAIN:?set DOMAIN in deploy/.env}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates and ACME account state must survive container recreation.
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+
+volumes:
+  # `docker compose down` keeps all three; only `down --volumes` removes them.
+  pgdata:
+  caddy_data:
+  caddy_config:

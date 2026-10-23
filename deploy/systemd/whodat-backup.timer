@@ -1,0 +1,12 @@
+[Unit]
+Description=Nightly whodat Postgres backup timer
+
+[Timer]
+# Quiet hours in UTC; Persistent=true runs a missed backup after downtime.
+OnCalendar=*-*-* 03:15:00 UTC
+RandomizedDelaySec=20m
+Persistent=true
+Unit=whodat-backup.service
+
+[Install]
+WantedBy=timers.target

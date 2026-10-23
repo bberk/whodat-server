@@ -1,0 +1,38 @@
+# Production edge for the single-VM stack (mounted at /etc/caddy/Caddyfile).
+#
+# Caddy obtains and renews a Let's Encrypt certificate for {$DOMAIN} automatically, provided
+# ports 80 and 443 are reachable from the internet and DNS points at the VM.
+#
+# The SPA and the API share this one origin. /api/* and /health go to the backend; every other
+# path is the built SPA. Keeping one origin is what makes the SameSite=Lax session cookie work.
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# The app rejects request bodies over 64 KiB (MAX_REQUEST_BODY_BYTES). Reject larger bodies
+	# here too, with a little headroom, instead of forwarding them just to return a 413.
+	request_body {
+		max_size 128KB
+	}
+
+	header {
+		# No includeSubDomains: the app may be one subdomain among unrelated siblings.
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# Caddy advertises itself; the app does not need to.
+		-Server
+	}
+
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+
+	handle /health {
+		reverse_proxy backend:8000
+	}
+
+	handle {
+		reverse_proxy frontend:8080
+	}
+}

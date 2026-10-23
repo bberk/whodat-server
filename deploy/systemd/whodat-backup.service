@@ -1,0 +1,17 @@
+[Unit]
+Description=Nightly whodat Postgres backup
+Documentation=https://github.com/bberk/whodat-server/blob/main/docs/DEPLOY_ORACLE.md
+Requires=docker.service
+After=docker.service
+ConditionPathExists=/opt/whodat/deploy/.env
+
+[Service]
+Type=oneshot
+User=whodat
+Group=whodat
+WorkingDirectory=/opt/whodat
+ExecStart=/opt/whodat/deploy/backup-postgres.sh
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=yes
+PrivateTmp=yes
