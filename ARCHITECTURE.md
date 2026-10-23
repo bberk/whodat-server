@@ -168,8 +168,8 @@ service).
 ### League deletion
 
 Deleting a league is a single transaction that removes its dependent rows child-first: scores,
-matchups, teams, memberships, owners, invites bound to the league, seasons, then the league. The
-order satisfies foreign-key enforcement on Postgres as well as SQLite. Accounts and league-less
+matchups, teams, memberships, owners, invites bound to the league, seasons, Elo settings, then the
+league. The order satisfies foreign-key enforcement on Postgres as well as SQLite. Accounts and league-less
 admin invites are never part of that deletion.
 
 ### Season deletion

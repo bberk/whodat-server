@@ -34,6 +34,7 @@ from app.db.models import (
     AppUser,
     Invite,
     League,
+    LeagueEloConfig,
     LeagueSeason,
     Matchup,
     Owner,
@@ -1787,6 +1788,20 @@ def _seed_league_data(api: Api, *, league_id: int, season: int = SEASON) -> int:
         return team.id
 
 
+def _seed_elo_config(api: Api, *, league_id: int, starting_rating: str = "1500") -> None:
+    """Store an Elo settings row for a league so HTTP league deletion has a dependent row."""
+    with api.factory() as session:
+        SyncRepository(session).upsert_elo_config(
+            league_id,
+            starting_rating=Decimal(starting_rating),
+            k_factor=Decimal("24"),
+            margin_weight=Decimal("0.25"),
+            margin_cap=Decimal("50"),
+            season_regression=Decimal("0.3333333333"),
+        )
+        session.commit()
+
+
 def _count_where(api: Api, model: type[Base], condition: object) -> int:
     with api.factory() as session:
         return int(session.scalar(select(func.count()).select_from(model).where(condition)) or 0)
@@ -2083,6 +2098,8 @@ def test_AC_AU_22_delete_league_removes_only_that_leagues_data(
     survivor = _seed_league(api, external_id="survivor-league")
     _seed_league_data(api, league_id=doomed)
     _seed_league_data(api, league_id=survivor)
+    _seed_elo_config(api, league_id=doomed, starting_rating="1600")
+    _seed_elo_config(api, league_id=survivor, starting_rating="1550")
     _seed_membership(api, user_id=admin_id, league_id=doomed)
     _seed_membership(api, user_id=admin_id, league_id=survivor)
     _seed_membership(api, user_id=member_id, league_id=doomed)
@@ -2094,11 +2111,12 @@ def test_AC_AU_22_delete_league_removes_only_that_leagues_data(
     assert response.status_code == 204
     assert response.content == b""
     assert _count_where(api, League, League.id == doomed) == 0
-    for model in (LeagueSeason, Owner, Team, Matchup, Score, UserLeague, Invite):
+    for model in (LeagueSeason, LeagueEloConfig, Owner, Team, Matchup, Score, UserLeague, Invite):
         assert _count_where(api, model, model.league_id == doomed) == 0
     # Only the other league and its rows survive, along with every account and admin invite.
     assert _count_where(api, League, League.id == survivor) == 1
     assert _count_where(api, LeagueSeason, LeagueSeason.league_id == survivor) == 1
+    assert _count_where(api, LeagueEloConfig, LeagueEloConfig.league_id == survivor) == 1
     assert _count_where(api, Owner, Owner.league_id == survivor) == 2
     assert _count_where(api, Team, Team.league_id == survivor) == 1
     assert _count_where(api, Matchup, Matchup.league_id == survivor) == 1

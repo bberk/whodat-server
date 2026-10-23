@@ -28,6 +28,7 @@ from app.db.models import (
     AppUser,
     Invite,
     League,
+    LeagueEloConfig,
     LeagueSeason,
     Matchup,
     Owner,
@@ -1367,6 +1368,19 @@ def _scoped_count(session: Session, model: type[Base], condition: object) -> int
     return int(session.scalar(select(func.count()).select_from(model).where(condition)) or 0)
 
 
+def _seed_elo_config(session: Session, league: League, *, starting_rating: str = "1500") -> None:
+    """Store one Elo settings row so the league-deletion cascade has a dependent row to remove."""
+    SyncRepository(session).upsert_elo_config(
+        league.id,
+        starting_rating=Decimal(starting_rating),
+        k_factor=Decimal("24"),
+        margin_weight=Decimal("0.25"),
+        margin_cap=Decimal("50"),
+        season_regression=Decimal("0.3333333333"),
+    )
+    session.commit()
+
+
 def _seed_league_data(session: Session, league: League, *, suffix: str = "1") -> None:
     """Give a stored league a team, matchup, score, and one league-bound invite."""
     repository = SyncRepository(session)
@@ -1507,6 +1521,8 @@ def test_AC_AU_22_delete_league_removes_only_its_own_rows(session: Session) -> N
     survivor = _seed_existing_league(session, external_id="survivor")
     _seed_league_data(session, doomed, suffix="doomed")
     _seed_league_data(session, survivor, suffix="survivor")
+    _seed_elo_config(session, doomed, starting_rating="1600")
+    _seed_elo_config(session, survivor, starting_rating="1550")
     _seed_membership(session, user=admin, league=doomed)
     _seed_membership(session, user=admin, league=survivor)
     _seed_invite(session, code="league-less", role="admin")
@@ -1516,13 +1532,41 @@ def test_AC_AU_22_delete_league_removes_only_its_own_rows(session: Session) -> N
     service.commit()
 
     assert session.get(League, doomed.id) is None
-    for model in (LeagueSeason, Owner, Team, Matchup, Score, UserLeague, Invite):
+    for model in (
+        LeagueSeason,
+        LeagueEloConfig,
+        Owner,
+        Team,
+        Matchup,
+        Score,
+        UserLeague,
+        Invite,
+    ):
         assert _scoped_count(session, model, model.league_id == doomed.id) == 0
     assert _scoped_count(session, League, League.id == survivor.id) == 1
+    survivor_config = session.scalar(
+        select(LeagueEloConfig).where(LeagueEloConfig.league_id == survivor.id)
+    )
+    assert survivor_config is not None
+    assert survivor_config.starting_rating == Decimal("1550")
     assert _scoped_count(session, Team, Team.league_id == survivor.id) == 1
     assert _scoped_count(session, UserLeague, UserLeague.league_id == survivor.id) == 1
     assert _scoped_count(session, Invite, Invite.league_id.is_(None)) == 1
     assert session.get(AppUser, admin.id) is not None
+
+
+def test_AC_AU_22_delete_league_without_elo_config_succeeds(session: Session) -> None:
+    """A league that never saved Elo settings still deletes cleanly."""
+    admin = _create_user(session, "admin@example.com", "admin")
+    league = _seed_existing_league(session, external_id="no-elo-config")
+    _seed_membership(session, user=admin, league=league)
+    service = LeagueService(session, RecordingFactory({}), provider_id="fake")
+
+    service.delete_league(_actor(admin), league.id)
+    service.commit()
+
+    assert session.get(League, league.id) is None
+    assert _scoped_count(session, LeagueEloConfig, LeagueEloConfig.league_id == league.id) == 0
 
 
 def test_AC_AU_22_delete_league_requires_an_admin_member(session: Session) -> None:
@@ -1578,6 +1622,8 @@ def test_AC_AU_22_delete_league_cascade_honours_foreign_keys_on_postgres() -> No
                 survivor = _seed_existing_league(session, external_id="survivor")
                 _seed_league_data(session, doomed, suffix="doomed")
                 _seed_league_data(session, survivor, suffix="survivor")
+                _seed_elo_config(session, doomed)
+                _seed_elo_config(session, survivor)
                 _seed_membership(session, user=admin, league=doomed)
                 _seed_membership(session, user=admin, league=survivor)
                 _seed_invite(session, code="league-less", role="admin")
@@ -1587,9 +1633,24 @@ def test_AC_AU_22_delete_league_cascade_honours_foreign_keys_on_postgres() -> No
                 service.commit()
 
                 assert session.get(League, doomed.id) is None
-                for model in (LeagueSeason, Owner, Team, Matchup, Score, UserLeague, Invite):
+                for model in (
+                    LeagueSeason,
+                    LeagueEloConfig,
+                    Owner,
+                    Team,
+                    Matchup,
+                    Score,
+                    UserLeague,
+                    Invite,
+                ):
                     assert _scoped_count(session, model, model.league_id == doomed.id) == 0
                 assert _scoped_count(session, League, League.id == survivor.id) == 1
+                assert (
+                    _scoped_count(
+                        session, LeagueEloConfig, LeagueEloConfig.league_id == survivor.id
+                    )
+                    == 1
+                )
                 assert _scoped_count(session, UserLeague, UserLeague.league_id == survivor.id) == 1
         finally:
             Base.metadata.drop_all(engine)

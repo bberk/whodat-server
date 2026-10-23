@@ -226,8 +226,8 @@ All ESPN-specific code lives behind a provider interface that returns normalized
   at creation and is never retrievable afterwards; only its hash is stored.
 - An admin who belongs to a league can delete that league from the league admin page after typing
   its name to confirm. Deletion removes the league and its own data only (seasons, teams, owners,
-  matchups, scores, memberships, and invites bound to it); user accounts, league-less admin
-  invites, and other leagues are untouched.
+  matchups, scores, memberships, Elo settings, and invites bound to it); user accounts, league-less
+  admin invites, and other leagues are untouched.
 - Not in v1: email verification, password reset, social login, claiming more than one owner in a
   league.
 
