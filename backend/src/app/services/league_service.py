@@ -44,6 +44,7 @@ from app.db.models import (
     AppUser,
     Invite,
     League,
+    LeagueEloConfig,
     LeagueSeason,
     Matchup,
     Owner,
@@ -860,14 +861,23 @@ class LeagueService:
 
         The caller must be an admin member; a non-member gets the same 404 as any league read. Rows
         are deleted child-first so the operation also succeeds where foreign keys are enforced
-        (Postgres): scores, matchups, teams, memberships, owners, invites bound to this league, then
-        seasons, then the league itself. Accounts and league-less admin invites are not touched,
-        and neither is any other league. The caller commits.
+        (Postgres): scores, matchups, teams, memberships, owners, invites bound to this league,
+        seasons, Elo settings, then the league itself. Accounts and league-less admin invites are
+        not touched, and neither is any other league. The caller commits.
         """
         self.require_membership(user, league_id)
         self._require_admin(user)
         with self._session.begin_nested():
-            for model in (Score, Matchup, Team, UserLeague, Owner, Invite, LeagueSeason):
+            for model in (
+                Score,
+                Matchup,
+                Team,
+                UserLeague,
+                Owner,
+                Invite,
+                LeagueSeason,
+                LeagueEloConfig,
+            ):
                 self._session.execute(delete(model).where(model.league_id == league_id))
             self._session.execute(delete(League).where(League.id == league_id))
             self._session.flush()
