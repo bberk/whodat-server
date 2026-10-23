@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { niceScale, positionFor, spreadLabelPositions } from "./chartGeometry";
+import { niceScale, niceValueScale, positionFor, spreadLabelPositions } from "./chartGeometry";
 
 describe("niceScale", () => {
   it("keeps zero in range and rounds to a readable step", () => {
@@ -47,5 +47,33 @@ describe("spreadLabelPositions", () => {
 
   it("preserves the original order of the input", () => {
     expect(spreadLabelPositions([104, 100, 102], 16, 0, 1000)).toEqual([132, 100, 116]);
+  });
+});
+
+describe("niceValueScale", () => {
+  it("rounds an Elo-sized range without forcing zero into it", () => {
+    const scale = niceValueScale(1480, 1520, 4);
+    expect(scale.min).toBeGreaterThan(1400);
+    expect(scale.ticks).toContain(1480);
+    expect(scale.ticks).toContain(1520);
+  });
+
+  it("uses a readable step for each normalized span", () => {
+    expect(niceValueScale(1500, 1504, 4).ticks).toEqual([1500, 1501, 1502, 1503, 1504]);
+    expect(niceValueScale(1500, 1508, 4).ticks).toEqual([1500, 1502, 1504, 1506, 1508]);
+    expect(niceValueScale(1500, 1510, 4).ticks).toEqual([1500, 1502.5, 1505, 1507.5, 1510]);
+    expect(niceValueScale(1500, 1520, 4).ticks).toEqual([1500, 1505, 1510, 1515, 1520]);
+    expect(niceValueScale(1500, 1528, 4).ticks).toEqual([1500, 1510, 1520, 1530]);
+  });
+
+  it("expands a flat range and falls back for non-finite input", () => {
+    expect(niceValueScale(1500, 1500)).toEqual({ min: 1499, max: 1501, ticks: [1499, 1500, 1501] });
+    expect(niceValueScale(Number.NaN, 1)).toEqual({ min: 0, max: 1, ticks: [0, 1] });
+  });
+});
+
+describe("spreadLabelPositions with identical values", () => {
+  it("keeps equal labels in their original order", () => {
+    expect(spreadLabelPositions([100, 100], 16, 0, 1000)).toEqual([100, 116]);
   });
 });

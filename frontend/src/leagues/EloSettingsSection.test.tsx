@@ -122,6 +122,23 @@ describe("EloSettingsSection", () => {
     expect(value.notifyDataChanged).toHaveBeenCalledTimes(1);
   });
 
+  it("restores the saved values when changes are discarded", async () => {
+    const user = userEvent.setup();
+    mockFetch((url) =>
+      requestPath(url) === "/api/v1/leagues/1/elo-config"
+        ? jsonResponse(eloConfigResponse)
+        : errorResponse(404, { code: "not_found", message: requestPath(url) }),
+    );
+    renderSection();
+
+    const kFactor = await screen.findByLabelText("K factor");
+    await user.clear(kFactor);
+    await user.type(kFactor, "32");
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+
+    expect(kFactor).toHaveValue("24");
+  });
+
   it("validates ranges before sending a request", async () => {
     const user = userEvent.setup();
     const fetchMock = mockFetch((url, init) => {
@@ -143,6 +160,23 @@ describe("EloSettingsSection", () => {
     );
     const puts = fetchMock.mock.calls.filter(([, init]) => init?.method === "PUT");
     expect(puts).toHaveLength(0);
+  });
+
+  it("requires a value in every field before sending", async () => {
+    const user = userEvent.setup();
+    const fetchMock = mockFetch((url) =>
+      requestPath(url) === "/api/v1/leagues/1/elo-config"
+        ? jsonResponse(eloConfigResponse)
+        : errorResponse(404, { code: "not_found", message: requestPath(url) }),
+    );
+    renderSection();
+
+    await screen.findByLabelText("K factor");
+    await user.clear(screen.getByLabelText("K factor"));
+    await user.click(screen.getByRole("button", { name: "Recalculate Elo history" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("K factor: Enter a value.");
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "PUT")).toHaveLength(0);
   });
 
   it("shows loading, a recoverable load error, and a save error", async () => {
