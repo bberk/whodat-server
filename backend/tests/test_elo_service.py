@@ -481,6 +481,33 @@ def test_AC_Elo_39_settings_default_then_persist_round_trip(session: Session) ->
     assert reloaded.margin_cap == Decimal("40")
     assert reloaded.season_regression == Decimal("0.5")
 
+    service.update_config(
+        admin,
+        seeded.league_id,
+        starting_rating=Decimal("1550"),
+        k_factor=Decimal("30"),
+        margin_weight=Decimal("0.4"),
+        margin_cap=Decimal("45"),
+        season_regression=Decimal("0.25"),
+    )
+    service.commit()
+    updated = EloService(session).get_config(admin, seeded.league_id)
+    assert updated.starting_rating == Decimal("1550")
+    assert updated.k_factor == Decimal("30")
+
+    # Saving identical values is a no-op write, not a duplicate row.
+    service.update_config(
+        admin,
+        seeded.league_id,
+        starting_rating=Decimal("1550"),
+        k_factor=Decimal("30"),
+        margin_weight=Decimal("0.4"),
+        margin_cap=Decimal("45"),
+        season_regression=Decimal("0.25"),
+    )
+    service.commit()
+    assert EloService(session).get_config(admin, seeded.league_id).k_factor == Decimal("30")
+
 
 @pytest.mark.parametrize(
     ("field", "value"),
