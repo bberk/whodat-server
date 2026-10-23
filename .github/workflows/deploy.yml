@@ -1,0 +1,158 @@
+# Deploy the production stack to the Oracle Cloud VM after CI succeeds on main.
+#
+# Triggers:
+#   * workflow_run: only when the "ci" workflow (ci.yml) completes successfully for a push to
+#     main. A failed, cancelled, or PR-only CI run can never reach the deploy job.
+#   * workflow_dispatch: a human may redeploy on purpose (for example after changing a VM-side
+#     secret); this path skips the gate by design.
+#
+# The job checks out the exact commit CI validated, verifies the `production` Environment is
+# configured, uploads the checked-in deploy/deploy.sh over SCP, and runs it over SSH with that
+# SHA. Only actions/checkout and the runner's OpenSSH client are used. Secrets are passed through
+# the environment and files with owner-only permissions; nothing secret is echoed.
+#
+# Required on the `production` Environment (docs/DEPLOY_ORACLE.md):
+#   secrets:   SSH_KEY, SSH_KNOWN_HOSTS
+#   variables: SSH_HOST, SSH_USER, DEPLOY_PATH, DOMAIN
+
+name: deploy
+
+on:
+  workflow_run:
+    # Must match the `name:` in ci.yml exactly.
+    workflows: ["ci"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  # One rollout at a time. Never cancel a deploy halfway through: a half-applied stack is worse
+  # than a queued one.
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main')
+    steps:
+      - name: Resolve the commit CI validated
+        id: target
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          DISPATCH_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "workflow_run" ]]; then
+            sha="$WORKFLOW_RUN_SHA"
+          else
+            sha="$DISPATCH_SHA"
+          fi
+          if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Cannot deploy: no full 40-character commit SHA (got '$sha')."
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.target.outputs.sha }}
+          fetch-depth: 1
+
+      - name: Verify deploy configuration
+        env:
+          SSH_HOST: ${{ vars.SSH_HOST }}
+          SSH_USER: ${{ vars.SSH_USER }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          DOMAIN: ${{ vars.DOMAIN }}
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in SSH_HOST SSH_USER DEPLOY_PATH DOMAIN; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Variable $name is not set on the 'production' environment."
+              missing=1
+            fi
+          done
+          for name in SSH_KEY SSH_KNOWN_HOSTS; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Secret $name is not set on the 'production' environment."
+              missing=1
+            fi
+          done
+          if [[ "$missing" -ne 0 ]]; then
+            exit 1
+          fi
+          # Reject values that would break out of the remote command or the SSH target.
+          if [[ ! "$SSH_HOST" =~ ^[A-Za-z0-9._:-]+$ ]]; then
+            echo "::error::SSH_HOST contains characters that are not valid in a host name."
+            exit 1
+          fi
+          if [[ ! "$SSH_USER" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "::error::SSH_USER contains unexpected characters."
+            exit 1
+          fi
+          if [[ ! "$DEPLOY_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]]; then
+            echo "::error::DEPLOY_PATH must be an absolute path without spaces or metacharacters."
+            exit 1
+          fi
+          if [[ ! "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then
+            echo "::error::DOMAIN contains unexpected characters."
+            exit 1
+          fi
+          if [[ ! -f deploy/deploy.sh ]]; then
+            echo "::error::deploy/deploy.sh is missing from the checked-out commit."
+            exit 1
+          fi
+
+      - name: Deploy over SSH
+        env:
+          SSH_HOST: ${{ vars.SSH_HOST }}
+          SSH_USER: ${{ vars.SSH_USER }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+          TARGET_SHA: ${{ steps.target.outputs.sha }}
+        run: |
+          set -euo pipefail
+          key="$RUNNER_TEMP/deploy_key"
+          known_hosts="$RUNNER_TEMP/ssh_known_hosts"
+          (umask 077 && printf '%s\n' "$SSH_KEY" > "$key")
+          (umask 077 && printf '%s\n' "$SSH_KNOWN_HOSTS" > "$known_hosts")
+
+          ssh_opts=(
+            -i "$key"
+            -o IdentitiesOnly=yes
+            -o BatchMode=yes
+            -o StrictHostKeyChecking=yes
+            -o UserKnownHostsFile="$known_hosts"
+            -o ConnectTimeout=20
+            -o ServerAliveInterval=30
+          )
+          # The checked-in script, run from the checkout on the VM. A temp path outside the git
+          # tree avoids the script being rewritten by the reset it performs.
+          remote_script="/tmp/whodat-deploy-$TARGET_SHA.sh"
+
+          cleanup() {
+            rm -f "$key" "$known_hosts"
+          }
+          trap cleanup EXIT
+
+          echo "Deploying $TARGET_SHA to $SSH_HOST"
+          scp -q "${ssh_opts[@]}" deploy/deploy.sh "$SSH_USER@$SSH_HOST:$remote_script"
+          remote_command="cd '$DEPLOY_PATH' && bash '$remote_script' '$TARGET_SHA';"
+          remote_command="$remote_command status=\$?; rm -f '$remote_script'; exit \$status"
+          # shellcheck disable=SC2029 # assembled above from values validated in the previous step
+          ssh "${ssh_opts[@]}" "$SSH_USER@$SSH_HOST" "$remote_command"

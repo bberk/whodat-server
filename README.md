@@ -20,7 +20,8 @@ later without changing the VP engine, database, API, or frontend.
 ## Status
 
 `0.x` — under active development. See the milestones in `SPEC.md` (section 8). A single-host
-Docker Compose stack exists, but there is no supported hosting target yet; see
+Docker Compose stack exists, and production deployment to one Oracle Cloud Always Free ARM VM is
+documented in [`docs/DEPLOY_ORACLE.md`](docs/DEPLOY_ORACLE.md); see
 [Deploy to production](#deploy-to-production).
 
 ## Documentation
@@ -30,6 +31,7 @@ Docker Compose stack exists, but there is no supported hosting target yet; see
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — module boundaries, data model, interfaces, API contract.
 - [`AGENTS.md`](AGENTS.md) — how agents work in this repository (branch/PR/review workflow).
 - [`docs/GITHUB_SETUP.md`](docs/GITHUB_SETUP.md) — one-time repository and identity setup.
+- [`docs/DEPLOY_ORACLE.md`](docs/DEPLOY_ORACLE.md) — production runbook for the Oracle Cloud VM.
 - [`docs/OPEN_QUESTIONS.md`](docs/OPEN_QUESTIONS.md) — unresolved questions and deviations.
 
 ## Tech stack
@@ -212,70 +214,69 @@ branches, and the frontend thresholds in `frontend/vitest.config.ts`.
 
 ## Deploy to production
 
-The repository provides a production-style Compose stack, but **no hosting target**: there is no
-TLS terminator, managed database, registry, or orchestrator configuration here. The supported path
-is a single host where you supply those pieces and run the two images yourself.
+Production runs on a single Oracle Cloud Always Free ARM VM with Docker Compose. Caddy is the only
+ingress (ports 80/443) and terminates TLS; it proxies `/api/*` and `/health` to the backend and
+everything else to the frontend, so the SPA and API share one origin and the `SameSite=Lax`
+session cookie works unchanged. Postgres keeps its data in a named volume, and GitHub Actions
+deploys only after CI passes on `main`.
 
-Build both images. The API origin is compiled into the frontend bundle, so set
-`VITE_API_BASE_URL` before building and rebuild whenever it changes:
+The full runbook — VM and firewall setup, DNS, secrets, first deploy, creating the first admin
+invite, GitHub environment configuration, rollback, nightly backups and restore, and caveats — is
+[`docs/DEPLOY_ORACLE.md`](docs/DEPLOY_ORACLE.md).
+
+Local development still uses the root `docker-compose.yml`:
 
 ```bash
-export VITE_API_BASE_URL=https://api.example.com
-docker compose build
+docker compose up -d --build      # frontend on :8080, API on :8000, Postgres on :5432
+docker compose up -d postgres     # just the database for a host-run backend
 ```
 
-Set the required environment variables (Compose reads them from the shell or a repo-root `.env`;
-never commit real values):
+The production stack is a separate compose file rather than an override of the local one, so the
+two never depend on merge semantics:
+
+```bash
+docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d --build
+```
+
+Both stacks build the same two images:
+
+- `backend/Dockerfile` installs from `uv.lock` and runs `alembic upgrade head` before uvicorn.
+- `frontend/Dockerfile` builds the SPA with pnpm and serves it with nginx. The API origin is
+  compiled into the bundle, so `VITE_API_BASE_URL` must be set before building and the frontend
+  must be rebuilt whenever it changes; `deploy/deploy.sh` always rebuilds.
+
+The production values live in `deploy/.env` (copied from `deploy/.env.example`); never commit real
+values. The backend reads:
 
 | Variable | Purpose |
 |---|---|
 | `ENV` | Deployment label; set `production`. The app refuses to start with the default secret when `ENV` is not `local` or `test`. |
 | `SECRET_KEY` | Signs session cookies. Required; generate with `openssl rand -hex 32`. |
 | `LEAGUE_CREDENTIALS_KEY` | Encrypts stored league credentials (base64-encoded 32 bytes). Required when members save ESPN credentials; generate with `openssl rand -base64 32`. |
-| `DATABASE_URL` | SQLAlchemy URL for Postgres, for example `postgresql+psycopg://user:password@db-host:5432/whodat`. Defaults to the Compose Postgres service. |
-| `CORS_ORIGINS` | Comma-separated browser origins allowed to send the session cookie, for example `https://standings.example.com`. Defaults to `http://localhost:5173,http://localhost:8080`. |
-| `VITE_API_BASE_URL` | Browser-facing API origin, baked in at frontend build time. Defaults to `http://localhost:8000`. |
+| `DATABASE_URL` | SQLAlchemy URL for Postgres, for example `postgresql+psycopg://app:password@postgres:5432/app`. In production it points at the Compose `postgres` service. |
+| `CORS_ORIGINS` | Comma-separated browser origins allowed to send the session cookie, for example `https://standings.example.com`. |
 
-ESPN cookies are entered per league in the UI and stored encrypted on the member's membership;
-there is no environment `ESPN_S2`/`ESPN_SWID` setting to deploy.
+`VITE_API_BASE_URL` is a frontend build arg, set to `https://$DOMAIN` by the production compose
+file. ESPN cookies are entered per league in the UI and stored encrypted on the membership; there
+is no environment `ESPN_S2`/`ESPN_SWID` setting to deploy.
 
-```bash
-export ENV=production
-export SECRET_KEY="$(openssl rand -hex 32)"
-export LEAGUE_CREDENTIALS_KEY="$(openssl rand -base64 32)"
-export DATABASE_URL='postgresql+psycopg://user:password@db-host:5432/whodat'
-export CORS_ORIGINS='https://standings.example.com'
-```
-
-Apply migrations before starting the new API version. The backend container also runs
-`alembic upgrade head` on startup, so this step is safe to run first and idempotent:
+Migrations are applied by the backend container on startup, so a deploy is idempotent. To run them
+separately against the production database first:
 
 ```bash
-cd backend
-uv run alembic upgrade head
-cd ..
+docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env \
+  run --rm backend uv run alembic upgrade head
 ```
 
-Start the stack and check it:
+Check the deployed stack from the VM or anywhere:
 
 ```bash
-docker compose up -d
-curl http://localhost:8000/health   # {"status":"ok"}
-curl -I http://localhost:8080/      # frontend index
+curl -fsS "https://$DOMAIN/health"    # {"status":"ok"}
 ```
 
-`docker compose` publishes the API on port 8000 and the frontend on port 8080, both plain HTTP.
-
-Known limitations of this path (not provided, and not planned as part of this stack):
-
-- **No TLS terminator or reverse proxy.** Put a TLS-terminating proxy in front of ports 8000 and
-  8080, or terminate TLS elsewhere, before exposing the app to the internet.
-- **No managed database, backups, or HA.** The bundled `postgres` service is a single container with
-  a local volume. For real data, use an external Postgres and point `DATABASE_URL` at it.
-- **Single instance only.** Rate limiting is in-process, so it does not coordinate across replicas;
-  run one backend process. Migrations also assume a single deployer.
-- **No registry or rollout automation.** `docker compose build` builds on the host; pushing images
-  and rolling them out is left to your infrastructure.
+Caveats of this target — one node with no HA, Oracle reclaiming idle Always Free instances, ARM
+capacity at signup, backups that share the VM's disk, and patching — are documented in the
+runbook before you rely on it.
 
 Local development is unchanged: `docker compose up -d postgres` still starts just the database for
 a host-run backend.
@@ -286,11 +287,12 @@ a host-run backend.
 backend/     FastAPI app (src/app), migrations (alembic), tests
 frontend/    React + TypeScript SPA (src), vitest/eslint config, Playwright specs
 e2e/         deterministic e2e seeder, shared fixture, and backend start script
+deploy/      production Compose stack, Caddyfile, deploy/backup scripts, systemd units
 .opencode/   Author and reviewer agent instructions
-docs/        GITHUB_SETUP.md, OPEN_QUESTIONS.md, fixtures
+docs/        GITHUB_SETUP.md, DEPLOY_ORACLE.md, OPEN_QUESTIONS.md, fixtures
 scripts/     ship.sh, cleanup.sh, review.sh, merge.sh, setup-github.sh, dev-postgres.sh,
              coverage_report.py
-.github/     CI workflow and pull-request template
+.github/     CI and deploy workflows, pull-request template
 ```
 
 ## Contributing
