@@ -10,12 +10,13 @@ from __future__ import annotations
 
 from typing import Annotated, Never
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.api.params import LeagueIdPath
 from app.api.routes_leagues import _actor, _http_error
-from app.api.routes_standings import LeagueServiceDep
+from app.api.routes_standings import MemberDep
 from app.api.schemas_auth import PublicUser, error_detail
 from app.api.schemas_elo import (
     EloConfigResponse,
@@ -32,7 +33,6 @@ from app.services.league_service import LeagueServiceError
 router = APIRouter(prefix="/api/v1", tags=["elo"])
 
 CurrentUserDep = Annotated[PublicUser, Depends(get_current_user)]
-LeagueIdPath = Annotated[int, Path(ge=1)]
 ModeQuery = Annotated[
     EloMode,
     Query(description="Rating model: actual stored matchups, or every team compared each week"),
@@ -47,25 +47,6 @@ def get_elo_service(
 
 
 EloServiceDep = Annotated[EloService, Depends(get_elo_service)]
-
-
-def require_elo_member(
-    league_id: LeagueIdPath,
-    current_user: CurrentUserDep,
-    league_service: LeagueServiceDep,
-) -> None:
-    """Reject non-members with the same structured 404 used by the league routes.
-
-    The path constraint is repeated here because this dependency resolves the league id before the
-    route handler; a non-positive id is a structured 422 instead of reaching a database lookup.
-    """
-    try:
-        league_service.require_membership(_actor(current_user), league_id)
-    except LeagueServiceError as error:
-        raise _http_error(error) from None
-
-
-EloMemberDep = Annotated[None, Depends(require_elo_member)]
 
 
 def _raise_history_error(error: EloLeagueNotFoundError) -> Never:
@@ -93,7 +74,7 @@ def _raise_settings_error(error: InvalidEloConfigError) -> Never:
 )
 def get_elo_history(
     league_id: LeagueIdPath,
-    _member: EloMemberDep,
+    _member: MemberDep,
     service: EloServiceDep,
     mode: ModeQuery = "round_robin",
 ) -> EloHistoryResponse:
