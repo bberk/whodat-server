@@ -27,7 +27,7 @@ from app.security.invite_codes import (
     MAX_INVITE_LIFETIME_DAYS,
     validate_invite_code_format,
 )
-from app.validation import MAX_EXTERNAL_ID_LENGTH, normalize_external_id
+from app.validation import MAX_EXTERNAL_ID_LENGTH, normalize_external_id, require_ascii
 
 #: Bounds keep obviously wrong seasons and ids out before the service touches the database.
 MIN_SEASON = 2000
@@ -70,9 +70,11 @@ class AddLeagueRequest(BaseModel):
     @field_validator("espn_s2", "espn_swid")
     @classmethod
     def _check_credential(cls, value: SecretStr | None) -> SecretStr | None:
-        """Reject empty or non-printable cookies before they reach the service."""
+        """Reject non-ASCII, empty, or non-printable cookies before they reach the service."""
         if value is not None:
-            _require_printable(value.get_secret_value(), "credential")
+            secret = value.get_secret_value()
+            require_ascii(secret, "credential")
+            _require_printable(secret, "credential")
         return value
 
     @model_validator(mode="after")

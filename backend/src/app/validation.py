@@ -66,6 +66,19 @@ def _is_removed_code_point(character: str) -> bool:
     return any(start <= code_point <= end for start, end in _REMOVED_CODE_POINT_RANGES)
 
 
+def require_ascii(value: str, field: str) -> str:
+    """Return ``value`` when every code point is ASCII, or raise ``ValueError``.
+
+    Caller-supplied text (email, password, invite code, credentials, external ids) must be
+    7-bit ASCII so the same value has one unambiguous spelling at every layer. Provider display
+    text is *data*, not input, and is normalized with :func:`normalize_display_text` instead.
+    The error message is fixed and never repeats the submitted value.
+    """
+    if not isinstance(value, str) or not value.isascii():
+        raise ValueError(f"{field} must contain only ASCII characters")
+    return value
+
+
 def normalize_external_id(value: str) -> str:
     """Return ``value`` trimmed and NFC-normalized, or raise ``ValueError`` when it is not an id.
 

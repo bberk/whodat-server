@@ -65,6 +65,54 @@ describe("auth form input constraints", () => {
     expect(invite).toHaveAttribute("spellCheck", "false");
   });
 
+  it("rejects a non-ASCII login email or password before calling the API", async () => {
+    const user = userEvent.setup();
+    const value = authValue();
+    renderAt("/login", <LoginPage />, value);
+
+    await user.type(screen.getByLabelText("Email"), "usér@example.com");
+    await user.type(screen.getByLabelText("Password"), "ASCII-password");
+    await user.click(screen.getByRole("button", { name: "Log in" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Email must contain only ASCII characters.",
+    );
+    expect(value.login).not.toHaveBeenCalled();
+
+    await user.clear(screen.getByLabelText("Email"));
+    await user.type(screen.getByLabelText("Email"), "fan@example.com");
+    await user.clear(screen.getByLabelText("Password"));
+    await user.type(screen.getByLabelText("Password"), "pässwörd");
+    await user.click(screen.getByRole("button", { name: "Log in" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Password must contain only ASCII characters.",
+    );
+    expect(value.login).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["email", "🙂@example.com", "Email"],
+    ["password", "🙂🙂🙂🙂🙂🙂🙂🙂", "Password"],
+    ["invite", "café", "Invite code"],
+  ])("rejects a non-ASCII signup %s before calling the API", async (_field, value, label) => {
+    const user = userEvent.setup();
+    const auth = authValue();
+    renderAt("/signup", <SignupPage />, auth);
+
+    await user.type(screen.getByLabelText("Email"), "fan@example.com");
+    await user.type(screen.getByLabelText("Password"), "ASCII-password");
+    await user.type(screen.getByLabelText("Invite code"), "valid-code");
+    await user.clear(screen.getByLabelText(label));
+    await user.type(screen.getByLabelText(label), value);
+    await user.click(screen.getByRole("button", { name: "Create account" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      `${label} must contain only ASCII characters.`,
+    );
+    expect(auth.signup).not.toHaveBeenCalled();
+  });
+
   it("trims the email and invite code before signup, and leaves the password exact", async () => {
     const user = userEvent.setup();
     const value = authValue();

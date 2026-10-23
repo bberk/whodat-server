@@ -5,6 +5,7 @@ import { toDisplayError, type DisplayError } from "../api/errors";
 import type { AddLeagueRequest } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { ApiAlert } from "../components/ApiAlert";
+import { asciiOnlyMessage } from "../components/formValidation";
 import {
   inputClass,
   labelClass,
@@ -61,6 +62,11 @@ export function AddLeagueDialog({ open, onClose }: { open: boolean; onClose: () 
       setFormError("Enter an ESPN league id.");
       return null;
     }
+    const idAsciiError = asciiOnlyMessage("ESPN league id", trimmedId);
+    if (idAsciiError !== null) {
+      setFormError(idAsciiError);
+      return null;
+    }
     const payload: AddLeagueRequest = { espn_league_id: trimmedId };
     if (season.trim() !== "") {
       const parsed = Number(season);
@@ -74,6 +80,12 @@ export function AddLeagueDialog({ open, onClose }: { open: boolean; onClose: () 
     const hasSwid = espnSwid.trim() !== "";
     if (hasS2 !== hasSwid) {
       setFormError("Enter both ESPN_S2 and ESPN_SWID, or neither.");
+      return null;
+    }
+    const credentialAsciiError =
+      asciiOnlyMessage("ESPN_S2", espnS2.trim()) ?? asciiOnlyMessage("ESPN_SWID", espnSwid.trim());
+    if (credentialAsciiError !== null) {
+      setFormError(credentialAsciiError);
       return null;
     }
     if (hasS2 && hasSwid) {
@@ -98,6 +110,11 @@ export function AddLeagueDialog({ open, onClose }: { open: boolean; onClose: () 
     const code = inviteCode.trim();
     if (code === "") {
       setFormError("Enter an invite code.");
+      return;
+    }
+    const codeAsciiError = asciiOnlyMessage("Invite code", code);
+    if (codeAsciiError !== null) {
+      setFormError(codeAsciiError);
       return;
     }
     const result = await api.redeemInvite({ invite_code: code });

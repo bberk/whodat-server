@@ -177,9 +177,15 @@ class AuthService:
     def authenticate(self, email: str, password: str) -> AppUser:
         """Return the account matching these credentials or raise :class:`InvalidCredentialsError`.
 
-        Unknown emails still perform one Argon2id verification against a dummy hash so the failure
-        takes approximately as long as a wrong password for a real account.
+        Credentials are ASCII-only by product decision (no Unicode passphrases). A non-ASCII email
+        or password is still rejected as invalid credentials, not a validation error, so the HTTP
+        layer returns the same generic 401 as a wrong password. Unknown emails still perform one
+        Argon2id verification against a dummy hash so the failure takes approximately as long as a
+        wrong password for a real account.
         """
+        if not email.isascii() or not password.isascii():
+            verify_password(password, _dummy_password_hash())
+            raise InvalidCredentialsError("invalid email or password")
         user = self._users.get_by_email(email)
         if user is None:
             verify_password(password, _dummy_password_hash())

@@ -1,8 +1,9 @@
 import { useState, type FormEvent } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 
-import { toDisplayError, type DisplayError } from "../api/errors";
+import { localDisplayError, toDisplayError, type DisplayError } from "../api/errors";
 import { ApiAlert } from "../components/ApiAlert";
+import { asciiOnlyMessage } from "../components/formValidation";
 import { inputClass, labelClass, primaryButtonClass } from "../components/formStyles";
 import { AuthLayout } from "./AuthLayout";
 import { useAuth } from "./AuthContext";
@@ -27,9 +28,19 @@ export function SignupPage() {
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
+    const emailValue = email.trim();
+    const inviteCodeValue = inviteCode.trim();
+    const validationMessage =
+      asciiOnlyMessage("Email", emailValue) ??
+      asciiOnlyMessage("Password", password) ??
+      asciiOnlyMessage("Invite code", inviteCodeValue);
+    if (validationMessage !== null) {
+      setError(localDisplayError(validationMessage));
+      return;
+    }
     setSubmitting(true);
     try {
-      const signedIn = await signup(email.trim(), password, inviteCode.trim());
+      const signedIn = await signup(emailValue, password, inviteCodeValue);
       navigate(afterAuthTarget(signedIn, target), { replace: true });
     } catch (failure) {
       setError(toDisplayError(failure));
@@ -89,7 +100,7 @@ export function SignupPage() {
             onChange={(event) => setPassword(event.target.value)}
             className={inputClass}
           />
-          <p className="mt-1 text-xs text-gray-500">At least 8 characters.</p>
+          <p className="mt-1 text-xs text-gray-500">At least 8 characters, ASCII only.</p>
         </div>
         <div>
           <label htmlFor="signup-invite" className={labelClass}>

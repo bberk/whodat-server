@@ -15,7 +15,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.api.body_limit import RequestBodyLimitMiddleware
-from app.api.schemas_auth import SignupRequest
+from app.api.schemas_auth import LoginRequest, SignupRequest
 from app.api.schemas_leagues import AddLeagueRequest, RedeemInviteRequest
 from app.security.invite_codes import (
     INVITE_CODE_MAX_LENGTH,
@@ -68,6 +68,11 @@ def test_normalize_external_id_accepts_provider_shaped_ids(value: str, expected:
         "a\x00b",
         "a\x01b",
         "\u202eevil\u200b",
+        "café",
+        "🙂",
+        "می‌خواهم",
+        "a\u202eb",
+        "a\u200db",
         "a" * (MAX_EXTERNAL_ID_LENGTH + 1),
     ],
 )
@@ -94,6 +99,35 @@ def test_add_league_request_accepts_current_fixtures_and_rejects_hostile_ids() -
     ):
         with pytest.raises(ValidationError):
             AddLeagueRequest(espn_league_id=value)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("espn_league_id", "café"),
+        ("espn_league_id", "🙂"),
+        ("espn_league_id", "می‌خواهم"),
+        ("espn_league_id", "a\u202eb"),
+        ("espn_league_id", "mixé🙂"),
+        ("espn_s2", "s2évalue"),
+        ("espn_s2", "s2🙂value"),
+        ("espn_s2", "s2\u200bvalue"),
+        ("espn_swid", "swidévalue"),
+        ("espn_swid", "swid🙂value"),
+        ("espn_swid", "swid\u202evalue"),
+    ],
+)
+def test_add_league_request_rejects_non_ascii_ids_and_credentials(field: str, value: str) -> None:
+    """External ids and ESPN cookies are caller-supplied input, so they must be ASCII-only."""
+    payload: dict[str, str] = {
+        "espn_league_id": "12345",
+        "espn_s2": "ascii-s2",
+        "espn_swid": "ascii-swid",
+    }
+    payload[field] = value
+
+    with pytest.raises(ValidationError):
+        AddLeagueRequest(**payload)
 
 
 # ---------------------------------------------------------------------------
@@ -234,11 +268,53 @@ def test_signup_and_redeem_schemas_apply_the_invite_charset() -> None:
         RedeemInviteRequest(invite_code="valid-code").invite_code.get_secret_value() == "valid-code"
     )
 
-    for value in ("<script>alert(1)</script>", "' OR 1=1 --", "with space", "with\x00nul"):
+    for value in (
+        "<script>alert(1)</script>",
+        "' OR 1=1 --",
+        "with space",
+        "with\x00nul",
+        "café",
+        "🙂",
+        "a\u202eb",
+    ):
         with pytest.raises(ValidationError):
             SignupRequest(email="fan@example.com", password=PASSWORD, invite_code=value)
         with pytest.raises(ValidationError):
             RedeemInviteRequest(invite_code=value)
+
+
+@pytest.mark.parametrize("value", ["café", "🙂", "می‌خواهم", "a\u202eb", "a\u200db", "mixé🙂"])
+def test_signup_schema_rejects_non_ascii_email_password_and_invite_code(value: str) -> None:
+    """Every signup credential/identifier is caller input, so non-ASCII is a validation error."""
+    with pytest.raises(ValidationError):
+        SignupRequest(email=f"{value}@example.com", password=PASSWORD, invite_code="valid-code")
+    with pytest.raises(ValidationError):
+        SignupRequest(
+            email="fan@example.com",
+            password=f"{PASSWORD}{value}",
+            invite_code="valid-code",
+        )
+    with pytest.raises(ValidationError):
+        SignupRequest(email="fan@example.com", password=PASSWORD, invite_code=value)
+
+
+@pytest.mark.parametrize(
+    ("email", "password"),
+    [
+        ("usér@example.com", PASSWORD),
+        ("fan@example.com", "pässwörd"),
+        ("کاربر@example.com", "گذرواژه123"),
+        ("fan@example.com", "pass\u200bword"),
+        ("\u202eevil@example.com", PASSWORD),
+        ("mixé🙂@example.com", "mixé🙂"),
+    ],
+)
+def test_login_schema_accepts_non_ascii_for_generic_rejection(email: str, password: str) -> None:
+    """Login must not return a 422 that names the ASCII rule; the service returns a generic 401."""
+    request = LoginRequest(email=email, password=password)
+
+    assert request.email == email
+    assert request.password.get_secret_value() == password
 
 
 # ---------------------------------------------------------------------------

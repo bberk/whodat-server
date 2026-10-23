@@ -19,6 +19,11 @@ function fieldErrorMap(error: ApiError): Record<string, string> {
   return fields;
 }
 
+/** Build the display shape for a client-side validation failure that never reached the API. */
+export function localDisplayError(message: string): DisplayError {
+  return { message, fieldErrors: {}, retryAfter: null, status: null };
+}
+
 /** Describe an API failure, including the 429 retry window when the server supplied one. */
 export function toDisplayError(error: unknown): DisplayError {
   if (!(error instanceof ApiError)) {

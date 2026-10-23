@@ -1,8 +1,9 @@
 import { useState, type FormEvent } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 
-import { toDisplayError, type DisplayError } from "../api/errors";
+import { localDisplayError, toDisplayError, type DisplayError } from "../api/errors";
 import { ApiAlert } from "../components/ApiAlert";
+import { asciiOnlyMessage } from "../components/formValidation";
 import { inputClass, labelClass, primaryButtonClass } from "../components/formStyles";
 import { AuthLayout } from "./AuthLayout";
 import { useAuth } from "./AuthContext";
@@ -26,9 +27,16 @@ export function LoginPage() {
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
+    const emailValue = email.trim();
+    const validationMessage =
+      asciiOnlyMessage("Email", emailValue) ?? asciiOnlyMessage("Password", password);
+    if (validationMessage !== null) {
+      setError(localDisplayError(validationMessage));
+      return;
+    }
     setSubmitting(true);
     try {
-      const signedIn = await login(email.trim(), password);
+      const signedIn = await login(emailValue, password);
       navigate(afterAuthTarget(signedIn, target), { replace: true });
     } catch (failure) {
       setError(toDisplayError(failure));

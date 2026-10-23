@@ -7,6 +7,7 @@ import type { AddLeagueRequest } from "../api/types";
 import { AuthLayout } from "../auth/AuthLayout";
 import { useAuth } from "../auth/AuthContext";
 import { ApiAlert } from "../components/ApiAlert";
+import { asciiOnlyMessage } from "../components/formValidation";
 import { inputClass, labelClass, primaryButtonClass } from "../components/formStyles";
 
 const MIN_SEASON = 2000;
@@ -43,6 +44,11 @@ export function OnboardingPage() {
       setFormError("Enter your ESPN league id.");
       return null;
     }
+    const idAsciiError = asciiOnlyMessage("ESPN league id", trimmedId);
+    if (idAsciiError !== null) {
+      setFormError(idAsciiError);
+      return null;
+    }
     const parsedSeason = Number(season);
     if (
       season.trim() === "" ||
@@ -55,6 +61,12 @@ export function OnboardingPage() {
     }
     if (espnS2.trim() === "" || espnSwid.trim() === "") {
       setFormError("Enter both ESPN_S2 and ESPN_SWID.");
+      return null;
+    }
+    const credentialAsciiError =
+      asciiOnlyMessage("ESPN_S2", espnS2.trim()) ?? asciiOnlyMessage("ESPN_SWID", espnSwid.trim());
+    if (credentialAsciiError !== null) {
+      setFormError(credentialAsciiError);
       return null;
     }
     return {
