@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.api import deps, routes_leagues
 from app.api.main import create_app
-from app.api.schemas_leagues import AddLeagueRequest
+from app.api.schemas_leagues import MAX_SEASON, MIN_SEASON, AddLeagueRequest
 from app.api.session import SESSION_COOKIE_NAME, set_session
 from app.config import get_settings
 from app.db.auth_repositories import InviteRepository, MembershipRepository, UserRepository
@@ -1412,15 +1412,24 @@ def _refresh_season_path(league_id: int, season: int = SEASON) -> str:
     return f"{_season_path(league_id, season)}/refresh"
 
 
+def _seed_synced_seasons(api: Api, *seasons: int) -> int:
+    """Sync each fixture season into one league through the sync service."""
+    with api.factory() as session:
+        seed: dict[tuple[str, int], FakeSeed] = {}
+        for season in seasons:
+            seed.update(_seed(season=season))
+        sync = SyncService(FakeProvider(seed), session)
+        summaries = [
+            sync.sync_league(LeagueRef(external_id=LEAGUE_EXTERNAL), "fake", season)
+            for season in seasons
+        ]
+        session.commit()
+        return summaries[-1].league_id
+
+
 def _seed_two_synced_seasons(api: Api) -> int:
     """Sync 2025 and 2026 fixture seasons into one league through the sync service."""
-    with api.factory() as session:
-        seed = {**_seed(season=2025), **_seed(season=SEASON)}
-        sync = SyncService(FakeProvider(seed), session)
-        summary = sync.sync_league(LeagueRef(external_id=LEAGUE_EXTERNAL), "fake", 2025)
-        sync.sync_league(LeagueRef(external_id=LEAGUE_EXTERNAL), "fake", SEASON)
-        session.commit()
-        return summary.league_id
+    return _seed_synced_seasons(api, 2025, SEASON)
 
 
 def _season_row_counts(api: Api, league_id: int, season: int) -> dict[str, int]:
@@ -1564,7 +1573,7 @@ def test_AC_AU_24_refresh_season_requires_admin_membership_and_a_stored_season(
     api.client.cookies.clear()
     _login(api, admin_id)
     no_credentials = api.client.post(_refresh_season_path(league_id))
-    unknown_season = api.client.post(_refresh_season_path(league_id, 1999))
+    unknown_season = api.client.post(_refresh_season_path(league_id, 2024))
 
     assert forbidden.status_code == 403
     assert forbidden.json()["detail"]["code"] == "forbidden"
@@ -1625,7 +1634,7 @@ def test_AC_AU_25_delete_season_requires_an_admin_member(
     non_member = api.client.delete(_season_path(league_id, 2025))
     api.client.cookies.clear()
     _login(api, admin_id)
-    unknown = api.client.delete(_season_path(league_id, 1999))
+    unknown = api.client.delete(_season_path(league_id, 2024))
 
     assert forbidden.status_code == 403
     assert forbidden.json()["detail"]["code"] == "forbidden"
@@ -1637,6 +1646,105 @@ def test_AC_AU_25_delete_season_requires_an_admin_member(
         "matchup": 1,
         "score": 2,
     }
+
+
+_ADMIN_SEASON_ROUTES: list[tuple[str, str]] = [
+    ("get", "leagues/{league_id}/seasons/settings"),
+    ("post", "leagues/{league_id}/seasons/{season}/refresh"),
+    ("delete", "leagues/{league_id}/seasons/{season}"),
+]
+
+_SEASON_ROUTES: list[tuple[str, str]] = _ADMIN_SEASON_ROUTES[1:]
+
+_ABSURD_NUMBER = 10**18
+
+
+def _admin_synced_league(api: Api) -> int:
+    """Seed two synced seasons plus a credentialed admin membership and sign that admin in."""
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    league_id = _seed_two_synced_seasons(api)
+    _seed_membership(api, user_id=admin_id, league_id=league_id, credentials=True)
+    _login(api, admin_id)
+    return league_id
+
+
+def _season_storage_snapshot(api: Api) -> dict[str, int]:
+    """Snapshot the rows an admin season request could create, change, or delete."""
+    return {
+        "league": _count(api, League),
+        "league_season": _count(api, LeagueSeason),
+        "team": _count(api, Team),
+        "matchup": _count(api, Matchup),
+        "score": _count(api, Score),
+    }
+
+
+@pytest.mark.parametrize("league_id", [0, -1, "not-a-number"])
+@pytest.mark.parametrize(("method", "suffix"), _ADMIN_SEASON_ROUTES)
+def test_admin_season_routes_reject_out_of_bounds_league_ids_before_any_work(
+    api_factory: Callable[..., Api], league_id: int | str, method: str, suffix: str
+) -> None:
+    """The path constraint rejects a bad league id before a service, DB write, or provider call."""
+    api = api_factory()
+    _admin_synced_league(api)
+    before = _season_storage_snapshot(api)
+
+    response = api.client.request(
+        method,
+        "/api/v1/" + suffix.format(league_id=league_id, season=SEASON),
+    )
+
+    assert response.status_code == 422
+    assert isinstance(response.json()["detail"], list)
+    assert all("input" not in error for error in response.json()["detail"])
+    assert api.provider_factory.calls == []
+    assert api.provider_factory.public_calls == 0
+    assert _season_storage_snapshot(api) == before
+
+
+@pytest.mark.parametrize("season", [1999, 2101, "not-a-number", _ABSURD_NUMBER])
+@pytest.mark.parametrize(("method", "suffix"), _SEASON_ROUTES)
+def test_admin_season_routes_reject_out_of_bounds_seasons_before_any_work(
+    api_factory: Callable[..., Api], season: int | str, method: str, suffix: str
+) -> None:
+    """An unsupported season is a 422 at the path, not a service 404 or a provider sync."""
+    api = api_factory()
+    stored_league_id = _admin_synced_league(api)
+    before = _season_storage_snapshot(api)
+
+    response = api.client.request(
+        method,
+        "/api/v1/" + suffix.format(league_id=stored_league_id, season=season),
+    )
+
+    assert response.status_code == 422
+    assert isinstance(response.json()["detail"], list)
+    assert all("input" not in error for error in response.json()["detail"])
+    assert api.provider_factory.calls == []
+    assert api.provider_factory.public_calls == 0
+    assert _season_storage_snapshot(api) == before
+
+
+@pytest.mark.parametrize("season", [MIN_SEASON, MAX_SEASON])
+def test_admin_season_routes_accept_supported_boundary_seasons(
+    api_factory: Callable[..., Api], season: int
+) -> None:
+    """The bounds themselves remain valid for settings, refresh, and delete."""
+    api = api_factory(seed=_seed(season=season))
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    league_id = _seed_synced_seasons(api, season)
+    _seed_membership(api, user_id=admin_id, league_id=league_id, credentials=True)
+    _login(api, admin_id)
+
+    settings = api.client.get(_season_settings_path(league_id))
+    refreshed = api.client.post(_refresh_season_path(league_id, season))
+    deleted = api.client.delete(_season_path(league_id, season))
+
+    assert settings.status_code == 200
+    assert [row["season"] for row in settings.json()["seasons"]] == [season]
+    assert refreshed.status_code == 200
+    assert refreshed.json()["season"] == season
+    assert deleted.status_code == 204
 
 
 # ---------------------------------------------------------------------------
