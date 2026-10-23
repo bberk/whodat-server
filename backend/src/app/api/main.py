@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.body_limit import MAX_REQUEST_BODY_BYTES, RequestBodyLimitMiddleware
 from app.api.routes_auth import router as auth_router
+from app.api.routes_elo import router as elo_router
 from app.api.routes_health import router as health_router
 from app.api.routes_leagues import router as leagues_router
 from app.api.routes_standings import router as standings_router
@@ -41,6 +42,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(leagues_router)
     app.include_router(standings_router)
+    app.include_router(elo_router)
     return app
 
 

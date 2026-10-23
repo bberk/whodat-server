@@ -67,6 +67,50 @@ A season without a designated cup week behaves exactly as an ordinary season. Th
 per-season setting, it is not inferred from provider data, and it must be a week number between 1
 and the season's regular-season length. Choosing the cup week is an admin action (section 4.1).
 
+### 3.5 Elo history
+
+Elo is a companion view to Victory Points. It never changes VP, W-L-T, rankings, cup-week
+scoring, or playoff rules.
+
+- **Franchise identity.** A rating follows the team slot, keyed by `team.external_id` across
+  seasons, not the owner. A rename or owner change keeps the rating; the display uses the latest
+  stored name/owner and lists earlier names as aliases. Equal current names are disambiguated in
+  the UI, never by using the name as a key.
+- **Scope.** Only completed regular-season weeks count. Playoff and incomplete weeks are
+  excluded. Byes (a matchup with no away team) move no rating. The cup week is excluded entirely
+  in actual-schedule mode and counted in round-robin mode.
+- **History is derived.** Ratings are recomputed on every read from stored seasons, teams,
+  matchups, and scores; there is no snapshot table. Adding, deleting, or correcting a season is
+  reflected on the next read.
+- **Formula.** Every franchise starts at the league's configured starting rating (default 1500),
+  including a franchise that first appears mid-history. For teams `a` and `b`:
+
+  `E_a = 1 / (1 + 10 ** ((R_b - R_a) / 400))`
+
+  `R_a' = R_a + K_effective * (S_a - E_a)` and `R_b' = R_b - K_effective * (S_a - E_a)`, where
+  `S_a` is 1 for a win, 0.5 for a tie, and 0 for a loss. Both teams use the same signed delta, so
+  a decisive matchup is exactly zero-sum.
+- **Margin bonus.** `K_effective = K * (1 + margin_weight * min(|margin|, margin_cap) /
+  margin_cap)`, where margin is the absolute difference in points. Ties have a zero margin and
+  use the base K.
+- **Season regression.** Before each new stored season, every returning franchise moves toward
+  the starting rating: `R' = start + (R - start) * (1 - season_regression)`. A franchise absent
+  for one or more stored seasons applies one regression per missed season boundary when it
+  returns. The default regression is one third.
+- **Modes.** `actual_schedule` updates both teams from each real head-to-head matchup and skips
+  cup weeks. `round_robin` counts every completed regular-season week including cup weeks,
+  computes every unordered pairing's delta from that week's start-of-week ratings, and applies
+  each team's average pairwise delta for the week; update order does not matter.
+- **Configuration.** Settings are per league in `elo_config`: starting rating (1000-2000, default
+  1500), K factor (1-100, default 24), margin weight (0-1, default 0.25), margin cap (1-200,
+  default 50), and season regression (0-1, default 1/3). Missing rows mean the defaults. Only a
+  league admin member may change them; only an admin member may read them for the settings form.
+- **Display.** The current rating is rounded to the nearest whole number. Weekly and season
+  changes display to two decimal places with an explicit sign. Peak and low include the starting
+  rating; a peak or low equal to that starting value is labelled "start". "This season" is
+  measured from the post-reset baseline before the team's latest season, not the prior season's
+  final rating.
+
 ## 4. Functional requirements
 
 ### 4.1 Data ingestion
@@ -119,6 +163,8 @@ Persisted entities (see ARCHITECTURE.md for the schema):
 - **User** (email, password hash, role)
 - **Invite** (league, code hash, role, expiry)
 - **Membership** (user, league, optional owner association, encrypted ESPN credentials)
+- **Elo config** (one row per league, optional: starting rating, K factor, margin weight, margin
+  cap, and season regression; no row means the documented defaults)
 
 The database engine must be swappable between SQLite and Postgres with no application code changes (config only).
 
@@ -201,11 +247,26 @@ Pages and views:
      are greyed and carry a text/accessible "Safe" marker, never colour alone.
    - Tapping/clicking a team highlights it in the chart.
 3. **VP chart**: a line chart of cumulative VP over time, x-axis = week, one line per team. Users can highlight a team and toggle teams on and off. Must be legible on a phone.
-4. **League admin**: a page available only to signed-in admins for a selected league. It manages the
+4. **History**: a member-visible tab next to Standings and Owner, with its own route
+   `/leagues/:leagueId/history`. It shows a running Elo chart from the first stored season and a
+   current-ratings table.
+   - A mode control switches between **Actual schedule** and **Round robin**, with an accessible
+     explanation of the difference; switching refetches.
+   - The chart has one line per franchise, season boundary rules and labels, cup-week markers in
+     actual-schedule mode, legend controls to toggle and select series, a text summary, and a
+     data-table alternative. A season filter defaults to **All history**.
+   - The current-ratings table shows team, current rating (whole number), change this week and this
+     season (two decimals with signs), peak, low, and owner, sorted by current rating. It scrolls
+     inside its card with a sticky team column and no page-body sideways scroll at 360px.
+   - Loading, empty (no rated weeks), and error states are present; colour is never the only signal.
+5. **League admin**: a page available only to signed-in admins for a selected league. It manages the
    league's membership (member list by email with role, owner association, and credential status, and
    confirmed removal with a last-admin guard and a credential warning), a single **seasons table**
    with one row per stored season (season year, cup-week dropdown, last refreshed time, a per-season
    refresh action, and a confirmed per-season delete action) plus a "+" action that adds a season,
+   an **Elo settings** section with the five per-league values and an accessible explanation on
+   each field, and a **Recalculate Elo history** action that saves the values and invalidates the
+   History view,
    invite generation (a member invite bound to the league or a league-less admin invite, with the raw
    code shown once and a copy control), and a clearly separated destructive action that deletes the
    league after typing its name to confirm. Cup-week changes save immediately for that row and
@@ -216,8 +277,8 @@ Pages and views:
 UI requirements:
 
 - Responsive: usable on phones (~360px wide) through desktop.
-- The season picker belongs to the standings view. It is not shown on the owner page or the league
-  admin page; those pages keep the league switcher. There is no refresh control in the shell: the
+- The season picker belongs to the standings view. It is not shown on the history, owner, or league
+  admin pages; those pages keep the league switcher. There is no refresh control in the shell: the
   admin seasons table is the only refresh mechanism in the UI.
 - The standings page keeps its section headings, tables, chart, and the meta line under the page
   title, but shows no instructional subheader paragraph under a section and no footer note.

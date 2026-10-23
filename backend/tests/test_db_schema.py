@@ -12,6 +12,7 @@ from app.db.models import (
     AppUser,
     Invite,
     League,
+    LeagueEloConfig,
     LeagueSeason,
     Matchup,
     Owner,
@@ -20,7 +21,18 @@ from app.db.models import (
     UserLeague,
 )
 
-MODELS = (League, LeagueSeason, Owner, Team, Matchup, Score, AppUser, Invite, UserLeague)
+MODELS = (
+    League,
+    LeagueSeason,
+    Owner,
+    Team,
+    Matchup,
+    Score,
+    LeagueEloConfig,
+    AppUser,
+    Invite,
+    UserLeague,
+)
 
 EXPECTED_COLUMNS = {
     "league": {
@@ -82,6 +94,17 @@ EXPECTED_COLUMNS = {
         "created_at",
         "updated_at",
     },
+    "elo_config": {
+        "id",
+        "league_id",
+        "starting_rating",
+        "k_factor",
+        "margin_weight",
+        "margin_cap",
+        "season_regression",
+        "created_at",
+        "updated_at",
+    },
     "app_user": {"id", "email", "password_hash", "role", "created_at", "updated_at"},
     "invite": {
         "id",
@@ -113,6 +136,7 @@ EXPECTED_UNIQUE_KEYS = {
         ("uq_matchup_league_season_week_home", ("league_id", "season", "week", "home_team_id"))
     },
     "score": {("uq_score_team_season_week", ("team_id", "season", "week"))},
+    "elo_config": {("uq_elo_config_league_id", ("league_id",))},
     "app_user": {("uq_app_user_email", ("email",))},
     "invite": {("uq_invite_code_hash", ("code_hash",))},
     "user_league": {("uq_user_league_user_id_league_id", ("user_id", "league_id"))},
@@ -135,6 +159,7 @@ EXPECTED_FOREIGN_KEYS = {
         ("fk_score_team_id_team", ("team_id", "team.id")),
         ("fk_score_league_id_league", ("league_id", "league.id")),
     },
+    "elo_config": {("fk_elo_config_league_id_league", ("league_id", "league.id"))},
     "app_user": set(),
     "invite": {("fk_invite_league_id_league", ("league_id", "league.id"))},
     "user_league": {
@@ -151,6 +176,7 @@ EXPECTED_INDEXES = {
     "team": set(),
     "matchup": set(),
     "score": set(),
+    "elo_config": set(),
     "app_user": set(),
     "invite": {("ix_invite_league_id", ("league_id",))},
     "user_league": {("ix_user_league_league_id", ("league_id",))},

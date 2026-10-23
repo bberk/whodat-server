@@ -187,6 +187,28 @@ class Score(TimestampMixin, Base):
     vp_low: Mapped[Decimal] = mapped_column(Numeric(10, 6), nullable=False)
 
 
+class LeagueEloConfig(TimestampMixin, Base):
+    """Per-league Elo settings used by the History page.
+
+    A missing row means the league uses the product defaults (start 1500, K = 24, a +25% margin
+    bonus capped at 50 points, and a one-third regression toward the starting rating between
+    seasons). Saving settings creates or updates exactly one row per league.
+    """
+
+    __tablename__ = "elo_config"
+    __table_args__ = (UniqueConstraint("league_id", name="uq_elo_config_league_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    league_id: Mapped[int] = mapped_column(
+        ForeignKey("league.id", name="fk_elo_config_league_id_league"), nullable=False
+    )
+    starting_rating: Mapped[Decimal] = mapped_column(Numeric(10, 4), nullable=False)
+    k_factor: Mapped[Decimal] = mapped_column(Numeric(8, 4), nullable=False)
+    margin_weight: Mapped[Decimal] = mapped_column(Numeric(8, 4), nullable=False)
+    margin_cap: Mapped[Decimal] = mapped_column(Numeric(8, 4), nullable=False)
+    season_regression: Mapped[Decimal] = mapped_column(Numeric(12, 10), nullable=False)
+
+
 class AppUser(TimestampMixin, Base):
     """An account with an email, password hash, and role.
 
