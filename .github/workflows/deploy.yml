@@ -12,8 +12,11 @@
 # the environment and files with owner-only permissions; nothing secret is echoed.
 #
 # Required on the `production` Environment (docs/DEPLOY_ORACLE.md):
-#   secrets:   SSH_KEY, SSH_KNOWN_HOSTS
-#   variables: SSH_HOST, SSH_USER, DEPLOY_PATH, DOMAIN
+#   secrets:   SSH_HOST, SSH_USER, SSH_KEY, SSH_KNOWN_HOSTS
+#   variables: DEPLOY_PATH, DOMAIN
+#
+# The workflow never needs database, SECRET_KEY, or LEAGUE_CREDENTIALS_KEY values: migrations and
+# the app environment live on the VM in deploy/.env.
 
 name: deploy
 
@@ -71,8 +74,8 @@ jobs:
 
       - name: Verify deploy configuration
         env:
-          SSH_HOST: ${{ vars.SSH_HOST }}
-          SSH_USER: ${{ vars.SSH_USER }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
           DOMAIN: ${{ vars.DOMAIN }}
           SSH_KEY: ${{ secrets.SSH_KEY }}
@@ -80,15 +83,15 @@ jobs:
         run: |
           set -euo pipefail
           missing=0
-          for name in SSH_HOST SSH_USER DEPLOY_PATH DOMAIN; do
+          for name in SSH_HOST SSH_USER SSH_KEY SSH_KNOWN_HOSTS; do
             if [[ -z "${!name:-}" ]]; then
-              echo "::error::Variable $name is not set on the 'production' environment."
+              echo "::error::Secret $name is not set on the 'production' environment."
               missing=1
             fi
           done
-          for name in SSH_KEY SSH_KNOWN_HOSTS; do
+          for name in DEPLOY_PATH DOMAIN; do
             if [[ -z "${!name:-}" ]]; then
-              echo "::error::Secret $name is not set on the 'production' environment."
+              echo "::error::Variable $name is not set on the 'production' environment."
               missing=1
             fi
           done
@@ -119,8 +122,8 @@ jobs:
 
       - name: Deploy over SSH
         env:
-          SSH_HOST: ${{ vars.SSH_HOST }}
-          SSH_USER: ${{ vars.SSH_USER }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
           SSH_KEY: ${{ secrets.SSH_KEY }}
           SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}

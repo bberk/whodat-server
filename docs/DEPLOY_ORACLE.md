@@ -39,16 +39,36 @@ the only user of those ports.
 
 ## 2. Open only 22, 80, and 443
 
+On your laptop, record the operator IP that may SSH in:
+
+```bash
+curl -4 ifconfig.me
+```
+
 In the VCN's **security list** (or NSG), add ingress rules:
 
 | Port | Protocol | Source | Purpose |
 |---|---|---|---|
-| 22 | TCP | your IP (or the GitHub runner ranges, if you must) | SSH and deploys |
+| 22 | TCP | `<operator-ip>/32` **and** GitHub Actions ranges | SSH admin and the CI deploy (see below) |
 | 80 | TCP | `0.0.0.0/0` | ACME HTTP challenge and HTTPS redirect |
 | 443 | TCP | `0.0.0.0/0` | HTTPS |
 | 443 | UDP | `0.0.0.0/0` | HTTP/3 (optional; TCP 443 is enough) |
 
 Do **not** open 8000, 8080, or 5432. Those services have no published ports and must stay private.
+
+The automatic deploy runs on a GitHub-hosted runner, whose IP is not yours. A 22 rule limited to
+`<operator-ip>/32` alone makes the deploy hang and fail with `Connection timed out`. Pick one:
+
+- **Add GitHub's `actions` ranges** to the 22 rule. List them with
+  `curl -s https://api.github.com/meta | jq -r '.actions[]'` and refresh the rules when GitHub
+  changes them (the list is large, so prefer an NSG or the OCI CLI over hand-editing many rules).
+- **Run the deploy job on a self-hosted runner** in a network the 22 rule already allows; change
+  `runs-on: ubuntu-latest` in `deploy.yml` to your runner label.
+- **Open 22 to `0.0.0.0/0`** as a last resort, with key-only authentication and a brute-force
+  blocker such as fail2ban. This is the weakest option.
+
+Whichever you choose, keep SSH password authentication disabled and only the deploy key
+authorized. The key material is only in the `production` environment secret.
 
 Oracle's Ubuntu images also ship host firewall rules that reject most inbound traffic. On the VM:
 
@@ -126,25 +146,37 @@ umask 077
 cp deploy/.env.example deploy/.env
 
 DOMAIN=standings.example.com
-PG_PASSWORD="$(openssl rand -hex 24)"
+DB_USER=whodat
+DB_NAME=whodat
+DB_PASSWORD="$(openssl rand -hex 32)"
 SECRET_KEY="$(openssl rand -hex 32)"
 LEAGUE_CREDENTIALS_KEY="$(openssl rand -base64 32)"
 
 sed -i "s#^DOMAIN=.*#DOMAIN=$DOMAIN#" deploy/.env
 sed -i "s#^CORS_ORIGINS=.*#CORS_ORIGINS=https://$DOMAIN#" deploy/.env
+sed -i "s#^POSTGRES_USER=.*#POSTGRES_USER=$DB_USER#" deploy/.env
+sed -i "s#^POSTGRES_DB=.*#POSTGRES_DB=$DB_NAME#" deploy/.env
+sed -i "s#^POSTGRES_PASSWORD=.*#POSTGRES_PASSWORD=$DB_PASSWORD#" deploy/.env
 sed -i "s#^SECRET_KEY=.*#SECRET_KEY=$SECRET_KEY#" deploy/.env
 sed -i "s#^LEAGUE_CREDENTIALS_KEY=.*#LEAGUE_CREDENTIALS_KEY=$LEAGUE_CREDENTIALS_KEY#" deploy/.env
-sed -i "s#^POSTGRES_PASSWORD=.*#POSTGRES_PASSWORD=$PG_PASSWORD#" deploy/.env
-sed -i "s#^DATABASE_URL=.*#DATABASE_URL=postgresql+psycopg://app:$PG_PASSWORD@postgres:5432/app#" \
-  deploy/.env
 chmod 600 deploy/.env
 
 # Confirm the keys exist without printing their values.
 grep -v '^#' deploy/.env | cut -d= -f1
 ```
 
+The production stack never falls back to the local-dev `app`/`app` credentials: `POSTGRES_USER`,
+`POSTGRES_PASSWORD`, and `POSTGRES_DB` are required. `deploy/docker-compose.prod.yml` builds the
+backend's `DATABASE_URL` from those same values as
+`postgresql+psycopg://<user>:<password>@postgres:5432/<db>`, so the host, port, database, and
+password cannot drift. Because of that, the password must stay hex (`openssl rand -hex 32`);
+characters that need URL-encoding would break the URL.
+
 Never echo, paste, or commit the values. `deploy/.env` is git-ignored. If you change `DOMAIN`,
 update `CORS_ORIGINS` in the same file and redeploy so the frontend is rebuilt with the new origin.
+Changing `POSTGRES_USER`, `POSTGRES_PASSWORD`, or `POSTGRES_DB` after the first start does not
+alter an existing `pgdata` volume: create a fresh volume for a new identity, or change the role
+and database manually before redeploying.
 
 ## 6. Point DNS at the VM
 
@@ -155,10 +187,18 @@ Create an `A` record for the hostname (`standings.example.com` → the VM's publ
 dig +short standings.example.com
 ```
 
-While testing before DNS is available, use a wildcard DNS service that maps an IP into a hostname:
-`DOMAIN=<ip-with-dashes>.sslip.io` (for example `140-238-1-2.sslip.io`) or the same shape under
-`nip.io`. Caddy can obtain a certificate for those names, so you get end-to-end TLS without owning
-a domain. Set `CORS_ORIGINS=https://<name>` to match.
+While testing before DNS is available, use a wildcard DNS service that maps an IP into a hostname.
+With the VM's public IPv4, this gives you a working name and certificate:
+
+```bash
+VM_IP=140.238.1.2
+DOMAIN="${VM_IP//./-}.sslip.io"   # 140-238-1-2.sslip.io
+dig +short "$DOMAIN"              # should print the VM IP
+```
+
+`nip.io` works the same way. Caddy can obtain a certificate for those names, so you get
+end-to-end TLS without owning a domain. Use the same value for `DOMAIN` and
+`CORS_ORIGINS=https://<name>` in `deploy/.env`.
 
 Caddy needs public port 80 (HTTP-01) and 443 (TLS-ALPN) to issue the certificate. A wrong DNS
 record or a closed port 80 is the usual reason the first deploy fails its health check.
@@ -204,22 +244,26 @@ Secrets (never echoed by the workflow):
 
 | Name | Value |
 |---|---|
+| `SSH_HOST` | VM public IP or hostname. |
+| `SSH_USER` | `whodat`. |
 | `SSH_KEY` | The private key for the deploy user, for example `~/.ssh/whodat_deploy`. |
 | `SSH_KNOWN_HOSTS` | The VM's host public keys, so SSH verifies the host instead of trusting it blindly. |
 
-Variables:
+Variables (not secrets):
 
 | Name | Value |
 |---|---|
-| `SSH_HOST` | VM public IP or hostname. |
-| `SSH_USER` | `whodat`. |
 | `DEPLOY_PATH` | `/opt/whodat`. |
 | `DOMAIN` | The public hostname, for example `standings.example.com`. |
+
+The workflow needs no database, `SECRET_KEY`, or `LEAGUE_CREDENTIALS_KEY` values: migrations and
+the app environment live on the VM in `deploy/.env`.
 
 Generate `SSH_KNOWN_HOSTS` with the same host string you use for `SSH_HOST`, and check the
 fingerprint against the VM's `/etc/ssh/ssh_host_ed25519_key.pub`:
 
 ```bash
+SSH_HOST="<VM_IP_or_hostname>"   # the same value you will store in the secret
 ssh-keyscan -H "$SSH_HOST" > known_hosts
 ssh-keygen -lf known_hosts
 ```
@@ -227,10 +271,10 @@ ssh-keygen -lf known_hosts
 With `gh`:
 
 ```bash
+gh secret set SSH_HOST --env production --body "<VM_IP_or_hostname>"
+gh secret set SSH_USER --env production --body whodat
 gh secret set SSH_KEY --env production < ~/.ssh/whodat_deploy
 gh secret set SSH_KNOWN_HOSTS --env production < known_hosts
-gh variable set SSH_HOST --env production --body "<VM_IP_or_hostname>"
-gh variable set SSH_USER --env production --body whodat
 gh variable set DEPLOY_PATH --env production --body /opt/whodat
 gh variable set DOMAIN --env production --body standings.example.com
 ```
@@ -313,7 +357,7 @@ cd /opt/whodat
 docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env stop backend
 gunzip -c /var/backups/whodat/whodat-<timestamp>.sql.gz |
   docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env \
-    exec -T postgres psql -U app -d app
+    exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
 docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env start backend
 curl -fsS "https://standings.example.com/health"
 ```
@@ -322,12 +366,12 @@ Rehearse a restore into a scratch database before you need it:
 
 ```bash
 docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env \
-  exec -T postgres createdb -U app restore_test
+  exec -T postgres sh -c 'createdb -U "$POSTGRES_USER" restore_test'
 gunzip -c /var/backups/whodat/whodat-<timestamp>.sql.gz |
   docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env \
-    exec -T postgres psql -U app -d restore_test
+    exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d restore_test'
 docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env \
-  exec -T postgres dropdb -U app restore_test
+  exec -T postgres sh -c 'dropdb -U "$POSTGRES_USER" restore_test'
 ```
 
 ## 13. Caveats and maintenance
@@ -335,9 +379,11 @@ docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env \
 - **Single node, no HA.** One VM hosts the database, API, and SPA. A reboot, host failure, or
   kernel update means downtime; there is no failover.
 - **Idle-instance reclamation.** Oracle may reclaim Always Free instances that stay below 20%
-  CPU/network/memory for seven days. Point an external uptime monitor (UptimeRobot,
-  Healthchecks.io, or similar) at `https://$DOMAIN/health` every five minutes. The probe is
-  external infrastructure, not app telemetry, and needs no code change.
+  CPU/network/memory for seven days. Create a free external monitor (UptimeRobot, Healthchecks.io,
+  or similar) for `https://$DOMAIN/health` with a 5-minute interval; treat any 2xx as healthy and
+  alert to your email. The probe is external infrastructure, not app telemetry, and needs no code
+  change. A monitor alone does not guarantee the instance is kept, but it removes long idle gaps
+  and tells you immediately if Oracle or the host takes it away.
 - **ARM capacity at signup.** "Out of host capacity" is common for A1.Flex. Retry, switch
   availability domain, or use 1 OCPU / 6 GB. Upgrading the account to pay-as-you-go is reported to
   improve capacity **[unverified]**.

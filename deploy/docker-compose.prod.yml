@@ -16,15 +16,18 @@ services:
     image: postgres:18
     restart: unless-stopped
     environment:
-      POSTGRES_USER: app
+      # No defaults: the local-dev app/app pair must never reach production. All three values
+      # come from deploy/.env.
+      POSTGRES_USER: "${POSTGRES_USER:?set POSTGRES_USER in deploy/.env}"
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}"
-      POSTGRES_DB: app
+      POSTGRES_DB: "${POSTGRES_DB:?set POSTGRES_DB in deploy/.env}"
     volumes:
       # Postgres 18 images expect a single mount at /var/lib/postgresql; the old
       # /var/lib/postgresql/data path makes the entrypoint refuse to start.
       - pgdata:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      # $$ defers expansion to the container so this follows the credentials above.
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -35,7 +38,9 @@ services:
       context: ../backend
     restart: unless-stopped
     environment:
-      DATABASE_URL: "${DATABASE_URL:?set DATABASE_URL in deploy/.env}"
+      # Built from the same values the postgres service uses, so host, port, database, and
+      # password cannot drift between the two. POSTGRES_PASSWORD must be URL-safe (hex).
+      DATABASE_URL: "postgresql+psycopg://${POSTGRES_USER:?set POSTGRES_USER in deploy/.env}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in deploy/.env}"
       ENV: "${ENV:-production}"
       SECRET_KEY: "${SECRET_KEY:?set SECRET_KEY in deploy/.env}"
       LEAGUE_CREDENTIALS_KEY: "${LEAGUE_CREDENTIALS_KEY:?set LEAGUE_CREDENTIALS_KEY in deploy/.env}"

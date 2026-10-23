@@ -246,15 +246,19 @@ Both stacks build the same two images:
   must be rebuilt whenever it changes; `deploy/deploy.sh` always rebuilds.
 
 The production values live in `deploy/.env` (copied from `deploy/.env.example`); never commit real
-values. The backend reads:
+values. It defines:
 
 | Variable | Purpose |
 |---|---|
 | `ENV` | Deployment label; set `production`. The app refuses to start with the default secret when `ENV` is not `local` or `test`. |
 | `SECRET_KEY` | Signs session cookies. Required; generate with `openssl rand -hex 32`. |
 | `LEAGUE_CREDENTIALS_KEY` | Encrypts stored league credentials (base64-encoded 32 bytes). Required when members save ESPN credentials; generate with `openssl rand -base64 32`. |
-| `DATABASE_URL` | SQLAlchemy URL for Postgres, for example `postgresql+psycopg://app:password@postgres:5432/app`. In production it points at the Compose `postgres` service. |
+| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | Production database identity. The local-dev `app`/`app` pair is never used; generate the password with `openssl rand -hex 32`. |
 | `CORS_ORIGINS` | Comma-separated browser origins allowed to send the session cookie, for example `https://standings.example.com`. |
+
+`deploy/docker-compose.prod.yml` builds the backend's `DATABASE_URL` from those Postgres values,
+so it always points at `postgres:5432` with the same database and password. The password must stay
+hex so the URL needs no encoding.
 
 `VITE_API_BASE_URL` is a frontend build arg, set to `https://$DOMAIN` by the production compose
 file. ESPN cookies are entered per league in the UI and stored encrypted on the membership; there
