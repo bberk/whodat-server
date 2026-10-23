@@ -205,6 +205,18 @@ test("admin reads the league admin page without blocking accessibility issues", 
   ).toBeVisible();
   await expect(page.getByRole("heading", { level: 2, name: "Members" })).toBeVisible();
 
+  // AC-Elo-*: the admin page hosts the per-league Elo settings with keyboard tooltips.
+  await expect(page.getByRole("heading", { level: 2, name: "Elo settings" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Starting rating", exact: true })).toHaveValue(
+    "1500",
+  );
+  await expect(page.getByRole("textbox", { name: "K factor", exact: true })).toHaveValue("24");
+  const kTooltip = page.locator("#elo-tip-k_factor");
+  await page.getByRole("button", { name: "About the K factor" }).focus();
+  await expect(kTooltip).toBeVisible();
+  await expect(kTooltip).toContainText("base number of rating points");
+  await expect(page.getByRole("button", { name: "Recalculate Elo history" })).toBeVisible();
+
   // AC-FE-16: one seasons table with the season's cup week, last refresh, and row actions.
   await expect(page.getByRole("heading", { level: 2, name: "Seasons" })).toBeVisible();
   const season = fixture.league.season;
@@ -309,6 +321,82 @@ test("sign up with an admin invite and get forced through onboarding", async ({
   await expectNoBlockingAxeViolations(page, "onboarding");
 
   await testInfo.attach(`onboarding-${testInfo.project.name}`, {
+    body: await page.screenshot({ fullPage: true }),
+    contentType: "image/png",
+  });
+});
+
+test("opens the History tab, switches modes and seasons, and passes axe", async ({
+  page,
+}, testInfo) => {
+  await page.goto("/login");
+  await page.getByLabel("Email", { exact: true }).fill(fixture.users.admin.email);
+  await page.getByLabel("Password", { exact: true }).fill(fixture.users.admin.password);
+  await page.getByRole("button", { name: "Log in" }).click();
+  await expect(page).toHaveURL(/\/$/);
+
+  // AC-Elo-*: History is a primary, member-visible tab next to Standings and Owner.
+  await page.getByRole("link", { name: "History" }).click();
+  await expect(page).toHaveURL(/\/leagues\/\d+\/history$/);
+  await expect(page.getByRole("heading", { level: 1, name: /— history$/ })).toBeVisible();
+  await expect(page.getByLabel("Season", { exact: true })).toHaveCount(0);
+
+  const chart = page.getByRole("img", { name: /Elo score history, Round robin/i });
+  await expect(chart).toBeVisible();
+  await expect(page.getByRole("button", { name: "Round robin" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+
+  const scores = page.getByRole("region", {
+    name: "Elo score history current scores, scrollable horizontally",
+  });
+  await expect(scores).toBeVisible();
+  await expect(scores.getByRole("columnheader", { name: "Elo score" })).toBeVisible();
+  await expect(scores.getByRole("columnheader", { name: "Last week" })).toBeVisible();
+  await expect(scores.getByRole("columnheader", { name: "This season" })).toBeVisible();
+  await expect(scores.getByRole("columnheader", { name: "Peak" })).toBeVisible();
+  await expect(scores.getByRole("columnheader", { name: "Low" })).toBeVisible();
+
+  // AC-Elo-*: switching the model refetches and changes the accessible chart summary.
+  await page.getByRole("button", { name: "Actual schedule" }).click();
+  await expect(
+    page.getByRole("img", { name: /Elo score history, Actual schedule/i }),
+  ).toBeVisible();
+
+  // The season filter defaults to All history and can focus the stored season.
+  await expect(page.getByRole("button", { name: "All history" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await page.getByRole("button", { name: String(fixture.league.season) }).click();
+  await expect(page.getByRole("button", { name: String(fixture.league.season) })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+
+  // The data-table alternative exposes the exact values and cup markers.
+  await page.getByText("View chart data as a table").click();
+  const data = page.getByRole("region", { name: "Elo score history data table" });
+  await expect(data).toBeVisible();
+  await expect(data.getByRole("columnheader", { name: "Team" })).toBeVisible();
+
+  // AC-FE-05 equivalent for the new page: no page sideways scroll, table scrolls inside itself,
+  // and the team column stays pinned at every width.
+  await expectPageDoesNotScrollSideways(page);
+  const scoresWidth = await scores.evaluate((element) => ({
+    scrollWidth: element.scrollWidth,
+    clientWidth: element.clientWidth,
+  }));
+  if (testInfo.project.name === "mobile-360") {
+    expect(scoresWidth.scrollWidth).toBeGreaterThan(scoresWidth.clientWidth);
+  }
+  const teamHeader = scores.getByRole("columnheader", { name: "Team" });
+  expect(await teamHeader.evaluate((element) => getComputedStyle(element).position)).toBe("sticky");
+
+  await expectNoBlockingAxeViolations(page, "history");
+
+  await testInfo.attach(`history-${testInfo.project.name}`, {
     body: await page.screenshot({ fullPage: true }),
     contentType: "image/png",
   });

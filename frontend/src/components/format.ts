@@ -66,3 +66,29 @@ export function formatRecord(
   const base = `${row.wins}-${row.losses}`;
   return showTies ? `${base}-${row.ties}` : base;
 }
+
+/** Round an Elo rating string to the nearest whole number for the current-scores table. */
+export function formatEloWhole(value: string): string {
+  const rounded = Math.round(Number(value));
+  return String(Object.is(rounded, -0) ? 0 : rounded);
+}
+
+/** Format an Elo rating for the chart and peak/low columns, keeping exactly two decimals. */
+export function formatEloValue(value: string): string {
+  const number = Number(value);
+  const fixed = number.toFixed(2);
+  return fixed === "-0.00" ? "0.00" : fixed;
+}
+
+/**
+ * Format an Elo rating change with exactly two decimals and an explicit plus sign for gains.
+ * The sign is text, so a gain and a loss are distinguishable without color.
+ */
+export function formatEloChange(value: string): string {
+  const number = Number(value);
+  const fixed = number.toFixed(2);
+  if (fixed === "-0.00") {
+    return "0.00";
+  }
+  return number > 0 ? `+${fixed}` : fixed;
+}

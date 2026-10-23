@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 
-import { formatPoints, formatRecord, formatVP, toNumber, vpTone, vpToneClass } from "./format";
+import {
+  formatEloChange,
+  formatEloValue,
+  formatEloWhole,
+  formatPoints,
+  formatRecord,
+  formatVP,
+  toNumber,
+  vpTone,
+  vpToneClass,
+} from "./format";
 
 describe("formatVP", () => {
   it("trims trailing zeros and keeps exact decimals", () => {
@@ -63,5 +73,30 @@ describe("formatRecord", () => {
 describe("toNumber", () => {
   it("parses decimal strings for geometry", () => {
     expect(toNumber("-3.5")).toBe(-3.5);
+  });
+});
+
+describe("formatEloWhole", () => {
+  it("rounds the current Elo score to the nearest whole number", () => {
+    expect(formatEloWhole("1525.2")).toBe("1525");
+    expect(formatEloWhole("1525.5")).toBe("1526");
+    expect(formatEloWhole("1524.4")).toBe("1524");
+    expect(formatEloWhole("-0.4")).toBe("0");
+  });
+});
+
+describe("formatEloValue", () => {
+  it("keeps exactly two decimals for chart and peak/low values", () => {
+    expect(formatEloValue("1525.2")).toBe("1525.20");
+    expect(formatEloValue("1500")).toBe("1500.00");
+    expect(formatEloValue("-0.005")).toBe("-0.01");
+  });
+});
+
+describe("formatEloChange", () => {
+  it("uses two decimals and an explicit plus sign for gains", () => {
+    expect(formatEloChange("12.6")).toBe("+12.60");
+    expect(formatEloChange("-12.6")).toBe("-12.60");
+    expect(formatEloChange("0")).toBe("0.00");
   });
 });

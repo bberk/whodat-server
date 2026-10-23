@@ -16,6 +16,9 @@ import type {
   CreateInviteResponse,
   CupWeekResponse,
   CupWeekUpdateRequest,
+  EloConfigResponse,
+  EloConfigUpdateRequest,
+  EloHistoryResponse,
   LeagueMembersResponse,
   LeagueSummary,
   LoginRequest,
@@ -134,6 +137,27 @@ export const api = {
   wapdate(leagueId: number, season: number, signal?: AbortSignal): Promise<WapdateResponse> {
     return apiRequest<WapdateResponse>(`/api/v1/leagues/${leagueId}/seasons/${season}/wapdate`, {
       signal,
+    });
+  },
+
+  eloHistory(
+    leagueId: number,
+    mode: "actual_schedule" | "round_robin",
+    signal?: AbortSignal,
+  ): Promise<EloHistoryResponse> {
+    return apiRequest<EloHistoryResponse>(`/api/v1/leagues/${leagueId}/elo-history?mode=${mode}`, {
+      signal,
+    });
+  },
+
+  eloConfig(leagueId: number, signal?: AbortSignal): Promise<EloConfigResponse> {
+    return apiRequest<EloConfigResponse>(`/api/v1/leagues/${leagueId}/elo-config`, { signal });
+  },
+
+  updateEloConfig(leagueId: number, body: EloConfigUpdateRequest): Promise<EloConfigResponse> {
+    return apiRequest<EloConfigResponse>(`/api/v1/leagues/${leagueId}/elo-config`, {
+      method: "PUT",
+      body,
     });
   },
 

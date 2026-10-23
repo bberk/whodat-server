@@ -8,6 +8,7 @@ import type { LeagueContextValue } from "../leagues/LeagueContext";
 import { LeagueContext } from "../leagues/LeagueContext";
 import {
   adminUser,
+  eloConfigResponse,
   errorResponse,
   jsonResponse,
   leagueAlpha,
@@ -80,6 +81,9 @@ function defaultFetch(url: string) {
   if (path === "/api/v1/leagues/1/seasons/settings") {
     return jsonResponse(seasonSettingsResponse);
   }
+  if (path === "/api/v1/leagues/1/elo-config") {
+    return jsonResponse(eloConfigResponse);
+  }
   return errorResponse(404, { code: "not_found", message: path });
 }
 
@@ -107,6 +111,8 @@ describe("AdminPage", () => {
       screen.queryByRole("heading", { level: 2, name: "Add a season" }),
     ).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { level: 2, name: "Cup week" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Elo settings" })).toBeInTheDocument();
+    expect(await screen.findByLabelText("K factor")).toHaveValue("24");
     expect(screen.getByRole("heading", { level: 2, name: "Invites" })).toBeInTheDocument();
     expect(screen.getByLabelText("Invite type")).toBeInTheDocument();
     expect(

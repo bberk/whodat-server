@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 
 import { DeleteLeagueSection } from "../leagues/DeleteLeagueSection";
+import { EloSettingsSection } from "../leagues/EloSettingsSection";
 import { InvitesSection } from "../leagues/InvitesSection";
 import { useLeague } from "../leagues/LeagueContext";
 import { MembersSection } from "../leagues/MembersSection";
@@ -51,6 +52,8 @@ export function AdminPage() {
       <MembersSection leagueId={leagueId} onSelfRemoved={leaveAfterRemoval} />
 
       <SeasonsSection leagueId={leagueId} />
+
+      <EloSettingsSection leagueId={leagueId} />
 
       <InvitesSection leagueId={leagueId} />
 

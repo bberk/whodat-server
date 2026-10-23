@@ -60,3 +60,19 @@ export type VpHistoryResponse = components["schemas"]["VpHistoryResponse"];
 export type WapdateRow = components["schemas"]["WapdateRow"];
 export type WapdatePeriod = components["schemas"]["WapdatePeriod"];
 export type WapdateResponse = components["schemas"]["WapdateResponse"];
+
+/** Per-league Elo rating settings; ratings stay strings on the wire. */
+export type EloConfigValues = components["schemas"]["EloConfigValues"];
+export type EloConfigResponse = components["schemas"]["EloConfigResponse"];
+export type EloConfigUpdateRequest = components["schemas"]["EloConfigUpdateRequest"];
+
+/** One completed regular-season week in the Elo chart's shared x-axis. */
+export type EloWeek = components["schemas"]["EloWeek"];
+export type EloSeasonBoundary = components["schemas"]["EloSeasonBoundary"];
+export type EloSeasonRating = components["schemas"]["EloSeasonRating"];
+export type EloWeekReference = components["schemas"]["EloWeekReference"];
+/** One franchise's running Elo series and current/peak/low summary. */
+export type EloTeam = components["schemas"]["EloTeam"];
+export type EloUnratedTeam = components["schemas"]["EloUnratedTeam"];
+export type EloWarning = components["schemas"]["EloWarning"];
+export type EloHistoryResponse = components["schemas"]["EloHistoryResponse"];

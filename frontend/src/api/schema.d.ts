@@ -115,6 +115,53 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/leagues/{league_id}/elo-config": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Get Elo Config
+     * @description Return a league's saved Elo settings, or the defaults, for an admin member.
+     *
+     *     A non-member gets 404 (the league is not confirmed to exist) and a member without the admin
+     *     role gets 403.
+     */
+    get: operations["get_elo_config_api_v1_leagues__league_id__elo_config_get"];
+    /**
+     * Update Elo Config
+     * @description Validate and persist a league's Elo settings for an admin member.
+     */
+    put: operations["update_elo_config_api_v1_leagues__league_id__elo_config_put"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/leagues/{league_id}/elo-history": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Get Elo History
+     * @description Return full running Elo history for a league in the requested mode.
+     */
+    get: operations["get_elo_history_api_v1_leagues__league_id__elo_history_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/leagues/{league_id}/invites": {
     parameters: {
       query?: never;
@@ -631,6 +678,198 @@ export interface components {
       name: string | null;
       /** Standings */
       standings: components["schemas"]["StandingsRow"][];
+    };
+    /**
+     * EloConfigResponse
+     * @description A league's saved Elo settings (or the defaults).
+     */
+    EloConfigResponse: {
+      /** K Factor */
+      k_factor: string;
+      /** League Id */
+      league_id: number;
+      /** Margin Cap */
+      margin_cap: string;
+      /** Margin Weight */
+      margin_weight: string;
+      /** Season Regression */
+      season_regression: string;
+      /** Starting Rating */
+      starting_rating: string;
+    };
+    /**
+     * EloConfigUpdateRequest
+     * @description Admin-supplied Elo settings, validated to the documented ranges.
+     */
+    EloConfigUpdateRequest: {
+      /** K Factor */
+      k_factor: number | string;
+      /** Margin Cap */
+      margin_cap: number | string;
+      /** Margin Weight */
+      margin_weight: number | string;
+      /** Season Regression */
+      season_regression: number | string;
+      /** Starting Rating */
+      starting_rating: number | string;
+    };
+    /**
+     * EloConfigValues
+     * @description The rating configuration that produced a history or a settings response.
+     */
+    EloConfigValues: {
+      /** K Factor */
+      k_factor: string;
+      /** Margin Cap */
+      margin_cap: string;
+      /** Margin Weight */
+      margin_weight: string;
+      /** Season Regression */
+      season_regression: string;
+      /** Starting Rating */
+      starting_rating: string;
+    };
+    /**
+     * EloHistoryResponse
+     * @description Full Elo history for one league and one mode.
+     */
+    EloHistoryResponse: {
+      config: components["schemas"]["EloConfigValues"];
+      /** League Id */
+      league_id: number;
+      /**
+       * Mode
+       * @enum {string}
+       */
+      mode: "actual_schedule" | "round_robin";
+      /** Season Boundaries */
+      season_boundaries: components["schemas"]["EloSeasonBoundary"][];
+      /** Seasons */
+      seasons: number[];
+      /** Teams */
+      teams: components["schemas"]["EloTeam"][];
+      /** Unrated Teams */
+      unrated_teams: components["schemas"]["EloUnratedTeam"][];
+      /** Warnings */
+      warnings: components["schemas"]["EloWarning"][];
+      /** Weeks */
+      weeks: components["schemas"]["EloWeek"][];
+    };
+    /**
+     * EloSeasonBoundary
+     * @description A season's first chart index, used for chart markers and labels.
+     */
+    EloSeasonBoundary: {
+      /** Season */
+      season: number;
+      /** Week Index */
+      week_index: number;
+    };
+    /**
+     * EloSeasonRating
+     * @description One franchise's rating within a season, with the post-reset baseline.
+     */
+    EloSeasonRating: {
+      /** Change */
+      change: string;
+      /** End Rating */
+      end_rating: string;
+      /** Rated Weeks */
+      rated_weeks: number;
+      /** Season */
+      season: number;
+      /** Start Rating */
+      start_rating: string;
+    };
+    /**
+     * EloTeam
+     * @description One franchise's running series and summary values.
+     */
+    EloTeam: {
+      /** Aliases */
+      aliases: string[];
+      /** Current */
+      current: string;
+      /** First Season */
+      first_season: number;
+      /** Last Change */
+      last_change: string;
+      /** Last Season */
+      last_season: number;
+      /** Low */
+      low: string;
+      low_at: components["schemas"]["EloWeekReference"] | null;
+      /** Name */
+      name: string;
+      /** Owner Name */
+      owner_name: string | null;
+      /** Peak */
+      peak: string;
+      peak_at: components["schemas"]["EloWeekReference"] | null;
+      /** Rated Weeks */
+      rated_weeks: number;
+      /** Season Change */
+      season_change: string;
+      /** Seasons */
+      seasons: components["schemas"]["EloSeasonRating"][];
+      /** Series */
+      series: (string | null)[];
+      /** Team Id */
+      team_id: number;
+      /** Team Key */
+      team_key: string;
+    };
+    /**
+     * EloUnratedTeam
+     * @description A team with no rated weeks, so the page can say so instead of drawing a flat line.
+     */
+    EloUnratedTeam: {
+      /** Name */
+      name: string;
+      /** Reason */
+      reason: string;
+      /** Team Key */
+      team_key: string;
+    };
+    /**
+     * EloWarning
+     * @description A skipped piece of stored data, surfaced without internal detail or credentials.
+     */
+    EloWarning: {
+      /** Code */
+      code: string;
+      /** Message */
+      message: string;
+      /** Season */
+      season: number;
+    };
+    /**
+     * EloWeek
+     * @description One chart slot: a completed regular-season week, including cup weeks.
+     */
+    EloWeek: {
+      /** Index */
+      index: number;
+      /** Is Cup Week */
+      is_cup_week: boolean;
+      /** Is Season Start */
+      is_season_start: boolean;
+      /** Rated */
+      rated: boolean;
+      /** Season */
+      season: number;
+      /** Week */
+      week: number;
+    };
+    /**
+     * EloWeekReference
+     * @description The season and week where a peak or low occurred.
+     */
+    EloWeekReference: {
+      /** Season */
+      season: number;
+      /** Week */
+      week: number;
     };
     /** HTTPValidationError */
     HTTPValidationError: {
@@ -1163,6 +1402,106 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  get_elo_config_api_v1_leagues__league_id__elo_config_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        league_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["EloConfigResponse"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  update_elo_config_api_v1_leagues__league_id__elo_config_put: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        league_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["EloConfigUpdateRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["EloConfigResponse"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  get_elo_history_api_v1_leagues__league_id__elo_history_get: {
+    parameters: {
+      query?: {
+        /** @description Rating model: actual stored matchups, or every team compared each week */
+        mode?: "actual_schedule" | "round_robin";
+      };
+      header?: never;
+      path: {
+        league_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["EloHistoryResponse"];
+        };
       };
       /** @description Validation Error */
       422: {

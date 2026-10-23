@@ -41,6 +41,44 @@ export function niceScale(min: number, max: number, targetTicks = 4): Scale {
   return { min: niceMin, max: niceMax, ticks };
 }
 
+/**
+ * A "nice" axis scale that does not force zero into range. Elo ratings cluster around 1500, so a
+ * zero-based axis would flatten every line; this helper rounds only the actual data range.
+ */
+export function niceValueScale(min: number, max: number, targetTicks = 4): Scale {
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    return { min: 0, max: 1, ticks: [0, 1] };
+  }
+  const lo = Math.min(min, max);
+  const hi = Math.max(min, max);
+  if (lo === hi) {
+    return { min: lo - 1, max: hi + 1, ticks: [lo - 1, lo, hi + 1] };
+  }
+  const rawStep = (hi - lo) / targetTicks;
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+  const normalized = rawStep / magnitude;
+  let step: number;
+  if (normalized <= 1) {
+    step = 1;
+  } else if (normalized <= 2) {
+    step = 2;
+  } else if (normalized <= 2.5) {
+    step = 2.5;
+  } else if (normalized <= 5) {
+    step = 5;
+  } else {
+    step = 10;
+  }
+  step *= magnitude;
+  const niceMin = Math.floor(lo / step) * step;
+  const niceMax = Math.ceil(hi / step) * step;
+  const ticks: number[] = [];
+  for (let tick = niceMin; tick <= niceMax + step / 1e6; tick += step) {
+    ticks.push(Number(tick.toFixed(6)));
+  }
+  return { min: niceMin, max: niceMax, ticks };
+}
+
 /** Evenly spaced x position for point `index` of `count`, spanning `length` from `start`. */
 export function positionFor(index: number, count: number, start: number, length: number): number {
   if (count <= 1) {

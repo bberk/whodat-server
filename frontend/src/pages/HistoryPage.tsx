@@ -1,0 +1,338 @@
+import { useEffect, useState } from "react";
+import { Navigate, useNavigate, useParams } from "react-router-dom";
+
+import { useAuth } from "../auth/AuthContext";
+import { EmptyState, ErrorState, LoadingState } from "../components/DataStates";
+import { EloChart } from "../components/EloChart";
+import { EloRatingsTable } from "../components/EloRatingsTable";
+import { InfoTooltip } from "../components/InfoTooltip";
+import { useMediaQuery } from "../components/useMediaQuery";
+import { formatEloValue } from "../components/format";
+import {
+  MODE_DESCRIPTIONS,
+  MODE_LABELS,
+  buildEloSeries,
+  filterEloHistory,
+  type EloMode,
+} from "../history/model";
+import { useEloHistory } from "../history/useEloHistory";
+import { useLeague } from "../leagues/LeagueContext";
+
+const filterButtonClass = (active: boolean) =>
+  `rounded-lg px-2.5 py-1 text-[12.5px] font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
+    active ? "bg-brand text-brand-foreground" : "bg-white text-gray-600 hover:text-brand"
+  }`;
+
+/**
+ * League History page: one running Elo score per franchise across every stored season.
+ *
+ * The page is member-only through the route guard and the API. It defaults to round robin, offers
+ * an explicit mode switch and season filter, and shares one loading/empty/error state between the
+ * chart and the current-scores table. History is derived from stored results on every read, so
+ * saving settings on the admin page simply invalidates this view (`dataVersion`).
+ */
+export function HistoryPage() {
+  const params = useParams();
+  const leagueId = Number(params.leagueId);
+  const validId = Number.isInteger(leagueId) && leagueId > 0;
+  const { leagues, selectedLeague, selectLeague, dataVersion } = useLeague();
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [mode, setMode] = useState<EloMode>("round_robin");
+  const [season, setSeason] = useState<number | null>(null);
+  const [selectedTeamKey, setSelectedTeamKey] = useState<string | null>(null);
+  const [hiddenTeamKeys, setHiddenTeamKeys] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  );
+  const compact = useMediaQuery("(max-width: 767px)");
+
+  useEffect(() => {
+    if (validId && selectedLeague?.league_id !== leagueId) {
+      selectLeague(leagueId);
+    }
+  }, [validId, leagueId, selectedLeague?.league_id, selectLeague]);
+
+  const { state, reload } = useEloHistory(validId ? leagueId : null, mode, dataVersion);
+
+  useEffect(() => {
+    if (season !== null && state.status === "ready" && !state.history.seasons.includes(season)) {
+      setSeason(null);
+    }
+  }, [season, state]);
+
+  if (!validId) {
+    return <Navigate to="/" replace />;
+  }
+
+  const membership =
+    leagues.find((league) => league.league_id === leagueId) ??
+    (selectedLeague?.league_id === leagueId ? selectedLeague : null);
+  const leagueName = membership?.name ?? `League ${leagueId}`;
+
+  const selectTeam = (teamKey: string) => {
+    setSelectedTeamKey((current) => (current === teamKey ? null : teamKey));
+    setHiddenTeamKeys((current) => {
+      if (!current.has(teamKey)) {
+        return current;
+      }
+      const next = new Set(current);
+      next.delete(teamKey);
+      return next;
+    });
+  };
+
+  const toggleTeam = (teamKey: string) => {
+    setHiddenTeamKeys((current) => {
+      const next = new Set(current);
+      if (next.has(teamKey)) {
+        next.delete(teamKey);
+      } else {
+        next.add(teamKey);
+      }
+      return next;
+    });
+  };
+
+  const ready = state.status === "ready" ? state.history : null;
+  const meta =
+    ready === null
+      ? `${MODE_LABELS[mode]} · all stored history`
+      : `${MODE_LABELS[mode]} · ${ready.seasons.length} season${
+          ready.seasons.length === 1 ? "" : "s"
+        } · ${ready.weeks.length} weeks · ${ready.teams.length} teams`;
+
+  return (
+    <div className="flex min-h-full min-w-0 flex-col">
+      <div className="flex flex-col gap-1 pt-5 md:pt-6">
+        <h1 className="text-xl font-bold md:text-2xl">{leagueName} — history</h1>
+        <p className="text-[13px] text-gray-500">{meta}</p>
+      </div>
+
+      <section aria-labelledby="h-elo-model" className="mt-5">
+        <div className="flex flex-wrap items-baseline gap-2">
+          <h2 id="h-elo-model" className="text-base font-bold">
+            Elo model
+          </h2>
+          <InfoTooltip
+            id="elo-model-tip"
+            label="About the Elo models"
+            text="Actual schedule uses only stored head-to-head matchups and skips cup weeks. Round robin compares every team with every other team each completed week, averages each team's pairwise change, and includes cup weeks. Playoffs are excluded in both."
+          />
+        </div>
+        <div
+          role="group"
+          aria-label="Elo model"
+          className="mt-2 inline-flex flex-wrap gap-1 rounded-xl border border-gray-200 bg-white p-1"
+        >
+          <button
+            type="button"
+            aria-pressed={mode === "round_robin"}
+            onClick={() => setMode("round_robin")}
+            className={filterButtonClass(mode === "round_robin")}
+          >
+            Round robin
+          </button>
+          <button
+            type="button"
+            aria-pressed={mode === "actual_schedule"}
+            onClick={() => setMode("actual_schedule")}
+            className={filterButtonClass(mode === "actual_schedule")}
+          >
+            Actual schedule
+          </button>
+        </div>
+        <p className="mt-2 max-w-3xl text-[13px] text-gray-600">{MODE_DESCRIPTIONS[mode]}</p>
+        <details className="mt-2 rounded-lg border border-gray-200 bg-white">
+          <summary className="cursor-pointer px-3 py-2 text-[13px] font-semibold text-brand">
+            How the Elo score works
+          </summary>
+          <div className="space-y-1 px-3 pb-3 text-[12.5px] text-gray-600">
+            <p>
+              Expected score: <code>E = 1 / (1 + 10^((R_b − R_a) / 400))</code>. Update:{" "}
+              <code>R' = R + K × m × (S − E)</code>, where S is 1 for a win, 0.5 for a tie and 0 for
+              a loss.
+            </p>
+            <p>
+              The margin multiplier is <code>m = 1 + weight × min(|margin|, cap) / cap</code>. A cup
+              week is skipped in actual schedule and rated in round robin.
+            </p>
+            <p>
+              Before each new stored season, ratings regress toward the starting rating. Adding or
+              deleting a season recalculates the whole history from stored results.
+            </p>
+          </div>
+        </details>
+
+        {ready === null ? null : (
+          <div className="mt-3 flex flex-wrap gap-2 text-[12px] text-gray-700">
+            <span className="rounded-full border border-teal-100 bg-brand-foreground px-2.5 py-1">
+              <strong>{formatEloValue(ready.config.starting_rating)}</strong> start
+            </span>
+            <span className="rounded-full border border-teal-100 bg-brand-foreground px-2.5 py-1">
+              <strong>K {formatEloValue(ready.config.k_factor)}</strong> per update
+            </span>
+            <span className="rounded-full border border-teal-100 bg-brand-foreground px-2.5 py-1">
+              <strong>+{Math.round(Number(ready.config.margin_weight) * 100)}%</strong> max margin
+              bonus · cap {formatEloValue(ready.config.margin_cap)}
+            </span>
+            <span className="rounded-full border border-teal-100 bg-brand-foreground px-2.5 py-1">
+              <strong>{Math.round(Number(ready.config.season_regression) * 100)}%</strong> season
+              reset
+            </span>
+          </div>
+        )}
+      </section>
+
+      {state.status === "loading" ? (
+        <div className="mt-4">
+          <LoadingState label="Loading Elo history…" />
+        </div>
+      ) : null}
+
+      {state.status === "error" ? (
+        <div className="mt-4">
+          <ErrorState onRetry={reload} message={state.message} />
+        </div>
+      ) : null}
+
+      {state.status === "empty" ? (
+        <div className="mt-4">
+          <EmptyState
+            title="No rated weeks yet"
+            detail="Elo appears after the first completed regular-season week with at least two teams and scores. Cup weeks and byes do not rate in actual schedule; cup weeks do rate in round robin."
+          />
+        </div>
+      ) : null}
+
+      {ready === null ? null : (
+        <>
+          <section aria-labelledby="h-elo-chart" className="mt-7 md:mt-9">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <h2 id="h-elo-chart" className="text-base font-bold">
+                  Elo score history
+                </h2>
+                <p className="mt-1 text-[13px] text-gray-500">
+                  {MODE_LABELS[mode]} · one line per franchise · dashed vertical rules mark season
+                  resets
+                </p>
+              </div>
+              <div
+                className="flex flex-wrap gap-1 rounded-xl border border-gray-200 bg-white p-1"
+                role="group"
+                aria-label="Season filter"
+              >
+                <button
+                  type="button"
+                  aria-pressed={season === null}
+                  onClick={() => setSeason(null)}
+                  className={filterButtonClass(season === null)}
+                >
+                  All history
+                </button>
+                {ready.seasons.map((year) => (
+                  <button
+                    key={year}
+                    type="button"
+                    aria-pressed={season === year}
+                    onClick={() => setSeason(year)}
+                    className={filterButtonClass(season === year)}
+                  >
+                    {year}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {(() => {
+              const filtered = filterEloHistory(ready, season);
+              if (filtered.weeks.length === 0) {
+                return (
+                  <EmptyState
+                    title="No rated weeks in this season"
+                    detail="Choose All history or another season to see ratings."
+                  />
+                );
+              }
+              return (
+                <EloChart
+                  weeks={filtered.weeks}
+                  series={buildEloSeries({
+                    ...ready,
+                    teams: filtered.teams,
+                  })}
+                  boundaries={filtered.boundaries}
+                  mode={mode}
+                  startingRating={ready.config.starting_rating}
+                  visibleTeamKeys={filtered.teams
+                    .map((team) => team.team_key)
+                    .filter((key) => !hiddenTeamKeys.has(key))}
+                  selectedTeamKey={selectedTeamKey}
+                  onToggleTeam={toggleTeam}
+                  onSelectTeam={selectTeam}
+                  compact={compact}
+                />
+              );
+            })()}
+          </section>
+
+          <section aria-labelledby="h-elo-current" className="mt-7 md:mt-9">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <div>
+                <h2 id="h-elo-current" className="text-base font-bold">
+                  Current scores
+                </h2>
+                <p className="mt-1 text-[13px] text-gray-500">
+                  Sorted by current Elo · change this week and this season shown to two decimals
+                </p>
+              </div>
+              <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[12px] font-semibold text-gray-700">
+                {MODE_LABELS[mode]}
+              </span>
+            </div>
+            <EloRatingsTable
+              teams={ready.teams}
+              selectedTeamKey={selectedTeamKey}
+              onSelectTeam={selectTeam}
+            />
+
+            {ready.unrated_teams.length === 0 ? null : (
+              <p className="mt-2 text-[12.5px] text-gray-600">
+                {ready.unrated_teams.length} team
+                {ready.unrated_teams.length === 1 ? "" : "s"} have no rated matchups yet:{" "}
+                {ready.unrated_teams.map((team) => team.name).join(", ")}.
+              </p>
+            )}
+
+            {ready.warnings.length === 0 ? null : (
+              <div className="mt-2 text-[12.5px] text-amber-900">
+                <p className="font-semibold">Some stored data was skipped:</p>
+                <ul className="list-disc pl-5">
+                  {ready.warnings.map((warning) => (
+                    <li key={`${warning.season}-${warning.code}-${warning.message}`}>
+                      {warning.message}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <p className="mt-3 text-[12.5px] text-gray-500">
+              Ratings follow the franchise slot, not the owner. A renamed team keeps its history and
+              is shown with its latest name. History is recalculated whenever seasons change.{" "}
+              {user?.role === "admin" ? (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/leagues/${leagueId}/admin`)}
+                  className="font-semibold text-brand underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                >
+                  League admin can change the Elo settings.
+                </button>
+              ) : null}
+            </p>
+          </section>
+        </>
+      )}
+    </div>
+  );
+}
