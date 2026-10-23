@@ -14,7 +14,7 @@ from typing import TypeVar
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.db.models import League, LeagueSeason, Matchup, Owner, Score, Team
+from app.db.models import League, LeagueEloConfig, LeagueSeason, Matchup, Owner, Score, Team
 
 RowT = TypeVar("RowT")
 
@@ -271,6 +271,44 @@ class SyncRepository:
             )
         )
 
+    def get_elo_config(self, league_id: int) -> LeagueEloConfig | None:
+        """Return a league's saved Elo settings, or None when it uses the defaults."""
+        return self._session.scalar(
+            select(LeagueEloConfig).where(LeagueEloConfig.league_id == league_id)
+        )
+
+    def upsert_elo_config(
+        self,
+        league_id: int,
+        *,
+        starting_rating: Decimal,
+        k_factor: Decimal,
+        margin_weight: Decimal,
+        margin_cap: Decimal,
+        season_regression: Decimal,
+    ) -> LeagueEloConfig:
+        """Create or update the single Elo settings row for a league.
+
+        Values must already be validated Decimals; the repository only persists them and never
+        applies rounding or default policy.
+        """
+        values = {
+            "starting_rating": starting_rating,
+            "k_factor": k_factor,
+            "margin_weight": margin_weight,
+            "margin_cap": margin_cap,
+            "season_regression": season_regression,
+        }
+        row = self.get_elo_config(league_id)
+        if row is None:
+            row = LeagueEloConfig(league_id=league_id, **values)
+            self._session.add(row)
+            self._session.flush()
+            return row
+        if self._assign_changed(row, values):
+            self._session.flush()
+        return row
+
     def list_league_seasons(self, league_id: int) -> list[LeagueSeason]:
         """Return every stored season for a league in ascending season order."""
         return list(
@@ -294,6 +332,34 @@ class SyncRepository:
                 select(Team)
                 .where(Team.league_id == league_id, Team.season == season)
                 .order_by(Team.id)
+            ).all()
+        )
+
+    def list_teams(self, league_id: int) -> list[Team]:
+        """Return every season-specific team for a league, ascending by season then id."""
+        return list(
+            self._session.scalars(
+                select(Team).where(Team.league_id == league_id).order_by(Team.season, Team.id)
+            ).all()
+        )
+
+    def list_matchups(self, league_id: int) -> list[Matchup]:
+        """Return every stored matchup for a league in chronological, stable order."""
+        return list(
+            self._session.scalars(
+                select(Matchup)
+                .where(Matchup.league_id == league_id)
+                .order_by(Matchup.season, Matchup.week, Matchup.id)
+            ).all()
+        )
+
+    def list_scores(self, league_id: int) -> list[Score]:
+        """Return every stored score for a league in chronological, stable order."""
+        return list(
+            self._session.scalars(
+                select(Score)
+                .where(Score.league_id == league_id)
+                .order_by(Score.season, Score.week, Score.team_id)
             ).all()
         )
 

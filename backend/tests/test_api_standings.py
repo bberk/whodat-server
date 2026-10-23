@@ -814,6 +814,8 @@ def test_AC_API_01_openapi_export_is_current() -> None:
     assert "/api/v1/leagues/{league_id}/seasons/{season}/vp-history" in document["paths"]
     assert "/api/v1/leagues/{league_id}/seasons/{season}/wapdate" in document["paths"]
     assert "/api/v1/leagues/{league_id}/seasons/settings" in document["paths"]
+    assert "/api/v1/leagues/{league_id}/elo-history" in document["paths"]
+    assert "/api/v1/leagues/{league_id}/elo-config" in document["paths"]
     assert "/api/v1/leagues/{league_id}/seasons/{season}/refresh" in document["paths"]
     assert "delete" in document["paths"]["/api/v1/leagues/{league_id}/seasons/{season}"]
     assert "get" in document["paths"]["/api/v1/leagues/{league_id}/seasons/settings"]
@@ -821,4 +823,7 @@ def test_AC_API_01_openapi_export_is_current() -> None:
     assert "get" in document["paths"]["/api/v1/leagues/{league_id}/seasons/{season}/standings"]
     assert "get" in document["paths"]["/api/v1/leagues/{league_id}/seasons/{season}/vp-history"]
     assert "get" in document["paths"]["/api/v1/leagues/{league_id}/seasons/{season}/wapdate"]
+    assert "get" in document["paths"]["/api/v1/leagues/{league_id}/elo-history"]
+    assert "get" in document["paths"]["/api/v1/leagues/{league_id}/elo-config"]
+    assert "put" in document["paths"]["/api/v1/leagues/{league_id}/elo-config"]
     assert OPENAPI_PATH.read_text(encoding="utf-8") == expected

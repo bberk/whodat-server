@@ -277,6 +277,522 @@
         "title": "DivisionStandings",
         "type": "object"
       },
+      "EloConfigResponse": {
+        "description": "A league's saved Elo settings (or the defaults).",
+        "properties": {
+          "k_factor": {
+            "title": "K Factor",
+            "type": "string"
+          },
+          "league_id": {
+            "title": "League Id",
+            "type": "integer"
+          },
+          "margin_cap": {
+            "title": "Margin Cap",
+            "type": "string"
+          },
+          "margin_weight": {
+            "title": "Margin Weight",
+            "type": "string"
+          },
+          "season_regression": {
+            "title": "Season Regression",
+            "type": "string"
+          },
+          "starting_rating": {
+            "title": "Starting Rating",
+            "type": "string"
+          }
+        },
+        "required": [
+          "starting_rating",
+          "k_factor",
+          "margin_weight",
+          "margin_cap",
+          "season_regression",
+          "league_id"
+        ],
+        "title": "EloConfigResponse",
+        "type": "object"
+      },
+      "EloConfigUpdateRequest": {
+        "additionalProperties": false,
+        "description": "Admin-supplied Elo settings, validated to the documented ranges.",
+        "properties": {
+          "k_factor": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "K Factor"
+          },
+          "margin_cap": {
+            "anyOf": [
+              {
+                "maximum": 200.0,
+                "minimum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Margin Cap"
+          },
+          "margin_weight": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Margin Weight"
+          },
+          "season_regression": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Season Regression"
+          },
+          "starting_rating": {
+            "anyOf": [
+              {
+                "maximum": 2000.0,
+                "minimum": 1000.0,
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Starting Rating"
+          }
+        },
+        "required": [
+          "starting_rating",
+          "k_factor",
+          "margin_weight",
+          "margin_cap",
+          "season_regression"
+        ],
+        "title": "EloConfigUpdateRequest",
+        "type": "object"
+      },
+      "EloConfigValues": {
+        "description": "The rating configuration that produced a history or a settings response.",
+        "properties": {
+          "k_factor": {
+            "title": "K Factor",
+            "type": "string"
+          },
+          "margin_cap": {
+            "title": "Margin Cap",
+            "type": "string"
+          },
+          "margin_weight": {
+            "title": "Margin Weight",
+            "type": "string"
+          },
+          "season_regression": {
+            "title": "Season Regression",
+            "type": "string"
+          },
+          "starting_rating": {
+            "title": "Starting Rating",
+            "type": "string"
+          }
+        },
+        "required": [
+          "starting_rating",
+          "k_factor",
+          "margin_weight",
+          "margin_cap",
+          "season_regression"
+        ],
+        "title": "EloConfigValues",
+        "type": "object"
+      },
+      "EloHistoryResponse": {
+        "description": "Full Elo history for one league and one mode.",
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/EloConfigValues"
+          },
+          "league_id": {
+            "title": "League Id",
+            "type": "integer"
+          },
+          "mode": {
+            "enum": [
+              "actual_schedule",
+              "round_robin"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "season_boundaries": {
+            "items": {
+              "$ref": "#/components/schemas/EloSeasonBoundary"
+            },
+            "title": "Season Boundaries",
+            "type": "array"
+          },
+          "seasons": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Seasons",
+            "type": "array"
+          },
+          "teams": {
+            "items": {
+              "$ref": "#/components/schemas/EloTeam"
+            },
+            "title": "Teams",
+            "type": "array"
+          },
+          "unrated_teams": {
+            "items": {
+              "$ref": "#/components/schemas/EloUnratedTeam"
+            },
+            "title": "Unrated Teams",
+            "type": "array"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/EloWarning"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "weeks": {
+            "items": {
+              "$ref": "#/components/schemas/EloWeek"
+            },
+            "title": "Weeks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "league_id",
+          "mode",
+          "seasons",
+          "config",
+          "weeks",
+          "season_boundaries",
+          "teams",
+          "unrated_teams",
+          "warnings"
+        ],
+        "title": "EloHistoryResponse",
+        "type": "object"
+      },
+      "EloSeasonBoundary": {
+        "description": "A season's first chart index, used for chart markers and labels.",
+        "properties": {
+          "season": {
+            "title": "Season",
+            "type": "integer"
+          },
+          "week_index": {
+            "title": "Week Index",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "season",
+          "week_index"
+        ],
+        "title": "EloSeasonBoundary",
+        "type": "object"
+      },
+      "EloSeasonRating": {
+        "description": "One franchise's rating within a season, with the post-reset baseline.",
+        "properties": {
+          "change": {
+            "title": "Change",
+            "type": "string"
+          },
+          "end_rating": {
+            "title": "End Rating",
+            "type": "string"
+          },
+          "rated_weeks": {
+            "title": "Rated Weeks",
+            "type": "integer"
+          },
+          "season": {
+            "title": "Season",
+            "type": "integer"
+          },
+          "start_rating": {
+            "title": "Start Rating",
+            "type": "string"
+          }
+        },
+        "required": [
+          "season",
+          "start_rating",
+          "end_rating",
+          "change",
+          "rated_weeks"
+        ],
+        "title": "EloSeasonRating",
+        "type": "object"
+      },
+      "EloTeam": {
+        "description": "One franchise's running series and summary values.",
+        "properties": {
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Aliases",
+            "type": "array"
+          },
+          "current": {
+            "title": "Current",
+            "type": "string"
+          },
+          "first_season": {
+            "title": "First Season",
+            "type": "integer"
+          },
+          "last_change": {
+            "title": "Last Change",
+            "type": "string"
+          },
+          "last_season": {
+            "title": "Last Season",
+            "type": "integer"
+          },
+          "low": {
+            "title": "Low",
+            "type": "string"
+          },
+          "low_at": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EloWeekReference"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "owner_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Name"
+          },
+          "peak": {
+            "title": "Peak",
+            "type": "string"
+          },
+          "peak_at": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EloWeekReference"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rated_weeks": {
+            "title": "Rated Weeks",
+            "type": "integer"
+          },
+          "season_change": {
+            "title": "Season Change",
+            "type": "string"
+          },
+          "seasons": {
+            "items": {
+              "$ref": "#/components/schemas/EloSeasonRating"
+            },
+            "title": "Seasons",
+            "type": "array"
+          },
+          "series": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Series",
+            "type": "array"
+          },
+          "team_id": {
+            "title": "Team Id",
+            "type": "integer"
+          },
+          "team_key": {
+            "title": "Team Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "team_key",
+          "team_id",
+          "name",
+          "owner_name",
+          "aliases",
+          "first_season",
+          "last_season",
+          "series",
+          "seasons",
+          "current",
+          "last_change",
+          "season_change",
+          "peak",
+          "peak_at",
+          "low",
+          "low_at",
+          "rated_weeks"
+        ],
+        "title": "EloTeam",
+        "type": "object"
+      },
+      "EloUnratedTeam": {
+        "description": "A team with no rated weeks, so the page can say so instead of drawing a flat line.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "team_key": {
+            "title": "Team Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "team_key",
+          "name",
+          "reason"
+        ],
+        "title": "EloUnratedTeam",
+        "type": "object"
+      },
+      "EloWarning": {
+        "description": "A skipped piece of stored data, surfaced without internal detail or credentials.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "season": {
+            "title": "Season",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "season",
+          "code",
+          "message"
+        ],
+        "title": "EloWarning",
+        "type": "object"
+      },
+      "EloWeek": {
+        "description": "One chart slot: a completed regular-season week, including cup weeks.",
+        "properties": {
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "is_cup_week": {
+            "title": "Is Cup Week",
+            "type": "boolean"
+          },
+          "is_season_start": {
+            "title": "Is Season Start",
+            "type": "boolean"
+          },
+          "rated": {
+            "title": "Rated",
+            "type": "boolean"
+          },
+          "season": {
+            "title": "Season",
+            "type": "integer"
+          },
+          "week": {
+            "title": "Week",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "index",
+          "season",
+          "week",
+          "is_cup_week",
+          "is_season_start",
+          "rated"
+        ],
+        "title": "EloWeek",
+        "type": "object"
+      },
+      "EloWeekReference": {
+        "description": "The season and week where a peak or low occurred.",
+        "properties": {
+          "season": {
+            "title": "Season",
+            "type": "integer"
+          },
+          "week": {
+            "title": "Week",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "season",
+          "week"
+        ],
+        "title": "EloWeekReference",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1375,6 +1891,162 @@
         "summary": "Delete League",
         "tags": [
           "leagues"
+        ]
+      }
+    },
+    "/api/v1/leagues/{league_id}/elo-config": {
+      "get": {
+        "description": "Return a league's saved Elo settings, or the defaults, for an admin member.\n\nA non-member gets 404 (the league is not confirmed to exist) and a member without the admin\nrole gets 403.",
+        "operationId": "get_elo_config_api_v1_leagues__league_id__elo_config_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "league_id",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "League Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EloConfigResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Elo Config",
+        "tags": [
+          "elo"
+        ]
+      },
+      "put": {
+        "description": "Validate and persist a league's Elo settings for an admin member.",
+        "operationId": "update_elo_config_api_v1_leagues__league_id__elo_config_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "league_id",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "League Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EloConfigUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EloConfigResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Elo Config",
+        "tags": [
+          "elo"
+        ]
+      }
+    },
+    "/api/v1/leagues/{league_id}/elo-history": {
+      "get": {
+        "description": "Return full running Elo history for a league in the requested mode.",
+        "operationId": "get_elo_history_api_v1_leagues__league_id__elo_history_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "league_id",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "League Id",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Rating model: actual stored matchups, or every team compared each week",
+            "in": "query",
+            "name": "mode",
+            "required": false,
+            "schema": {
+              "default": "round_robin",
+              "description": "Rating model: actual stored matchups, or every team compared each week",
+              "enum": [
+                "actual_schedule",
+                "round_robin"
+              ],
+              "title": "Mode",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EloHistoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Elo History",
+        "tags": [
+          "elo"
         ]
       }
     },

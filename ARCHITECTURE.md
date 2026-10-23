@@ -49,6 +49,7 @@ Key principle: **dependencies point inward**. The VP engine knows nothing about 
 │   │   │   ├── vp_engine.py
 │   │   │   ├── standings.py     # ranking + tiebreakers (pure)
 │   │   │   ├── wapdate.py       # fixed four-week periods + safe-from-last bounds (pure)
+│   │   │   ├── elo.py           # Elo formula, modes, regression, franchise history (pure)
 │   │   │   └── types.py
 │   │   ├── providers/
 │   │   │   ├── base.py          # LeagueProvider protocol + DTOs
@@ -56,7 +57,7 @@ Key principle: **dependencies point inward**. The VP engine knows nothing about 
 │   │   │   ├── fake.py
 │   │   │   └── espn/            # ONLY place that imports espn_api
 │   │   ├── db/                  # SQLAlchemy models, session, repositories
-│   │   ├── services/            # sync_service.py, standings_service.py, auth_service.py
+│   │   ├── services/            # sync_service.py, standings_service.py, elo_service.py, auth_service.py
 │   │   ├── api/                 # FastAPI routers, schemas, dependencies
 │   │   ├── cli.py               # `sync`, `recompute`, `create-user` commands
 │   │   └── config.py            # env-driven settings
@@ -75,7 +76,7 @@ Key principle: **dependencies point inward**. The VP engine knows nothing about 
 
 | Module | Responsibility | May import | Must NOT import |
 |---|---|---|---|
-| `domain/` | VP computation, standings ranking, tie splitting | stdlib only (`decimal`, `fractions`, `dataclasses`) | db, api, providers, any I/O |
+| `domain/` | VP computation, standings ranking, tie splitting, Elo formula and history | stdlib only (`decimal`, `fractions`, `dataclasses`) | db, api, providers, any I/O |
 | `providers/base.py` | `LeagueProvider` protocol and normalized DTOs | stdlib, pydantic | db, api, domain internals |
 | `providers/espn/` | ESPN → DTO translation and credential decryption for provider calls | `espn_api`, `providers.base`, credential-encryption helper | db, api, domain |
 | `providers/fake.py` | In-memory provider for tests/dev | `providers.base` | everything else |
@@ -124,6 +125,14 @@ Unique: (`league_id`, `season`, `week`, `home_team_id`).
 ### `score`
 `team_id` → team, `league_id`, `season`, `week`, `points` (NUMERIC(8,2)), `victory_points` (NUMERIC(10,6)), `vp_h2h`, `vp_top_half`, `vp_high`, `vp_low` (each NUMERIC(10,6)).
 Unique: (`team_id`, `season`, `week`).
+
+### `elo_config`
+Per-league Elo settings for the History page: `league_id` → league (unique), `starting_rating`
+(NUMERIC(10,4)), `k_factor` (NUMERIC(8,4)), `margin_weight` (NUMERIC(8,4)), `margin_cap`
+(NUMERIC(8,4)), and `season_regression` (NUMERIC(12,10)). A missing row means the documented
+defaults (1500, 24, 0.25, 50, 1/3), so migration 0008 needs no backfill. Saving settings is an
+admin action and creates or updates exactly one row. History itself has no snapshot table: it is
+derived from `league_season`, `team`, `matchup`, `score`, and `owner` on every read.
 
 ### `app_user`
 `email` (unique, stored lowercase), `password_hash` (argon2id), `role` (text: `admin` or `member`,
@@ -278,6 +287,9 @@ All endpoints are under `/api/v1`, JSON, cookie-session or bearer-token auth (ba
 | `GET /leagues/{league_id}/seasons/{season}/standings` | member | Overall standings + divisions (shape below) |
 | `GET /leagues/{league_id}/seasons/{season}/vp-history` | member | Weekly and cumulative VP per team (for the chart) |
 | `GET /leagues/{league_id}/seasons/{season}/wapdate` | member | Offered WAPDate periods with status, counted weeks, and lowest-first rows |
+| `GET /leagues/{league_id}/elo-history?mode=actual_schedule\|round_robin` | member | Full running Elo series, weeks, boundaries, current/peak/low, unrated teams, and warnings |
+| `GET /leagues/{league_id}/elo-config` | admin member | Saved Elo settings, or the defaults |
+| `PUT /leagues/{league_id}/elo-config` | admin member | Validate and persist the five Elo settings; later history reads use them |
 | `GET /leagues/{league_id}/seasons/{season}/cup-week` | member | Season, cup_week (nullable), and regular_season_length |
 | `PUT /leagues/{league_id}/seasons/{season}/cup-week` | admin member | Set `{cup_week: int\|null}`, persist it, and recompute the season from stored data |
 | `GET /leagues/{league_id}/members` | admin member | Accounts in the league by email, with role, owner association, and whether credentials are stored |
@@ -373,13 +385,67 @@ finish last in the current period.
 }
 ```
 
+### Elo history response (shape)
+
+`mode` is the requested model. `weeks` is the single x-axis: one entry per completed
+regular-season week (cup weeks included), in chronological order. `series` is aligned one-to-one
+with `weeks`; `null` means the franchise was absent from that season. `season_boundaries` carries
+the chart index of each later season's first week. Ratings, changes, peak, low, and config values
+are strings. Teams are ordered by first season then `team_key`; the client sorts the current table
+by `current`.
+
+```json
+{
+  "league_id": 1,
+  "mode": "round_robin",
+  "seasons": [2025, 2026],
+  "config": {
+    "starting_rating": "1500", "k_factor": "24", "margin_weight": "0.25",
+    "margin_cap": "50", "season_regression": "0.333333"
+  },
+  "weeks": [
+    {"index": 0, "season": 2025, "week": 1, "is_cup_week": false,
+     "is_season_start": true, "rated": true}
+  ],
+  "season_boundaries": [{"season": 2026, "week_index": 14}],
+  "teams": [
+    {
+      "team_key": "espn:7", "team_id": 42, "name": "…", "owner_name": "…",
+      "aliases": [], "first_season": 2025, "last_season": 2026,
+      "series": ["1512.6", null, "1525.2"],
+      "seasons": [{"season": 2025, "start_rating": "1500", "end_rating": "1512.6",
+                   "change": "12.6", "rated_weeks": 14}],
+      "current": "1525.2", "last_change": "12.6", "season_change": "16.8",
+      "peak": "1525.2", "peak_at": {"season": 2026, "week": 1},
+      "low": "1500", "low_at": null, "rated_weeks": 28
+    }
+  ],
+  "unrated_teams": [{"team_key": "espn:9", "name": "…", "reason": "No rated matchups yet"}],
+  "warnings": [{"season": 2026, "code": "missing_score", "message": "…"}]
+}
+```
+
+### Elo config response (shape)
+
+```json
+{
+  "league_id": 1, "starting_rating": "1500", "k_factor": "24",
+  "margin_weight": "0.25", "margin_cap": "50", "season_regression": "0.333333"
+}
+```
+
+`PUT` accepts the same five fields as numbers or decimal strings. Ranges: starting rating
+1000-2000, K 1-100, margin weight 0-1, margin cap 1-200, regression 0-1. Out-of-range values are
+structured 422s; a non-admin member gets 403; a non-member or unknown league gets 404.
+
 ## 9. Frontend architecture
 
-- **Routing**: `/login`, `/signup`, `/leagues/:leagueId/owner`, `/leagues/:leagueId/admin` (admin
-  only; non-admins are redirected to `/`), `/` (standings for the selected league and current
-  season). The `Admin` nav item appears only for an admin with a selected league. The shell's
-  `SeasonPicker` renders on the standings route only: the owner and admin pages keep the league
-  switcher but own their own context. The shell has no refresh control.
+- **Routing**: `/login`, `/signup`, `/leagues/:leagueId/history`, `/leagues/:leagueId/owner`,
+  `/leagues/:leagueId/admin` (admin only; non-admins are redirected to `/`), `/` (standings for the
+  selected league and current season). The `History` nav item is visible to every member next to
+  Standings and Owner; `Admin` appears only for an admin with a selected league. The shell's
+  `SeasonPicker` renders on the standings route only: the history, owner, and admin pages keep the
+  league switcher but own their own context. The shell has no refresh control.
 - **Admin page**: one `League admin` shell at `/leagues/:leagueId/admin` hosting the admin-only
   sections: the member list (`MembersSection`: email, role, owner, credential status; confirmed
   removal with a last-admin guard and a credential warning), one seasons table (`SeasonsSection`:
@@ -387,14 +453,23 @@ finish last in the current period.
   confirmed delete, plus a `+` action that adds a season), invite generation (`InvitesSection`:
   member invite bound to the league or league-less admin invite, raw code shown once with a copy
   control), and a separated `DeleteLeagueSection` that requires the league name typed before the
-  destructive action. The cup week saves immediately per row through the provider-free cup-week
-  API; refresh and add-season use the caller's stored credentials.
+  destructive action. It also hosts `EloSettingsSection`: the five per-league Elo fields with
+  accessible tooltips, a "Recalculate Elo history" save that invalidates the shared data version,
+  and its own loading/saving/success/error states. The cup week saves immediately per row through
+  the provider-free cup-week API; refresh and add-season use the caller's stored credentials.
+- **History page**: `/leagues/:leagueId/history` loads `GET /elo-history` for the selected mode
+  (`round_robin` by default), keeps the shared weeks/teams arrays aligned, and filters the chart
+  with a season control defaulting to All history. `EloChart` is a dependency-free inline SVG with
+  season rules/labels, cup markers, series toggles, a selected-team emphasis, an accessible
+  summary, and a `<details>` data table. `EloRatingsTable` sorts by current rating and keeps the
+  rank/team columns sticky inside its own horizontal scroll region. `InfoTooltip` supplies the
+  hover/focus explanations used by the Elo model and settings fields.
 - **State**: server state via TanStack Query; local UI state (selected team, hidden chart series) in component state or a small store. No global state library needed.
 - **Components**: `StandingsTable` (reused for overall and per-division), `WapdateSection` (period
-  toggle plus a lowest-first table below the chart), `WeeklyVPCells`, `VPChart`,
-  `TeamSelector`/legend, `SeasonPicker`, `LeagueSwitcher`, `SeasonsSection`, `MembersSection`,
-  `InvitesSection`, `DeleteLeagueSection`, layout/nav, and states (`Loading`, `Empty`,
-  `ErrorState`).
+  toggle plus a lowest-first table below the chart), `WeeklyVPCells`, `VPChart`, `EloChart`,
+  `EloRatingsTable`, `InfoTooltip`, `TeamSelector`/legend, `SeasonPicker`, `LeagueSwitcher`,
+  `SeasonsSection`, `EloSettingsSection`, `MembersSection`, `InvitesSection`,
+  `DeleteLeagueSection`, layout/nav, and states (`Loading`, `Empty`, `ErrorState`).
 - **Responsive strategy**: mobile-first. Tables scroll horizontally in a container with a sticky first column. The chart supports tap-to-highlight, legend toggles, and a reduced default of highlighted lines on small screens.
 - **Styling**: Tailwind with design tokens (colors, spacing, radius) defined once; consistent light/dark tokens if dark mode is implemented.
 - **Dev without backend**: an MSW (mock service worker) or fixture-based mock of the API, generated from the OpenAPI contract and `docs/fixtures/`, so frontend work can proceed in parallel with the backend.
@@ -413,6 +488,12 @@ returned by the API. There is no environment `ESPN_S2`/`ESPN_SWID` credential pa
 ## 11. Testing strategy
 
 - **Engine**: exhaustive unit tests from ACCEPTANCE 1.1 plus property-based tests (Hypothesis) for AC-VP-12/13.
+- **Elo domain**: hand-computed Decimal cases for the expected score, zero-sum updates, ties, the
+  margin bonus at/below the cap, K, season regression, new/returning franchises, cup weeks in both
+  modes, round-robin averaging and order independence, byes, and excluded weeks. Service/API tests
+  cover stored identity changes, deleted seasons, unrated teams, auth, config defaults/ranges, and
+  string serialization. `domain/elo.py` is fully covered in this change (100% lines and branches);
+  the CI named-module gate remains the two AC-DX-03 modules.
 - **Providers**: ESPN adapter tested against recorded fixtures in `docs/fixtures/espn/`; a small manual script can refresh fixtures from the real API, but tests never call ESPN.
 - **Database/services**: run against SQLite by default locally, where each worktree gets its own throwaway databases so concurrent agents stay isolated; CI and production use Postgres. `scripts/dev-postgres.sh` starts a worktree-local Postgres for debugging Postgres-specific behavior.
 - **API**: FastAPI `TestClient` tests including authorization matrices and golden JSON comparison.

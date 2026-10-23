@@ -33,6 +33,7 @@ APPLICATION_TABLES = {
     "team",
     "matchup",
     "score",
+    "elo_config",
     "app_user",
     "invite",
     "user_league",
@@ -41,6 +42,14 @@ APPLICATION_TABLES = {
 HEAD_COLUMNS = {
     "score": {"points", "victory_points", "vp_h2h", "vp_top_half", "vp_high", "vp_low"},
     "league_season": {"league_id", "season", "metadata", "cup_week", "last_refreshed_at"},
+    "elo_config": {
+        "league_id",
+        "starting_rating",
+        "k_factor",
+        "margin_weight",
+        "margin_cap",
+        "season_regression",
+    },
     "app_user": {"email", "password_hash", "role"},
     "invite": {"league_id", "code_hash", "role", "expires_at"},
     "user_league": {
