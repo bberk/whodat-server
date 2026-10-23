@@ -116,8 +116,24 @@ The Docker group is effectively root-equivalent. Use a dedicated SSH key for dep
 Create the key on your laptop, then install its public half for `whodat`:
 
 ```bash
-ssh-keygen -t ed25519 -C github-actions-deploy -f ~/.ssh/whodat_deploy
+# Passphrase-less on purpose; see the note below.
+ssh-keygen -t ed25519 -N "" -C github-actions-deploy -f ~/.ssh/whodat_deploy
 ```
+
+**Deploy key passphrase decision.** The key must be passphrase-less. `deploy.yml` connects with
+`BatchMode=yes`, `IdentitiesOnly=yes`, and no `ssh-agent`, so there is nobody to answer a
+passphrase prompt and a protected key would fail every deploy. The key is instead protected by:
+
+- existing only in the GitHub `production` environment secret `SSH_KEY` (never in the repository,
+  the runbook, or a workflow log);
+- authorizing only the `whodat` deploy account, which has no sudo;
+- port 22 being limited to the operator IP plus, if you use hosted runners, GitHub's `actions`
+  ranges (section 2).
+
+Rotate it by generating a new key, replacing the `authorized_keys` line and the `SSH_KEY` secret
+together. If your policy requires a passphrase, the supported alternative is a self-hosted runner
+with an unlocked `ssh-agent` holding the key and a workflow change to use that agent; the default
+workflow does not support a protected key file.
 
 On the VM, as the default sudo user (`ubuntu`):
 
@@ -142,28 +158,48 @@ ssh -i ~/.ssh/whodat_deploy whodat@<VM_IP> 'cd /opt/whodat && git log --oneline 
 ```bash
 sudo -iu whodat
 cd /opt/whodat
+
+# Owner-only files from here on: deploy/.env must end up 0600.
 umask 077
-cp deploy/.env.example deploy/.env
 
 DOMAIN=standings.example.com
 DB_USER=whodat
 DB_NAME=whodat
-DB_PASSWORD="$(openssl rand -hex 32)"
+
+# Generated values stay in shell variables. Never pass them to a command as an argument, and do
+# not run `set -x`: either would expose them in `ps`, shell history, or logs.
+POSTGRES_PASSWORD="$(openssl rand -hex 32)"
 SECRET_KEY="$(openssl rand -hex 32)"
 LEAGUE_CREDENTIALS_KEY="$(openssl rand -base64 32)"
 
+cp deploy/.env.example deploy/.env
+
+# Non-secret values are safe to pass to sed.
 sed -i "s#^DOMAIN=.*#DOMAIN=$DOMAIN#" deploy/.env
 sed -i "s#^CORS_ORIGINS=.*#CORS_ORIGINS=https://$DOMAIN#" deploy/.env
 sed -i "s#^POSTGRES_USER=.*#POSTGRES_USER=$DB_USER#" deploy/.env
 sed -i "s#^POSTGRES_DB=.*#POSTGRES_DB=$DB_NAME#" deploy/.env
-sed -i "s#^POSTGRES_PASSWORD=.*#POSTGRES_PASSWORD=$DB_PASSWORD#" deploy/.env
-sed -i "s#^SECRET_KEY=.*#SECRET_KEY=$SECRET_KEY#" deploy/.env
-sed -i "s#^LEAGUE_CREDENTIALS_KEY=.*#LEAGUE_CREDENTIALS_KEY=$LEAGUE_CREDENTIALS_KEY#" deploy/.env
+
+# Secret values are written with bash builtins only. grep sees only the variable *names*, the
+# files are created 0600 by the umask above, and printf expands the values inside the shell, so
+# no secret is ever an argument to a command or a line in shell history.
+{
+  grep -v -e '^POSTGRES_PASSWORD=' -e '^SECRET_KEY=' -e '^LEAGUE_CREDENTIALS_KEY=' deploy/.env
+  printf 'POSTGRES_PASSWORD=%s\n' "$POSTGRES_PASSWORD"
+  printf 'SECRET_KEY=%s\n' "$SECRET_KEY"
+  printf 'LEAGUE_CREDENTIALS_KEY=%s\n' "$LEAGUE_CREDENTIALS_KEY"
+} > deploy/.env.new
+mv deploy/.env.new deploy/.env
 chmod 600 deploy/.env
 
 # Confirm the keys exist without printing their values.
 grep -v '^#' deploy/.env | cut -d= -f1
 ```
+
+`printf` and `grep` above never put a secret in `argv`: `printf` is a bash builtin and `grep`
+matches the placeholder line by name only. If you ever have to type a value in by hand instead of
+generating it, read it without echo (`read -rs NEW_KEY`) and replace the line with the same
+grep/printf block, so the file keeps exactly one definition of each key.
 
 The production stack never falls back to the local-dev `app`/`app` credentials: `POSTGRES_USER`,
 `POSTGRES_PASSWORD`, and `POSTGRES_DB` are required. `deploy/docker-compose.prod.yml` builds the
@@ -246,7 +282,7 @@ Secrets (never echoed by the workflow):
 |---|---|
 | `SSH_HOST` | VM public IP or hostname. |
 | `SSH_USER` | `whodat`. |
-| `SSH_KEY` | The private key for the deploy user, for example `~/.ssh/whodat_deploy`. |
+| `SSH_KEY` | The private key for the deploy user, for example `~/.ssh/whodat_deploy`. It is passphrase-less by design (see section 4), because the workflow has no agent to unlock it. |
 | `SSH_KNOWN_HOSTS` | The VM's host public keys, so SSH verifies the host instead of trusting it blindly. |
 
 Variables (not secrets):
@@ -284,22 +320,35 @@ The workflow fails with a named, non-secret error if any of these is missing or 
 ## 10. How the CI-gated deploy works
 
 `.github/workflows/deploy.yml` runs after the **`ci`** workflow completes successfully for a push
-to `main` (`workflow_run` with `branches: [main]`, `conclusion: success`). A pull request, a
-failed CI run, or a cancelled run cannot reach the deploy job. `workflow_dispatch` is the manual
-override and intentionally skips that gate.
+to `main` of this repository. The job condition requires all of:
+
+- `github.event.workflow_run.conclusion == 'success'`,
+- `github.event.workflow_run.event == 'push'` (so a `pull_request` run cannot qualify, even if its
+  source branch is called `main`),
+- `github.event.workflow_run.head_branch == 'main'`,
+- `github.event.workflow_run.head_repository.full_name == github.repository` (so a fork's CI run
+  cannot deploy).
+
+A pull request, a fork PR from a branch named `main`, a failed CI run, or a cancelled run cannot
+reach the deploy job. `workflow_dispatch` is the manual override for a one-click redeploy, and it
+is restricted to `refs/heads/main`: dispatching it on any other branch or tag fails the job with a
+clear error instead of deploying that ref.
 
 The job:
 
-1. checks out the exact `head_sha` CI validated;
-2. verifies the `production` environment's secrets and variables;
-3. copies `deploy/deploy.sh` to `/tmp` on the VM over SCP;
-4. runs it over SSH as `whodat` with the SHA.
+1. re-checks the trigger (event, branch, repository) and fails closed if anything is off;
+2. checks out the exact `head_sha` CI validated;
+3. verifies the `production` environment's secrets and variables;
+4. copies `deploy/deploy.sh` to `/tmp` on the VM over SCP;
+5. runs it over SSH as `whodat` with the SHA.
 
 `deploy/deploy.sh` fetches and hard-resets `/opt/whodat` to that SHA, rebuilds both images with
-`--pull`, runs `docker compose up -d`, and waits for `https://$DOMAIN/health` (falling back to the
-backend container over local HTTP while DNS/TLS is still propagating). On any failure it resets to
-the previously deployed SHA, rebuilds, and restarts. The previous SHA is also written to
-`~/.local/state/whodat-deploy/previous-sha` on the VM.
+`--pull`, runs `docker compose up -d`, and requires `https://$DOMAIN/health` to answer. That public
+check is mandatory: a failed TLS handshake, wrong DNS record, or broken Caddy configuration fails
+the deploy. The script then probes the backend container over local HTTP only to report whether the
+failure is in the app or in front of it, and that diagnostic never counts as success. On any
+failure it resets to the previously deployed SHA, rebuilds, and restarts. The previous SHA is also
+written to `~/.local/state/whodat-deploy/previous-sha` on the VM.
 
 Deploys are serialized by `concurrency: deploy-production` with `cancel-in-progress: false`, so a
 second merge queues instead of interrupting a rollout. Only `actions/checkout` and the runner's

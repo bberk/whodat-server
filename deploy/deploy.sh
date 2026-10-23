@@ -6,8 +6,12 @@
 # Run from the repository checkout on the VM. GitHub Actions uploads this script to a temporary
 # path and runs it with the checkout as the working directory (see .github/workflows/deploy.yml).
 # The script fetches and hard-resets the checkout to <sha>, rebuilds the images, restarts the
-# stack, and waits for the public health endpoint. If any step fails it resets back to the commit
-# that was deployed before and redeploys that.
+# stack, and requires the public health endpoint to answer. If any step fails it resets back to
+# the commit that was deployed before and redeploys that.
+#
+# A deploy is successful only when `https://$DOMAIN/health` answers. The container-local check is
+# logged as diagnostics to separate an application failure from a Caddy/DNS/certificate failure;
+# it never turns a failed public check into a success.
 #
 # Secrets are read only through deploy/.env (by Docker Compose) and are never printed. The
 # `:?` guards in deploy/docker-compose.prod.yml make a missing value fail loudly.
@@ -16,6 +20,8 @@ set -euo pipefail
 readonly USAGE='usage: deploy/deploy.sh <40-character-git-sha>'
 readonly HEALTH_TIMEOUT_SECONDS="${HEALTH_TIMEOUT_SECONDS:-300}"
 readonly HEALTH_POLL_SECONDS="${HEALTH_POLL_SECONDS:-5}"
+# The local check only labels the failure, so it gets a short deadline instead of the full one.
+readonly DIAGNOSTIC_TIMEOUT_SECONDS="${DIAGNOSTIC_TIMEOUT_SECONDS:-15}"
 
 if [[ $# -ne 1 ]]; then
   echo "$USAGE" >&2
@@ -95,9 +101,10 @@ wait_for_https_health() {
 }
 
 wait_for_local_health() {
-  # Fallback for a first deploy while DNS or certificate issuance is still propagating: ask the
-  # backend container directly over HTTP, without publishing a port.
-  local deadline=$((SECONDS + HEALTH_TIMEOUT_SECONDS))
+  # Diagnostics only: ask the backend container directly over HTTP, without publishing a port, to
+  # report whether the failure is inside the app or in front of it (Caddy, DNS, certificate).
+  local timeout="${1:-$DIAGNOSTIC_TIMEOUT_SECONDS}"
+  local deadline=$((SECONDS + timeout))
   while ((SECONDS < deadline)); do
     if compose exec -T backend python -c \
       "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)" \
@@ -122,12 +129,14 @@ deploy_sha() {
   if wait_for_https_health; then
     return 0
   fi
-  echo "deploy: https://$domain/health did not answer; checking the backend container directly" >&2
+  echo "deploy: https://$domain/health did not answer within ${HEALTH_TIMEOUT_SECONDS}s" >&2
   if wait_for_local_health; then
-    echo "deploy: WARNING public TLS check failed but the backend is healthy;" >&2
-    echo "deploy: WARNING DNS or certificate issuance may still be propagating" >&2
-    return 0
+    echo "deploy: diagnostics: the backend answers http://localhost:8000/health in its container," >&2
+    echo "deploy: diagnostics: so the failure is in Caddy, DNS, port 80/443, or certificate issuance" >&2
+  else
+    echo "deploy: diagnostics: the backend container does not answer its internal health check either" >&2
   fi
+  echo "deploy: the public HTTPS endpoint is required, so this deploy failed" >&2
   return 1
 }
 

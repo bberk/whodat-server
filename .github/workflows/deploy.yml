@@ -2,9 +2,14 @@
 #
 # Triggers:
 #   * workflow_run: only when the "ci" workflow (ci.yml) completes successfully for a push to
-#     main. A failed, cancelled, or PR-only CI run can never reach the deploy job.
+#     main *of this repository*. A failed, cancelled, or PR-only CI run can never reach the
+#     deploy job. `head_branch` alone is not enough: for a `pull_request` run it is the PR source
+#     branch, which the PR author chooses, so a fork PR from a branch named `main` would satisfy
+#     it. The job therefore also requires `workflow_run.event == 'push'` and that the run's head
+#     repository is this repository.
 #   * workflow_dispatch: a human may redeploy on purpose (for example after changing a VM-side
-#     secret); this path skips the gate by design.
+#     secret). It is limited to `refs/heads/main`; a dispatch on any other ref fails with a clear
+#     error instead of deploying arbitrary code.
 #
 # The job checks out the exact commit CI validated, verifies the `production` Environment is
 # configured, uploads the checked-in deploy/deploy.sh over SCP, and runs it over SSH with that
@@ -44,10 +49,47 @@ jobs:
     timeout-minutes: 45
     environment: production
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'main')
+      (github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository) ||
+      github.event_name == 'workflow_dispatch'
     steps:
+      - name: Validate the deploy trigger
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_REF: ${{ github.ref }}
+          HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            if [[ "$DISPATCH_REF" != "refs/heads/main" ]]; then
+              echo "::error::Manual deploys must run on refs/heads/main, got '$DISPATCH_REF'."
+              echo "::error::Select the main branch in the Run workflow menu; do not deploy a branch or tag ref."
+              exit 1
+            fi
+            echo "Manual dispatch on $DISPATCH_REF."
+            exit 0
+          fi
+          if [[ "$EVENT_NAME" != "workflow_run" ]]; then
+            echo "::error::Unexpected deploy trigger '$EVENT_NAME'."
+            exit 1
+          fi
+          # Repeated from the job condition on purpose: the gate is the security boundary, so it
+          # fails closed here even if the `if` is edited later.
+          if [[ "$HEAD_REPOSITORY" != "$REPOSITORY" ]]; then
+            echo "::error::Refusing to deploy: the CI run came from '$HEAD_REPOSITORY', not '$REPOSITORY'."
+            exit 1
+          fi
+          if [[ "$HEAD_BRANCH" != "main" ]]; then
+            echo "::error::Refusing to deploy: the CI run was for branch '$HEAD_BRANCH', not 'main'."
+            exit 1
+          fi
+          echo "Automatic deploy of $HEAD_REPOSITORY@$HEAD_BRANCH after a successful CI push run."
+
       - name: Resolve the commit CI validated
         id: target
         env:
