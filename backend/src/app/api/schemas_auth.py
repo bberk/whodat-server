@@ -6,11 +6,14 @@ traceback, or structured log by accident. Responses expose only the public accou
 ``has_league`` onboarding flag on ``GET /me``; password hashes and invite material are never
 serialized.
 
-User-supplied text is rejected when it contains NUL, other control characters, format characters,
-or line separators. Postgres rejects NUL in text columns with a ``DataError``, so validation must
-happen before a value reaches the database. The validation error handler rebuilds Pydantic's
-errors without the submitted ``input`` (and without ``ctx``) so a rejected password or invite code
-is never echoed back in a 4xx body.
+Every caller-supplied string (email, password, invite code) must be 7-bit ASCII; non-ASCII values
+are rejected at signup so the product has one unambiguous spelling for credentials and identifiers
+(no Unicode passphrases). Login is deliberately more permissive: a non-ASCII email or password is
+accepted by the schema and rejected by the auth service with the same generic invalid-credentials
+response as a wrong password, so the API does not reveal which validation rule failed. NUL and
+other ASCII controls are still rejected before a value reaches the database, and the validation
+error handler rebuilds Pydantic's errors without the submitted ``input`` (and without ``ctx``) so a
+rejected password or invite code is never echoed back in a 4xx body.
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, StringConstraints, field_validator
 
 from app.security.invite_codes import INVITE_CODE_MAX_LENGTH, validate_invite_code_format
+from app.validation import require_ascii
 
 #: Minimum accepted password length at signup. Existing accounts can still log in with shorter
 #: passwords because login only requires a non-empty value.
@@ -31,13 +35,14 @@ MIN_PASSWORD_LENGTH = 8
 _MAX_PASSWORD_LENGTH = 1024
 
 
-def _reject_non_printable(value: str, field: str) -> None:
-    """Reject NUL, control/format characters, and line or paragraph separators in ``value``.
+def _reject_ascii_controls(value: str, field: str) -> None:
+    """Reject C0 controls and DEL in ``value`` even when the caller is otherwise permissive.
 
-    ``str.isprintable`` is false for those Unicode categories, which keeps the error message free
-    of the submitted value while covering more than just C0 controls.
+    The message is fixed and never repeats the submitted value. Non-ASCII control/format
+    characters are handled separately: signup rejects all non-ASCII, while login lets them fall
+    through to the generic invalid-credentials response.
     """
-    if not value.isprintable():
+    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in value):
         raise ValueError(f"{field} contains invalid control characters")
 
 
@@ -52,8 +57,16 @@ class _EmailRequest(BaseModel):
     @field_validator("email")
     @classmethod
     def _check_email_shape(cls, value: str) -> str:
-        """Reject non-printable characters and values without one non-empty local/domain part."""
-        if not value.isprintable() or any(character.isspace() for character in value):
+        """Reject ASCII controls and values without one non-empty local/domain part.
+
+        A non-ASCII value is returned unchanged here for one reason: ``LoginRequest`` must not
+        expose an input-validation detail for it. Signup adds its own ASCII check, and login lets
+        the auth service reject the credentials with the generic 401 response.
+        """
+        if not value.isascii():
+            return value
+        _reject_ascii_controls(value, "email address")
+        if any(character.isspace() for character in value):
             raise ValueError("email address contains invalid characters")
         if value.count("@") != 1:
             raise ValueError("invalid email address")
@@ -69,10 +82,17 @@ class SignupRequest(_EmailRequest):
     password: SecretStr = Field(min_length=MIN_PASSWORD_LENGTH, max_length=_MAX_PASSWORD_LENGTH)
     invite_code: SecretStr = Field(min_length=1, max_length=INVITE_CODE_MAX_LENGTH)
 
+    @field_validator("email")
+    @classmethod
+    def _check_email_ascii(cls, value: str) -> str:
+        """Signup accepts ASCII email addresses only; the value is never echoed in an error."""
+        return require_ascii(value, "email")
+
     @field_validator("password")
     @classmethod
     def _check_password_characters(cls, value: SecretStr) -> SecretStr:
-        _reject_non_printable(value.get_secret_value(), "password")
+        require_ascii(value.get_secret_value(), "password")
+        _reject_ascii_controls(value.get_secret_value(), "password")
         return value
 
     @field_validator("invite_code")
@@ -83,6 +103,8 @@ class SignupRequest(_EmailRequest):
         return value
 
 
+# Non-ASCII login values are intentionally not a 422. They reach the auth service, which returns
+# the same generic 401 as a wrong password, so a caller learns nothing about the validation rule.
 class LoginRequest(_EmailRequest):
     """Log in with an existing account's email and password."""
 
@@ -90,8 +112,9 @@ class LoginRequest(_EmailRequest):
 
     @field_validator("password")
     @classmethod
-    def _check_password_characters(cls, value: SecretStr) -> SecretStr:
-        _reject_non_printable(value.get_secret_value(), "password")
+    def _check_password_ascii_controls(cls, value: SecretStr) -> SecretStr:
+        """Reject ASCII controls; non-ASCII is left to the generic invalid-credentials path."""
+        _reject_ascii_controls(value.get_secret_value(), "password")
         return value
 
 

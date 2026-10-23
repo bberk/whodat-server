@@ -1,7 +1,18 @@
 import { describe, expect, it } from "vitest";
 
 import { ApiError } from "./client";
-import { toDisplayError } from "./errors";
+import { localDisplayError, toDisplayError } from "./errors";
+
+describe("localDisplayError", () => {
+  it("builds a display error for a client-side validation failure", () => {
+    expect(localDisplayError("Email must be ASCII")).toEqual({
+      message: "Email must be ASCII",
+      fieldErrors: {},
+      retryAfter: null,
+      status: null,
+    });
+  });
+});
 
 describe("toDisplayError", () => {
   it("passes through a plain Error and falls back for a non-Error rejection", () => {

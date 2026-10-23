@@ -1105,6 +1105,43 @@ def test_add_league_schema_rejects_control_characters_and_whitespace() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("espn_league_id", "café"),
+        ("espn_league_id", "🙂"),
+        ("espn_league_id", "لیگ"),
+        ("espn_league_id", "a\u202eb"),
+        ("espn_league_id", "mixé🙂"),
+        ("espn_s2", "s2évalue"),
+        ("espn_s2", "s2🙂value"),
+        ("espn_s2", "s2\u200bvalue"),
+        ("espn_swid", "swidévalue"),
+        ("espn_swid", "swid🙂value"),
+        ("espn_swid", "swid\u202evalue"),
+    ],
+)
+def test_add_league_rejects_non_ascii_input_with_structured_422_without_echo(
+    api_factory: Callable[..., Api], field: str, value: str
+) -> None:
+    """League ids and ESPN cookies are user input, so non-ASCII is rejected before the service."""
+    api = api_factory()
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    _login(api, admin_id)
+    payload = _add_payload()
+    payload[field] = value
+
+    response = api.client.post("/api/v1/leagues", json=payload)
+
+    assert response.status_code == 422
+    assert value not in response.text
+    assert all("input" not in error for error in response.json()["detail"])
+    assert _count(api, League) == 0
+    assert _count(api, UserLeague) == 0
+    assert api.provider_factory.calls == []
+    assert api.provider_factory.public_calls == 0
+
+
 # ---------------------------------------------------------------------------
 # AC-API-07: cup-week read/update routes, authorization, validation, recompute
 # ---------------------------------------------------------------------------

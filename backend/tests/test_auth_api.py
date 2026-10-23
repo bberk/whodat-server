@@ -25,12 +25,12 @@ from app.api.main import create_app
 from app.api.rate_limit import RateLimiter
 from app.api.schemas_auth import LoginRequest, SignupRequest
 from app.api.session import SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS, set_session
-from app.db.auth_repositories import InviteRepository
+from app.db.auth_repositories import InviteRepository, UserRepository
 from app.db.base import Base
 from app.db.models import AppUser, League, UserLeague
 from app.db.session import get_session as db_get_session
 from app.security.invite_codes import hash_invite_code
-from app.security.passwords import verify_password
+from app.security.passwords import hash_password, verify_password
 from app.services.sync_service import PROVIDER_CONFIG_REF
 
 PASSWORD = "correct-horse-battery"
@@ -275,15 +275,26 @@ def test_signup_validation_errors_are_structured_4xx(api_factory: Callable[..., 
         "fan\n@example.com",
         "fan\t@example.com",
         "fan\x7f@example.com",
-        "fan\u200b@example.com",
     ],
 )
-def test_auth_schemas_reject_control_characters_in_email(email: str) -> None:
-    """Validation rejects NUL and other controls before any database lookup (both engines)."""
+def test_auth_schemas_reject_ascii_control_characters_in_email(email: str) -> None:
+    """Validation rejects NUL and other ASCII controls before any database lookup."""
     with pytest.raises(ValidationError):
         SignupRequest(email=email, password=PASSWORD, invite_code="valid-invite-code")
     with pytest.raises(ValidationError):
         LoginRequest(email=email, password=PASSWORD)
+
+
+@pytest.mark.parametrize(
+    "email",
+    ["fané@example.com", "fan🙂@example.com", "fan\u202e@example.com", "fan\u200b@example.com"],
+)
+def test_non_ascii_email_is_rejected_at_signup_but_not_by_the_login_schema(email: str) -> None:
+    """Signup owns the ASCII rule; login forwards non-ASCII to the generic 401 path."""
+    with pytest.raises(ValidationError):
+        SignupRequest(email=email, password=PASSWORD, invite_code="valid-invite-code")
+
+    assert LoginRequest(email=email, password=PASSWORD).email == email
 
 
 @pytest.mark.parametrize(
@@ -677,3 +688,101 @@ def test_signup_and_login_reject_hostile_email_payloads_without_query_errors(
     # The table is still present and queryable after every hostile request.
     with api.factory() as session:
         assert session.scalar(select(func.count()).select_from(AppUser)) == 0
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("email", "usér@example.com"),
+        ("email", "🙂@example.com"),
+        ("email", "کاربر@example.com"),
+        ("email", "\u202eevil@example.com"),
+        ("email", "a\u200bb@example.com"),
+        ("email", "mixé🙂@example.com"),
+        ("password", "pässwörd"),
+        ("password", "🙂🙂🙂🙂🙂🙂🙂🙂"),
+        ("password", "گذرواژه123"),
+        ("password", "\u202epassword"),
+        ("password", "pass\u200bword"),
+        ("password", "mixé🙂mixé🙂"),
+        ("invite_code", "café"),
+        ("invite_code", "🙂"),
+        ("invite_code", "کد"),
+        ("invite_code", "a\u202eb"),
+        ("invite_code", "a\u200bb"),
+        ("invite_code", "mixé🙂"),
+    ],
+)
+def test_signup_rejects_non_ascii_input_with_structured_422_without_echo(
+    api_factory: Callable[..., Api], field: str, value: str
+) -> None:
+    """Every caller-supplied signup string is ASCII-only and never echoed back on rejection."""
+    api = api_factory()
+    payload = {"email": "fan@example.com", "password": PASSWORD, "invite_code": "valid-code"}
+    payload[field] = value
+
+    response = api.client.post("/api/v1/auth/signup", json=payload)
+
+    assert response.status_code == 422
+    assert value not in response.text
+    assert all("input" not in error for error in response.json()["detail"])
+    assert _count(api.factory, AppUser) == 0
+
+
+@pytest.mark.parametrize(
+    ("email", "password"),
+    [
+        ("usér@example.com", PASSWORD),
+        ("fan@example.com", "pässwörd"),
+        ("کاربر@example.com", "گذرواژه123"),
+        ("\u202eevil@example.com", PASSWORD),
+        ("fan@example.com", "pass\u200bword"),
+        ("mixé🙂@example.com", "mixé🙂"),
+    ],
+)
+def test_login_returns_generic_401_for_non_ascii_credentials(
+    api_factory: Callable[..., Api], email: str, password: str
+) -> None:
+    """Non-ASCII login input is invalid credentials, not a 422 that reveals the ASCII rule."""
+    api = api_factory()
+    code = _seed_invite(api.factory)
+    assert _signup(api.client, code).status_code == 201
+    api.client.cookies.clear()
+
+    wrong = api.client.post(
+        "/api/v1/auth/login",
+        json={"email": "fan@example.com", "password": "wrong-password"},
+    )
+    response = api.client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": password},
+    )
+
+    assert response.status_code == 401
+    assert response.json() == wrong.json()
+    assert response.json()["detail"]["code"] == "invalid_credentials"
+    assert email not in response.text
+    assert password not in response.text
+    assert "ascii" not in response.text.lower()
+
+
+def test_login_rejects_a_non_ascii_password_even_when_it_matches_the_stored_hash(
+    api_factory: Callable[..., Api],
+) -> None:
+    """Passwords are ASCII-only by product decision, so a legacy Unicode hash cannot bypass it."""
+    api = api_factory()
+    unicode_password = "pässwörd"
+    with api.factory() as session:
+        UserRepository(session).create(
+            "fan@example.com", hash_password(unicode_password), role="member"
+        )
+        session.commit()
+
+    response = api.client.post(
+        "/api/v1/auth/login",
+        json={"email": "fan@example.com", "password": unicode_password},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "invalid_credentials"
+    assert unicode_password not in response.text

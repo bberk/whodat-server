@@ -25,6 +25,8 @@ export function DeleteLeagueSection({ leagueId, leagueName, onDeleted }: DeleteL
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<DisplayError | null>(null);
 
+  // This confirmation reproduces provider-supplied display text, which may legitimately contain
+  // accented letters or emoji, so it is intentionally not ASCII-gated like new user input.
   const confirmed = confirmation.trim() === leagueName;
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {

@@ -108,6 +108,53 @@ describe("AddLeagueDialog", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("rejects non-ASCII league ids and credentials before calling the API", async () => {
+    const fetchMock = mockFetch(() => jsonResponse({}));
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.type(screen.getByLabelText("ESPN league id"), "café");
+    await user.type(screen.getByLabelText("ESPN_S2"), "s2-value");
+    await user.type(screen.getByLabelText("ESPN_SWID"), "swid-value");
+    await user.click(screen.getByRole("button", { name: "Add league" }));
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "ESPN league id must contain only ASCII characters.",
+    );
+
+    await user.clear(screen.getByLabelText("ESPN league id"));
+    await user.type(screen.getByLabelText("ESPN league id"), "333");
+    await user.clear(screen.getByLabelText("ESPN_S2"));
+    await user.type(screen.getByLabelText("ESPN_S2"), "s2🙂value");
+    await user.click(screen.getByRole("button", { name: "Add league" }));
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "ESPN_S2 must contain only ASCII characters.",
+    );
+
+    await user.clear(screen.getByLabelText("ESPN_S2"));
+    await user.type(screen.getByLabelText("ESPN_S2"), "s2-value");
+    await user.clear(screen.getByLabelText("ESPN_SWID"));
+    await user.type(screen.getByLabelText("ESPN_SWID"), "swidévalue");
+    await user.click(screen.getByRole("button", { name: "Add league" }));
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "ESPN_SWID must contain only ASCII characters.",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-ASCII invite code before calling redeem", async () => {
+    const fetchMock = mockFetch(() => jsonResponse({}));
+    const user = userEvent.setup();
+    renderDialog({ user: memberUser });
+
+    await user.type(screen.getByLabelText("Invite code"), "café");
+    await user.click(screen.getByRole("button", { name: "Join league" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Invite code must contain only ASCII characters.",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("requires both ESPN cookies or neither", async () => {
     const fetchMock = mockFetch(() => jsonResponse({}));
     const user = userEvent.setup();
