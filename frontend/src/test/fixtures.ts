@@ -6,6 +6,8 @@
 import { vi } from "vitest";
 
 import type {
+  EloConfigResponse,
+  EloHistoryResponse,
   LeagueMemberSummary,
   LeagueSummary,
   MeResponse,
@@ -403,3 +405,138 @@ export function requestBody(init: RequestInit): Record<string, unknown> {
   }
   return JSON.parse(init.body) as Record<string, unknown>;
 }
+
+export const eloConfigResponse: EloConfigResponse = {
+  league_id: 1,
+  starting_rating: "1500",
+  k_factor: "24",
+  margin_weight: "0.25",
+  margin_cap: "50",
+  season_regression: "0.333333",
+};
+
+/** Two seasons, one cup week, a new 2026 franchise, and a renamed team. */
+export const eloHistoryResponse: EloHistoryResponse = {
+  league_id: 1,
+  mode: "round_robin",
+  seasons: [2025, 2026],
+  config: {
+    starting_rating: "1500",
+    k_factor: "24",
+    margin_weight: "0.25",
+    margin_cap: "50",
+    season_regression: "0.333333",
+  },
+  weeks: [
+    { index: 0, season: 2025, week: 1, is_cup_week: false, is_season_start: true, rated: true },
+    { index: 1, season: 2025, week: 2, is_cup_week: true, is_season_start: false, rated: false },
+    { index: 2, season: 2026, week: 1, is_cup_week: false, is_season_start: true, rated: true },
+  ],
+  season_boundaries: [{ season: 2026, week_index: 2 }],
+  teams: [
+    {
+      team_key: "espn:1",
+      team_id: 7,
+      name: "Alpha",
+      owner_name: "Alex",
+      aliases: ["Alpha Old"],
+      first_season: 2025,
+      last_season: 2026,
+      series: ["1512.6", "1512.6", "1525.2"],
+      seasons: [
+        {
+          season: 2025,
+          start_rating: "1500",
+          end_rating: "1512.6",
+          change: "12.6",
+          rated_weeks: 1,
+        },
+        {
+          season: 2026,
+          start_rating: "1508.4",
+          end_rating: "1525.2",
+          change: "16.8",
+          rated_weeks: 1,
+        },
+      ],
+      current: "1525.2",
+      last_change: "12.6",
+      season_change: "16.8",
+      peak: "1525.2",
+      peak_at: { season: 2026, week: 1 },
+      low: "1500",
+      low_at: null,
+      rated_weeks: 2,
+    },
+    {
+      team_key: "espn:2",
+      team_id: 3,
+      name: "Bravo",
+      owner_name: "Blair",
+      aliases: [],
+      first_season: 2025,
+      last_season: 2026,
+      series: ["1487.4", "1487.4", "1474.8"],
+      seasons: [
+        {
+          season: 2025,
+          start_rating: "1500",
+          end_rating: "1487.4",
+          change: "-12.6",
+          rated_weeks: 1,
+        },
+        {
+          season: 2026,
+          start_rating: "1491.6",
+          end_rating: "1474.8",
+          change: "-16.8",
+          rated_weeks: 1,
+        },
+      ],
+      current: "1474.8",
+      last_change: "-12.6",
+      season_change: "-16.8",
+      peak: "1500",
+      peak_at: null,
+      low: "1474.8",
+      low_at: { season: 2026, week: 1 },
+      rated_weeks: 2,
+    },
+    {
+      team_key: "espn:3",
+      team_id: 9,
+      name: "Charlie",
+      owner_name: null,
+      aliases: [],
+      first_season: 2026,
+      last_season: 2026,
+      series: [null, null, "1512.6"],
+      seasons: [
+        {
+          season: 2026,
+          start_rating: "1500",
+          end_rating: "1512.6",
+          change: "12.6",
+          rated_weeks: 1,
+        },
+      ],
+      current: "1512.6",
+      last_change: "12.6",
+      season_change: "12.6",
+      peak: "1512.6",
+      peak_at: { season: 2026, week: 1 },
+      low: "1500",
+      low_at: null,
+      rated_weeks: 1,
+    },
+  ],
+  unrated_teams: [{ team_key: "espn:4", name: "Delta", reason: "No rated matchups yet" }],
+  warnings: [],
+};
+
+export const emptyEloHistoryResponse: EloHistoryResponse = {
+  ...eloHistoryResponse,
+  weeks: [],
+  season_boundaries: [],
+  teams: [],
+};

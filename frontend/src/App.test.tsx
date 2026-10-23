@@ -7,6 +7,8 @@ import { App, AppRoutes } from "./App";
 import {
   adminUser,
   adminWithoutLeague,
+  eloConfigResponse,
+  eloHistoryResponse,
   errorResponse,
   historyResponse,
   jsonResponse,
@@ -66,6 +68,12 @@ function signedInFetch(
     }
     if (/^\/api\/v1\/leagues\/\d+\/seasons\/\d+\/wapdate$/.test(path)) {
       return jsonResponse(wapdateResponse);
+    }
+    if (/^\/api\/v1\/leagues\/\d+\/elo-history$/.test(path)) {
+      return jsonResponse(eloHistoryResponse);
+    }
+    if (/^\/api\/v1\/leagues\/\d+\/elo-config$/.test(path)) {
+      return jsonResponse(eloConfigResponse);
     }
     if (/^\/api\/v1\/leagues\/\d+\/seasons\/\d+\/cup-week$/.test(path)) {
       const season = Number(path.match(/seasons\/(\d+)\/cup-week/)?.[1]);
@@ -413,6 +421,26 @@ describe("App routing", () => {
     expect(screen.getByRole("dialog", { name: "Add a league" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Close add-league dialog" }));
     expect(screen.queryByRole("dialog", { name: "Add a league" })).not.toBeInTheDocument();
+  });
+
+  it("opens the History tab for every member and hides the season picker there", async () => {
+    const user = userEvent.setup();
+    signedInFetch({ user: memberUser });
+    renderAt("/");
+    await screen.findByRole("heading", { level: 1, name: "Alpha League — standings" });
+
+    await user.click(screen.getByRole("link", { name: "History" }));
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Alpha League — history" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "History" })).toHaveAttribute(
+      "href",
+      "/leagues/1/history",
+    );
+    expect(screen.queryByLabelText("Season")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Admin" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("img", { name: /Elo score history/i })).toBeInTheDocument();
   });
 
   it("shows admins the admin nav item and all admin sections", async () => {

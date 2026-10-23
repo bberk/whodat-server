@@ -22,10 +22,14 @@ export function AppShell() {
   const navigate = useNavigate();
 
   const ownerPath = selectedLeague === null ? null : `/leagues/${selectedLeague.league_id}/owner`;
+  const historyPath =
+    selectedLeague === null ? null : `/leagues/${selectedLeague.league_id}/history`;
   const adminPath = selectedLeague === null ? null : `/leagues/${selectedLeague.league_id}/admin`;
-  // The owner and admin pages each own their context; only the standings uses the season picker.
+  // The owner, history, and admin pages each own their context; only standings uses the season picker.
   const showSeasonPicker =
-    !location.pathname.endsWith("/owner") && !location.pathname.endsWith("/admin");
+    !location.pathname.endsWith("/owner") &&
+    !location.pathname.endsWith("/history") &&
+    !location.pathname.endsWith("/admin");
 
   return (
     <div className="flex min-h-full flex-col bg-gray-50 text-gray-900">
@@ -48,6 +52,13 @@ export function AppShell() {
               <NavLink to="/" end className={navLinkClass}>
                 Standings
               </NavLink>
+              {historyPath === null ? (
+                <span className="px-2.5 py-1.5 text-[13px] text-gray-400">History</span>
+              ) : (
+                <NavLink to={historyPath} className={navLinkClass}>
+                  History
+                </NavLink>
+              )}
               {ownerPath === null ? (
                 <span className="px-2.5 py-1.5 text-[13px] text-gray-400">Owner</span>
               ) : (
@@ -82,9 +93,11 @@ export function AppShell() {
               onSelect={(leagueId) => {
                 const suffix = location.pathname.endsWith("/owner")
                   ? "/owner"
-                  : location.pathname.endsWith("/admin")
-                    ? "/admin"
-                    : null;
+                  : location.pathname.endsWith("/history")
+                    ? "/history"
+                    : location.pathname.endsWith("/admin")
+                      ? "/admin"
+                      : null;
                 if (suffix !== null) {
                   navigate(`/leagues/${leagueId}${suffix}`);
                 }
