@@ -57,6 +57,8 @@ describe("formatPoints", () => {
     expect(formatPoints("495.00")).toBe("495.00");
     expect(formatPoints("812.3")).toBe("812.30");
     expect(formatPoints("100")).toBe("100.00");
+    expect(formatPoints("-12.3")).toBe("-12.30");
+    expect(formatPoints("-7")).toBe("-7.00");
   });
 });
 
@@ -90,6 +92,7 @@ describe("formatEloValue", () => {
     expect(formatEloValue("1525.2")).toBe("1525.20");
     expect(formatEloValue("1500")).toBe("1500.00");
     expect(formatEloValue("-0.005")).toBe("-0.01");
+    expect(formatEloValue("-0.001")).toBe("0.00");
   });
 });
 
@@ -98,5 +101,6 @@ describe("formatEloChange", () => {
     expect(formatEloChange("12.6")).toBe("+12.60");
     expect(formatEloChange("-12.6")).toBe("-12.60");
     expect(formatEloChange("0")).toBe("0.00");
+    expect(formatEloChange("-0.001")).toBe("0.00");
   });
 });

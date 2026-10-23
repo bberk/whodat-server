@@ -14,6 +14,7 @@ import {
   errorResponse,
   jsonResponse,
   leagueAlpha,
+  memberUser,
   mockFetch,
   requestPath,
 } from "../test/fixtures";
@@ -54,13 +55,18 @@ function authValue(overrides: Partial<AuthContextValue> = {}): AuthContextValue 
   };
 }
 
-function renderPage(value: LeagueContextValue = leagueValue(), path = "/leagues/1/history") {
+function renderPage(
+  value: LeagueContextValue = leagueValue(),
+  path = "/leagues/1/history",
+  auth: AuthContextValue = authValue(),
+) {
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <AuthContext.Provider value={authValue()}>
+      <AuthContext.Provider value={auth}>
         <LeagueContext.Provider value={value}>
           <Routes>
             <Route path="/leagues/:leagueId/history" element={<HistoryPage />} />
+            <Route path="/leagues/:leagueId/admin" element={<p>Admin stub</p>} />
             <Route path="/" element={<p>Standings stub</p>} />
           </Routes>
         </LeagueContext.Provider>
@@ -180,6 +186,89 @@ describe("HistoryPage", () => {
         name: "Elo score history current scores, scrollable horizontally",
       }),
     ).toBeInTheDocument();
+  });
+
+  it("shows warnings and links admins to the settings page", async () => {
+    eloFetch((path) =>
+      path === "/api/v1/leagues/1/elo-history"
+        ? jsonResponse({
+            ...eloHistoryResponse,
+            warnings: [
+              {
+                season: 2025,
+                code: "missing_score",
+                message: "Season 2025, week 2 is missing a score.",
+              },
+            ],
+          })
+        : errorResponse(404, { code: "not_found", message: path }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(await screen.findByText("Some stored data was skipped:")).toBeInTheDocument();
+    expect(screen.getByText("Season 2025, week 2 is missing a score.")).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "League admin can change the Elo settings." }),
+    );
+    expect(screen.getByText("Admin stub")).toBeInTheDocument();
+  });
+
+  it("shows an empty state for a season with no rated weeks", async () => {
+    eloFetch((path) =>
+      path === "/api/v1/leagues/1/elo-history"
+        ? jsonResponse({ ...eloHistoryResponse, seasons: [2024, 2025, 2026] })
+        : errorResponse(404, { code: "not_found", message: path }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByRole("img", { name: /Elo score history/i });
+    await user.click(screen.getByRole("button", { name: "2024" }));
+
+    expect(screen.getByText("No rated weeks in this season")).toBeInTheDocument();
+  });
+
+  it("hides admin-only text and handles empty unrated lists", async () => {
+    eloFetch((path) =>
+      path === "/api/v1/leagues/1/elo-history"
+        ? jsonResponse({
+            ...eloHistoryResponse,
+            seasons: [2026],
+            unrated_teams: [
+              { team_key: "espn:4", name: "Delta", reason: "No rated matchups yet" },
+              { team_key: "espn:5", name: "Echo", reason: "No rated matchups yet" },
+            ],
+          })
+        : errorResponse(404, { code: "not_found", message: path }),
+    );
+    renderPage(leagueValue(), "/leagues/1/history", authValue({ user: memberUser }));
+
+    await screen.findByRole("img", { name: /Elo score history/i });
+    expect(screen.queryByText(/League admin can change the Elo settings/)).not.toBeInTheDocument();
+    expect(screen.getByText(/2 teams have no rated matchups yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 season ·/)).toBeInTheDocument();
+  });
+
+  it("deselects a team and toggles the same series back on", async () => {
+    eloFetch();
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByRole("region", {
+      name: "Elo score history current scores, scrollable horizontally",
+    });
+    const alpha = screen.getByRole("button", { name: "Alpha" });
+    await user.click(alpha);
+    expect(alpha).toHaveAttribute("aria-pressed", "true");
+    await user.click(alpha);
+    expect(alpha).toHaveAttribute("aria-pressed", "false");
+
+    const toggle = screen.getByRole("button", { name: "Show or hide Bravo series" });
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
   });
 
   it("selects and toggles chart series", async () => {
