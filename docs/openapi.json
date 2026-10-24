@@ -1396,6 +1396,23 @@
       "StandingsRow": {
         "description": "One team's overall standing as returned by the standings endpoint.",
         "properties": {
+          "clinch": {
+            "anyOf": [
+              {
+                "enum": [
+                  "X",
+                  "Y",
+                  "Z",
+                  "E"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clinch"
+          },
           "division": {
             "anyOf": [
               {
@@ -1469,7 +1486,8 @@
           "losses",
           "ties",
           "points_for",
-          "weekly_vp"
+          "weekly_vp",
+          "clinch"
         ],
         "title": "StandingsRow",
         "type": "object"

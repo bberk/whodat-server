@@ -111,12 +111,40 @@ scoring, or playoff rules.
   measured from the post-reset baseline before the team's latest season, not the prior season's
   final rating.
 
+### 3.6 Playoff clinch designations
+
+Standings show a per-team playoff designation once a season reaches its final four regular-season
+weeks (four or fewer weeks remaining). The calculation is season-specific and uses the playoff
+field size stored from the provider's season settings.
+
+- The two division winners are seeds 1-2 and receive first-round byes. The better division winner
+  is the **Z** top seed; the other division winner is **Y**. Any other team that has clinched a
+  playoff berth is **X**, and a team that cannot mathematically make the playoffs is **E**.
+- With no divisions or one division there is no second automatic berth: the overall #1 seed is
+  **Z**, other clinched berths are **X**, and **Y** is not used.
+- A team has at most one designation. Precedence is **E**, then **Z**, then **Y**, then **X**;
+  otherwise the designation is absent.
+- The clinch tiebreak is season VP then wins only. Points for is ignored because it could still
+  change an apparently decided position. If VP and wins leave a team level with a competitor at a
+  decisive boundary, that outcome is undecided and no clinch or elimination is shown for it.
+- The remaining regular-season schedule matters. A designation is calculated only from a complete
+  stored schedule for every remaining week, including head-to-head pairings and explicit byes.
+  Missing metadata or schedule coverage produces no designations rather than a guess; seasons
+  stored before this feature need a re-sync.
+- Cup weeks still contribute their VP and scoring components, but award no H2H VP or win. The
+  calculation therefore treats a cup-week pairing as a bye for win/H2H purposes.
+- The search is conservative: it first uses cheap feasible VP/wins bounds and only enumerates
+  remaining H2H outcomes for plausible candidates. If a per-team node cap is exceeded, that team
+  gets no designation. A withheld badge is preferred to a false one, so a very ambiguous season
+  can show fewer designations than a full brute-force result would.
+
 ## 4. Functional requirements
 
 ### 4.1 Data ingestion
 
-- Fetch league data from ESPN: league metadata, owners, teams (per season, including division), weekly matchups, and weekly scores.
+- Fetch league data from ESPN: league metadata, owners, teams (per season, including division), the full regular-season schedule (including future weeks), and weekly scores. The season metadata includes ESPN's playoff field size.
 - Sync is **idempotent**: re-running it never creates duplicates and updates any changed values (ESPN scores can be corrected after the fact). After a sync, VP is recomputed for any affected weeks.
+- Future regular-season matchups are stored as incomplete and have no team-week scores or VP. Syncing an incomplete week reconciles it against the provider: removed or moved pairings and their stale scores are deleted, current pairings are inserted or updated, home/away swaps and byes are handled, and completed weeks are not reconciled.
 - Sync is runnable on demand via a CLI command, and schedulable via cron or equivalent.
 - Private ESPN leagues require ESPN auth cookies (`espn_s2`, `SWID`). A league admin supplies them
   when adding the league. Credentials come only from a user's membership, where they are stored
@@ -157,9 +185,10 @@ Persisted entities (see ARCHITECTURE.md for the schema):
 
 - **League** (and metadata, including provider and external ID)
 - **Owner**
+- **League season** (per season: provider metadata including regular-season length and playoff field size, optional cup week, last refreshed instant)
 - **Team** (per season; includes division and owner)
-- **Matchup** (season, week, home team, away team)
-- **Score** (team, season, week, points, victory points and its component breakdown)
+- **Matchup** (season, week, home team, away team; future incomplete pairings included)
+- **Score** (team, season, week, points, victory points and its component breakdown; absent for future unplayed matchups)
 - **User** (email, password hash, role)
 - **Invite** (league, code hash, role, expiry)
 - **Membership** (user, league, optional owner association, encrypted ESPN credentials)
@@ -170,7 +199,7 @@ The database engine must be swappable between SQLite and Postgres with no applic
 
 ### 4.3 Provider abstraction
 
-All ESPN-specific code lives behind a provider interface that returns normalized data. Adding a new provider must require only: a new adapter module, registration of the provider, and no changes to the VP engine, database schema, API, or frontend.
+All ESPN-specific code lives behind a provider interface that returns normalized data, including the season's full regular-season pairing schedule and playoff field size. Adding a new provider must require only: a new adapter module, registration of the provider, and no changes to the VP engine, database schema, API, or frontend.
 
 ### 4.4 Accounts and access
 
@@ -238,8 +267,8 @@ Pages and views:
 1. **Sign up (invite code) / Log in**
 2. **Standings**
    - Season selector (default: current season).
-   - **Overall standings table**: rank, team, owner, season VP, H2H record (W-L-T), points for, and one column per week showing that week's VP.
-   - **Division standings**: one table per division; the division only filters and groups the rows, and the rank displayed for each team is its overall league rank.
+   - **Overall standings table**: rank, team, owner, season VP, H2H record (W-L-T), points for, and one column per week showing that week's VP. A proven playoff designation appears beside the team: **Z** top seed, **Y** division winner, **X** clinched playoff berth, or **E** eliminated. A text legend near the table explains all four; status is never conveyed by colour alone.
+   - **Division standings**: one table per division; the division only filters and groups the rows, and the rank displayed for each team is its overall league rank. Division rows carry the same designation as the overall table.
    - **WAPDate standings**: below the cumulative VP chart, a toggle for the offered four-week
      periods (weeks 1-4, 5-8, 9-12) labelled with the week range and complete/in-progress state,
      defaulting to the current period or the latest complete one. The selected period lists the

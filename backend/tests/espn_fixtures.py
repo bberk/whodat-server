@@ -26,6 +26,7 @@ class FakeSettings:
         self.reg_season_count: int = data["scheduleSettings"]["matchupPeriodCount"]
         self.team_count: int = data["size"]
         self.scoring_type: str | None = data.get("scoringSettings", {}).get("scoringType")
+        self.playoff_team_count: int | None = data["scheduleSettings"].get("playoffTeamCount")
         # Build division map
         self.division_map: dict[int, str] = {}
         for div in data["scheduleSettings"].get("divisions", []):

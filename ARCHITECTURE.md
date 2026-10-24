@@ -49,6 +49,7 @@ Key principle: **dependencies point inward**. The VP engine knows nothing about 
 │   │   │   ├── vp_engine.py
 │   │   │   ├── standings.py     # ranking + tiebreakers (pure)
 │   │   │   ├── wapdate.py       # fixed four-week periods + safe-from-last bounds (pure)
+│   │   │   ├── clinch.py         # conservative playoff designations (pure)
 │   │   │   ├── elo.py           # Elo formula, modes, regression, franchise history (pure)
 │   │   │   └── types.py
 │   │   ├── providers/
@@ -76,7 +77,7 @@ Key principle: **dependencies point inward**. The VP engine knows nothing about 
 
 | Module | Responsibility | May import | Must NOT import |
 |---|---|---|---|
-| `domain/` | VP computation, standings ranking, tie splitting, Elo formula and history | stdlib only (`decimal`, `fractions`, `dataclasses`) | db, api, providers, any I/O |
+| `domain/` | VP computation, standings ranking, tie splitting, WAPDate bounds, conservative playoff designations, Elo formula and history | stdlib only (`decimal`, `fractions`, `dataclasses`) | db, api, providers, any I/O |
 | `providers/base.py` | `LeagueProvider` protocol and normalized DTOs | stdlib, pydantic | db, api, domain internals |
 | `providers/espn/` | ESPN → DTO translation and credential decryption for provider calls | `espn_api`, `providers.base`, credential-encryption helper | db, api, domain |
 | `providers/fake.py` | In-memory provider for tests/dev | `providers.base` | everything else |
@@ -102,9 +103,10 @@ Unique: (`provider`, `external_id`).
 ### `league_season`
 Per-season provider settings, so each season can be refreshed independently and a sync of one
 season never overwrites another season's settings: `league_id` → league, `season` (int),
-`metadata` (JSON: regular season length, team count, division count, scoring type, playoff
-settings), `cup_week` (int, nullable; the optional cup week described in SPEC 3.4; `NULL` means no
-cup week), and `last_refreshed_at` (timestamp, nullable; the instant of the last successful
+`metadata` (JSON: regular season length, team count, division count, scoring type, and playoff
+settings including `playoff_team_count`), `cup_week` (int, nullable; the optional cup week described
+in SPEC 3.4; `NULL` means no cup week), and `last_refreshed_at` (timestamp, nullable; the instant of
+the last successful
 provider-backed sync of this season, `NULL` when it has never synced). The cup week is admin-chosen
 application data, not provider metadata: sync updates `metadata` but never overwrites `cup_week`.
 A provider-free recompute and a cup-week edit never change `last_refreshed_at`. Unique:
@@ -120,11 +122,23 @@ Unique: (`league_id`, `season`, `external_id`).
 
 ### `matchup`
 `league_id`, `season`, `week`, `home_team_id` → team, `away_team_id` → team (nullable for byes), `is_playoff` (bool), `is_complete` (bool).
-Unique: (`league_id`, `season`, `week`, `home_team_id`).
+Unique: (`league_id`, `season`, `week`, `home_team_id`). The full regular-season schedule includes
+future pairings with `is_complete = false`.
 
 ### `score`
 `team_id` → team, `league_id`, `season`, `week`, `points` (NUMERIC(8,2)), `victory_points` (NUMERIC(10,6)), `vp_h2h`, `vp_top_half`, `vp_high`, `vp_low` (each NUMERIC(10,6)).
-Unique: (`team_id`, `season`, `week`).
+Unique: (`team_id`, `season`, `week`). A future, unplayed matchup has no score row; provider zeroes
+for a game without a result are not stored as points. A numeric incomplete/live score may remain on
+an existing row, but its VP columns are reset to zero and it is excluded from standings.
+
+### Future schedule reconciliation
+
+A provider-backed sync of an incomplete week treats that week as a snapshot. It deletes matchups
+whose home slot no longer exists and scores for teams that no longer play that week, then upserts
+the current pairings (including home/away swaps and explicit byes). A completed week is not
+reconciled: its pairings stay stable and the existing completed-score correction path still updates
+reported points and recomputes VP. This keeps schedule edits before kickoff from orphaning rows
+without rewriting completed history.
 
 ### `elo_config`
 Per-league Elo settings for the History page: `league_id` → league (unique), `starting_rating`
@@ -195,15 +209,15 @@ class LeagueProvider(Protocol):
     def fetch_owners(self, league_ref: LeagueRef, season: int) -> list[OwnerDTO]: ...
     def fetch_teams(self, league_ref: LeagueRef, season: int) -> list[TeamDTO]: ...
     def fetch_matchups(self, league_ref: LeagueRef, season: int, week: int) -> list[MatchupDTO]: ...
-    # MatchupDTO carries both teams' points; scores are derived from it.
+    # MatchupDTO carries both pairing slots; points are None until the matchup has a result.
     def current_week(self, league_ref: LeagueRef, season: int) -> WeekStatus: ...
 ```
 
 DTO rules:
 
 - DTOs are provider-agnostic dataclasses/Pydantic models with `external_id` strings and `Decimal` points.
-- A `MatchupDTO` has `week`, `home` and `away` entries (`team_external_id`, `points`), `away` is optional for byes, plus `is_playoff` and `is_complete`.
-- The ESPN adapter translates ESPN payloads and quirks into these DTOs and nothing else. All ESPN quirks (cookie auth, division names, bye representation, playoff detection) are contained in `providers/espn/`.
+- A `MatchupDTO` has `week`, `home` and `away` entries (`team_external_id`, `points`), `away` is optional for byes, plus `is_playoff` and `is_complete`. `points` is `None` for an unplayed matchup.
+- The ESPN adapter translates ESPN payloads and quirks into these DTOs and nothing else. It reads the full scheduled scoreboard for the requested week, so future home/away pairings are preserved, and maps `settings.playoff_team_count` into league metadata. All ESPN quirks (cookie auth, division names, bye representation, playoff detection) are contained in `providers/espn/`.
 - Providers are looked up by `provider_id` in `providers/registry.py`.
 
 ## 6. Sync flow
@@ -212,12 +226,15 @@ DTO rules:
 
 1. Fetch league, league-season settings, owners, teams from the provider; upsert. League-season
    settings (regular season length, team count, division count, scoring type, playoff
-   configuration) are stored per `league_season` row, so refreshing one season leaves the other
-   seasons untouched.
-2. Determine weeks to sync (default: all weeks up to and including the current completed week).
-3. For each week: fetch matchups; upsert matchups; upsert scores' `points`.
-4. For each week whose matchup/score data changed (or is newly completed): load that week's scores and matchups, run the VP engine, and write `victory_points` and components for all teams in that week, in a single transaction. When the season's `cup_week` equals that week, the engine runs with `h2h=False` and `vp_h2h` is stored as 0.
-5. Weeks that are playoffs or incomplete are stored but receive no VP (VP columns remain 0 and are excluded from standings).
+   configuration including `playoff_team_count`) are stored per `league_season` row, so refreshing
+   one season leaves the other seasons untouched.
+2. Determine weeks to sync. When the season length is known, default to the full regular season
+   (including future weeks); otherwise fall back to completed weeks rather than guessing a length.
+3. For each week: fetch matchups; upsert matchups; upsert scores' `points` where the provider has a
+   result. An incomplete week is reconciled first (stale matchups/scores removed, current pairings
+   inserted/updated); a completed week's schedule is not reconciled.
+4. For each completed week whose matchup/score data changed (or is newly completed): load that week's scores and matchups, run the VP engine, and write `victory_points` and components for all teams in that week, in a single transaction. When the season's `cup_week` equals that week, the engine runs with `h2h=False` and `vp_h2h` is stored as 0.
+5. Weeks that are playoffs or incomplete are stored but receive no VP (VP columns remain 0 and are excluded from standings). A future matchup with `points=None` has no score row; any retained numeric incomplete score has its VP reset to zero.
 6. After the whole season has been ingested and recomputed, a provider-backed sync records
    `league_season.last_refreshed_at`. A failed sync leaves it unchanged; `recompute_league` never
    writes it.
@@ -262,6 +279,55 @@ Algorithm notes (see SPEC 3 and ACCEPTANCE 1.1 for authoritative rules and examp
 def rank_teams(rows: Sequence[SeasonRow]) -> list[RankedRow]: ...
 # sort key: (-vp, -h2h_wins, -points_for); equal keys share a rank number.
 ```
+
+### 7.1 Playoff designation contract
+
+```python
+# domain/clinch.py
+type ClinchStatus = Literal["X", "Y", "Z", "E"]
+
+@dataclass(frozen=True)
+class ClinchTeam:
+    team_id: int
+    vp: Fraction
+    wins: int
+    division: str | None
+
+@dataclass(frozen=True)
+class ClinchMatchup:
+    week: int
+    home_team_id: int
+    away_team_id: int | None  # None = bye
+
+def compute_clinch_statuses(
+    teams: Sequence[ClinchTeam],
+    remaining_matchups: Sequence[ClinchMatchup],
+    *,
+    completed_weeks: Sequence[int],
+    regular_season_length: int,
+    playoff_team_count: int | None,
+    cup_week: int | None,
+    node_cap: int = 5_000,
+) -> dict[int, ClinchStatus | None]: ...
+```
+
+The function is pure and deterministic. It returns all-null statuses when any required season
+setting is missing, more than four regular-season weeks remain, the division shape is unsupported,
+or the remaining schedule is incomplete. A future week must list every team exactly once (an
+explicit bye is a home slot with no away team). Complete finished seasons are evaluated directly.
+
+The seeding evaluation uses exact VP and wins only. Two named divisions auto-seed their winners at
+1-2 (Z is the better winner, Y the other); with zero or one division, Z is the unique #1 seed and Y
+is unused. Other teams compete for the remaining at-large berths. Equal VP and wins at a decisive
+boundary are unresolved because points for could still break the tie.
+
+Scenario search first asks whether the candidate's worst feasible final key can still clinch and
+whether its best feasible final key can possibly qualify, using weekly non-H2H VP bounds of -1 and
++2. It then enumerates every remaining non-cup H2H home-win/away-win/tie outcome only while a
+candidate remains plausible. The bounds allow each team's rank components independently, which is
+a deliberate relaxation: it can withhold a badge but cannot create one. A per-team node cap stops
+an ambiguous search and returns no designation for that team. Ordinary elimination and runaway
+clinch cases resolve from the cheap bounds without deep enumeration.
 
 ## 8. API contract
 
@@ -326,7 +392,7 @@ removes only that league's rows; accounts, league-less admin invites, and other 
     {
       "rank": 1, "team_id": 7, "team_name": "…", "owner_name": "…", "division": "East",
       "victory_points": "31.5", "wins": 4, "losses": 2, "ties": 0, "points_for": "812.34",
-      "weekly_vp": ["3", "2.5", "…"]
+      "weekly_vp": ["3", "2.5", "…"], "clinch": "Z"
     }
   ],
   "divisions": [
@@ -335,7 +401,9 @@ removes only that league's rows; accounts, league-less admin invites, and other 
 }
 ```
 
-VP and points are serialized as **strings** (decimal), so the frontend never relies on binary floats for display. VP values display with up to 2 decimals (e.g. `0.33`), trimming trailing zeros.
+VP and points are serialized as **strings** (decimal), so the frontend never relies on binary floats for display. VP values display with up to 2 decimals (e.g. `0.33`), trimming trailing zeros. `clinch` is
+`"Z"`, `"Y"`, `"X"`, `"E"`, or `null` and is identical on a team's overall and division rows; it is
+computed once for the selected season from stored current totals and remaining matchups.
 
 ### VP history response (shape)
 
@@ -465,7 +533,8 @@ structured 422s; a non-admin member gets 403; a non-member or unknown league get
   rank/team columns sticky inside its own horizontal scroll region. `InfoTooltip` supplies the
   hover/focus explanations used by the Elo model and settings fields.
 - **State**: server state via TanStack Query; local UI state (selected team, hidden chart series) in component state or a small store. No global state library needed.
-- **Components**: `StandingsTable` (reused for overall and per-division), `WapdateSection` (period
+- **Components**: `StandingsTable` (reused for overall and per-division, with `ClinchBadge` beside
+  the team and `ClinchLegend` above the overall table), `WapdateSection` (period
   toggle plus a lowest-first table below the chart), `WeeklyVPCells`, `VPChart`, `EloChart`,
   `EloRatingsTable`, `InfoTooltip`, `TeamSelector`/legend, `SeasonPicker`, `LeagueSwitcher`,
   `SeasonsSection`, `EloSettingsSection`, `MembersSection`, `InvitesSection`,
@@ -494,7 +563,11 @@ returned by the API. There is no environment `ESPN_S2`/`ESPN_SWID` credential pa
   cover stored identity changes, deleted seasons, unrated teams, auth, config defaults/ranges, and
   string serialization. `domain/elo.py` is fully covered in this change (100% lines and branches);
   the CI named-module gate remains the two AC-DX-03 modules.
-- **Providers**: ESPN adapter tested against recorded fixtures in `docs/fixtures/espn/`; a small manual script can refresh fixtures from the real API, but tests never call ESPN.
+- **Providers**: ESPN adapter tested against recorded fixtures in `docs/fixtures/espn/`; a small manual script can refresh fixtures from the real API, but tests never call ESPN. Future-schedule fixtures assert that unplayed pairings retain home/away slots while omitting points.
+- **Clinch domain**: hand-computed finished seasons, zero/one/two divisions, VP+wins boundary ties,
+  direct remaining H2H outcomes, cup weeks, byes, cutoff, missing metadata, incomplete schedules,
+  and node-cap fallback. `domain/clinch.py` is fully covered (100% lines and branches) in this
+  feature; the permanent CI named-module gate remains AC-DX-03.
 - **Database/services**: run against SQLite by default locally, where each worktree gets its own throwaway databases so concurrent agents stay isolated; CI and production use Postgres. `scripts/dev-postgres.sh` starts a worktree-local Postgres for debugging Postgres-specific behavior.
 - **API**: FastAPI `TestClient` tests including authorization matrices and golden JSON comparison.
 - **Frontend**: Vitest + Testing Library for components; Playwright for the end-to-end smoke test, responsive screenshots, and axe accessibility checks.
@@ -518,6 +591,7 @@ returned by the API. There is no environment `ESPN_S2`/`ESPN_SWID` credential pa
 | Merge gate in a script, plus GitHub rulesets where available | GitHub cannot enforce branch rules on private repos on a free plan; the script makes the rules hold anyway, and rulesets add server-side enforcement where possible. |
 | Reviewer is a separate agent that posts a review comment, and a human approves and merges | GitHub forbids self-approval, so the formal approval must be a human's; the reviewer's definition comes from `main`, so a PR cannot weaken the reviewer that judges it. |
 | Draft PR on first commit, review only when marked ready | Reviewers never spend effort on half-finished work. |
+| Conservative clinch proof, never a guessed badge | Playoff status is a claim about all remaining outcomes. Cheap exact bounds, complete H2H enumeration, and a no-badge node-cap fallback make a false designation impossible while keeping ordinary late-season cases fast. |
 | Governance files are human-merge only | Agents cannot loosen the rules or gates that bind them. |
 
 ## 13. Repository tooling, CI, and the PR workflow

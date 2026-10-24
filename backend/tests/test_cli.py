@@ -376,10 +376,10 @@ def test_cli_sync_is_idempotent_when_repeated(
         assert _vp_snapshot(session) == vp_before
 
 
-def test_cli_sync_without_weeks_uses_completed_weeks(
+def test_AC_DB_11_cli_sync_without_weeks_uses_full_regular_schedule(
     session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """With no --weeks, only weeks up to the last completed week are stored."""
+    """With no --weeks, a known season length syncs every scheduled regular-season week."""
     _seed_sync_member(session_factory)
     seed = _seed(weeks=(1, 2, 3), last_completed_week=2, regular_season_length=3)
     code = main(
@@ -390,9 +390,11 @@ def test_cli_sync_without_weeks_uses_completed_weeks(
     )
 
     assert code == 0
-    assert "weeks_synced=1,2" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "weeks_synced=1,2,3" in out
+    assert "weeks_with_vp_recomputed=1,2,3" in out
     with session_factory() as session:
-        assert _score_count(session) == 4
+        assert _score_count(session) == 6
 
 
 def test_cli_sync_accepts_an_inclusive_week_range(

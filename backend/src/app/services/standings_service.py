@@ -25,6 +25,12 @@ from sqlalchemy.orm import Session
 
 from app.db.models import League, LeagueSeason, Owner, Team
 from app.db.repositories import SyncRepository
+from app.domain.clinch import (
+    ClinchMatchup,
+    ClinchStatus,
+    ClinchTeam,
+    compute_clinch_statuses,
+)
 from app.domain.standings import SeasonRow, rank_teams
 from app.domain.types import TeamWeek
 from app.domain.vp_engine import compute_week_vp
@@ -100,6 +106,7 @@ class StandingRow:
     ties: int
     points_for: Decimal
     weekly_vp: tuple[Fraction, ...]
+    clinch: ClinchStatus | None
 
 
 @dataclass(frozen=True)
@@ -173,6 +180,7 @@ class _SeasonContext:
     season: int
     regular_season_length: int
     cup_week: int | None
+    playoff_team_count: int | None
     teams: tuple[Team, ...]
     owner_names: Mapping[int, str]
 
@@ -231,6 +239,7 @@ class StandingsService:
             )
 
         aggregate = self._aggregate(context, weeks)
+        clinch = self._clinch_statuses(context, weeks, aggregate)
         teams_by_id = {team.id: team for team in context.teams}
         season_rows = [
             SeasonRow(
@@ -263,6 +272,7 @@ class StandingsService:
                     ties=aggregate.ties[ranked.team_id],
                     points_for=ranked.points_for,
                     weekly_vp=aggregate.weekly_vp[ranked.team_id],
+                    clinch=clinch[ranked.team_id],
                 )
             )
 
@@ -372,8 +382,64 @@ class StandingsService:
             season=season,
             regular_season_length=regular_season_length,
             cup_week=league_season.cup_week,
+            playoff_team_count=self._playoff_team_count(league_season),
             teams=teams,
             owner_names=owner_names,
+        )
+
+    @staticmethod
+    def _playoff_team_count(league_season: LeagueSeason) -> int | None:
+        """Return the stored playoff field size, or None when it is absent or unusable."""
+        raw: object = league_season.league_season_metadata.get("playoff_team_count")
+        if isinstance(raw, bool) or not isinstance(raw, int) or raw < 1:
+            return None
+        return raw
+
+    def _clinch_statuses(
+        self,
+        context: _SeasonContext,
+        completed_weeks: Sequence[int],
+        aggregate: _SeasonAggregate,
+    ) -> dict[int, ClinchStatus | None]:
+        """Compute proven designations from exact totals and every stored future pairing.
+
+        A regular-season week flagged as a playoff week is inconsistent stored data, so no team
+        receives a designation. Missing future weeks are rejected by the pure calculator rather
+        than filled from current standings.
+        """
+        remaining_matchups: list[ClinchMatchup] = []
+        completed = frozenset(completed_weeks)
+        for week in range(1, context.regular_season_length + 1):
+            if week in completed:
+                continue
+            for matchup in self._repository.get_week_matchups(
+                context.league_id, context.season, week
+            ):
+                if matchup.is_playoff:
+                    return {team.id: None for team in context.teams}
+                remaining_matchups.append(
+                    ClinchMatchup(
+                        week=matchup.week,
+                        home_team_id=matchup.home_team_id,
+                        away_team_id=matchup.away_team_id,
+                    )
+                )
+
+        return compute_clinch_statuses(
+            [
+                ClinchTeam(
+                    team_id=team.id,
+                    vp=aggregate.season_vp[team.id],
+                    wins=aggregate.wins[team.id],
+                    division=team.division,
+                )
+                for team in context.teams
+            ],
+            remaining_matchups,
+            completed_weeks=completed_weeks,
+            regular_season_length=context.regular_season_length,
+            playoff_team_count=context.playoff_team_count,
+            cup_week=context.cup_week,
         )
 
     def _regular_season_length(self, league_season: LeagueSeason) -> int:

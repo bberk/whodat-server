@@ -89,6 +89,11 @@ describe("StandingsPage", () => {
     ).toEqual(["4", "5", "6"]);
     expect(screen.getByRole("img", { name: /cumulative victory points/i })).toBeInTheDocument();
     expect(screen.getByText(/4 completed weeks/i)).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Playoff designation legend" })).toBeInTheDocument();
+    expect(screen.getAllByRole("img", { name: "Z — top seed" })).toHaveLength(3);
+    expect(screen.getAllByRole("img", { name: "Y — division winner" })).toHaveLength(3);
+    expect(screen.getAllByRole("img", { name: "X — clinched playoff berth" })).toHaveLength(5);
+    expect(screen.getAllByRole("img", { name: "E — eliminated" })).toHaveLength(5);
     expect(screen.getByRole("heading", { name: "WAPDate standings" })).toBeInTheDocument();
     expect(await screen.findByRole("radio", { name: /weeks 5-8 · in progress/i })).toBeChecked();
   });

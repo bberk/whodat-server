@@ -17,6 +17,7 @@ class ESPNSettingsProto(Protocol):
     name: str
     division_map: dict[int, str]
     scoring_type: str | None
+    playoff_team_count: int | None
 
 
 class ESPNTeamProto(Protocol):

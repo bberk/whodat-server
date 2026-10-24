@@ -78,7 +78,8 @@ GOLDEN_STANDINGS = json.loads(
           "losses": 0,
           "ties": 0,
           "points_for": "250",
-          "weekly_vp": ["3", "3"]
+          "weekly_vp": ["3", "3"],
+          "clinch": null
         },
         {
           "rank": 2,
@@ -91,7 +92,8 @@ GOLDEN_STANDINGS = json.loads(
           "losses": 1,
           "ties": 0,
           "points_for": "215",
-          "weekly_vp": ["2", "0"]
+          "weekly_vp": ["2", "0"],
+          "clinch": null
         },
         {
           "rank": 3,
@@ -104,7 +106,8 @@ GOLDEN_STANDINGS = json.loads(
           "losses": 1,
           "ties": 0,
           "points_for": "205",
-          "weekly_vp": ["-1", "2"]
+          "weekly_vp": ["-1", "2"],
+          "clinch": null
         },
         {
           "rank": 4,
@@ -117,7 +120,8 @@ GOLDEN_STANDINGS = json.loads(
           "losses": 2,
           "ties": 0,
           "points_for": "195",
-          "weekly_vp": ["0", "-1"]
+          "weekly_vp": ["0", "-1"],
+          "clinch": null
         }
       ],
       "divisions": [
@@ -135,7 +139,8 @@ GOLDEN_STANDINGS = json.loads(
               "losses": 0,
               "ties": 0,
               "points_for": "250",
-              "weekly_vp": ["3", "3"]
+              "weekly_vp": ["3", "3"],
+              "clinch": null
             },
             {
               "rank": 2,
@@ -148,7 +153,8 @@ GOLDEN_STANDINGS = json.loads(
               "losses": 1,
               "ties": 0,
               "points_for": "215",
-              "weekly_vp": ["2", "0"]
+              "weekly_vp": ["2", "0"],
+              "clinch": null
             }
           ]
         },
@@ -166,7 +172,8 @@ GOLDEN_STANDINGS = json.loads(
               "losses": 1,
               "ties": 0,
               "points_for": "205",
-              "weekly_vp": ["-1", "2"]
+              "weekly_vp": ["-1", "2"],
+              "clinch": null
             },
             {
               "rank": 4,
@@ -179,7 +186,8 @@ GOLDEN_STANDINGS = json.loads(
               "losses": 2,
               "ties": 0,
               "points_for": "195",
-              "weekly_vp": ["0", "-1"]
+              "weekly_vp": ["0", "-1"],
+              "clinch": null
             }
           ]
         }
@@ -299,6 +307,7 @@ def _seed_league(
     team_specs: Sequence[tuple[str, str, str | None]],
     weeks: Mapping[int, Sequence[MatchupDTO]],
     regular_season_length: int,
+    playoff_team_count: int | None = None,
     season: int = SEASON,
     external_id: str = LEAGUE_EXTERNAL,
 ) -> int:
@@ -316,13 +325,16 @@ def _seed_league(
         )
         for index, (external_id_name, name, division) in enumerate(team_specs, start=1)
     ]
+    metadata: dict[str, object] = {
+        "regular_season_length": regular_season_length,
+        "team_count": len(team_specs),
+    }
+    if playoff_team_count is not None:
+        metadata["playoff_team_count"] = playoff_team_count
     league = LeagueDTO(
         external_id=external_id,
         name="Standings Fixture League",
-        metadata={
-            "regular_season_length": regular_season_length,
-            "team_count": len(team_specs),
-        },
+        metadata=metadata,
     )
     seed = {
         (external_id, season): (
@@ -409,6 +421,43 @@ def test_AC_API_02_standings_match_the_golden_json(
 
     assert response.status_code == 200
     assert response.json() == GOLDEN_STANDINGS
+
+
+def test_AC_PC_11_standings_api_serializes_each_clinch_status(
+    api_factory: Callable[[], Api],
+) -> None:
+    """A stored playoff field size puts the same badge on overall and division rows."""
+    api = api_factory()
+    league_id = _seed_league(
+        api,
+        team_specs=FOUR_TEAMS,
+        weeks=_fixture_weeks(),
+        regular_season_length=2,
+        playoff_team_count=4,
+    )
+    user_id = _create_user(api, "member@example.com", league_id=league_id)
+    _login(api, user_id)
+
+    response = api.client.get(_standings_path(league_id))
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert {row["team_name"]: row["clinch"] for row in payload["overall"]} == {
+        "Alpha": "Z",
+        "Bravo": "X",
+        "Charlie": "X",
+        "Delta": "Y",
+    }
+    assert {
+        row["team_name"]: row["clinch"]
+        for division in payload["divisions"]
+        for row in division["standings"]
+    } == {
+        "Alpha": "Z",
+        "Bravo": "X",
+        "Delta": "Y",
+        "Charlie": "X",
+    }
 
 
 # ---------------------------------------------------------------------------

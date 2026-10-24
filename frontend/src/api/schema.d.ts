@@ -1144,6 +1144,8 @@ export interface components {
      * @description One team's overall standing as returned by the standings endpoint.
      */
     StandingsRow: {
+      /** Clinch */
+      clinch: ("X" | "Y" | "Z" | "E") | null;
       /** Division */
       division: string | null;
       /** Losses */

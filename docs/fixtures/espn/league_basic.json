@@ -106,6 +106,18 @@
       "home": {"teamId": 3, "totalPoints": 110.0},
       "away": {"teamId": 4, "totalPoints": 100.0},
       "winner": "HOME"
+    },
+    {
+      "matchupPeriodId": 2,
+      "home": {"teamId": 4, "totalPoints": 0.0},
+      "away": {"teamId": 1, "totalPoints": 0.0},
+      "winner": "UNDECIDED"
+    },
+    {
+      "matchupPeriodId": 2,
+      "home": {"teamId": 2, "totalPoints": 0.0},
+      "away": {"teamId": 3, "totalPoints": 0.0},
+      "winner": "UNDECIDED"
     }
   ]
 }

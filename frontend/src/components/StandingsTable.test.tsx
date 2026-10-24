@@ -75,6 +75,18 @@ describe("StandingsTable", () => {
     expect(ranks).toEqual(["1", "4", "6"]);
   });
 
+  it("shows the clinch designation beside the team without changing the team button name", () => {
+    renderTable();
+    expect(screen.getAllByRole("button", { name: "Alpha" })[0]).toBeInTheDocument();
+    expect(screen.getAllByRole("img", { name: "Z — top seed" })).toHaveLength(1);
+    expect(screen.getAllByRole("img", { name: "X — clinched playoff berth" })).toHaveLength(2);
+  });
+
+  it("omits the designation badge for a team with no proven status", () => {
+    renderTable({ rows: [{ ...rows[0], clinch: null }] });
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
   it("selects a team through a keyboard-operable button", async () => {
     const onSelectTeam = vi.fn();
     const user = userEvent.setup();

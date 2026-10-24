@@ -3,7 +3,8 @@
     "externalId": "e2e-fixture-league",
     "name": "E2E Fixture League",
     "season": 2026,
-    "regularSeasonLength": 2
+    "regularSeasonLength": 2,
+    "playoffTeamCount": 2
   },
   "users": {
     "admin": {
@@ -79,6 +80,7 @@
         "team": "Alpha",
         "owner": "Owner Alpha",
         "division": "East",
+        "clinch": "Z",
         "victoryPoints": "6",
         "wins": 2,
         "losses": 0,
@@ -91,6 +93,7 @@
         "team": "Bravo",
         "owner": "Owner Bravo",
         "division": "East",
+        "clinch": "E",
         "victoryPoints": "2",
         "wins": 1,
         "losses": 1,
@@ -103,6 +106,7 @@
         "team": "Delta",
         "owner": "Owner Delta",
         "division": "West",
+        "clinch": "Y",
         "victoryPoints": "1",
         "wins": 1,
         "losses": 1,
@@ -115,6 +119,7 @@
         "team": "Charlie",
         "owner": "Owner Charlie",
         "division": "West",
+        "clinch": "E",
         "victoryPoints": "-1",
         "wins": 0,
         "losses": 2,
@@ -129,11 +134,13 @@
         "teams": [
           {
             "team": "Alpha",
-            "rank": 1
+            "rank": 1,
+            "clinch": "Z"
           },
           {
             "team": "Bravo",
-            "rank": 2
+            "rank": 2,
+            "clinch": "E"
           }
         ]
       },
@@ -142,11 +149,13 @@
         "teams": [
           {
             "team": "Delta",
-            "rank": 3
+            "rank": 3,
+            "clinch": "Y"
           },
           {
             "team": "Charlie",
-            "rank": 4
+            "rank": 4,
+            "clinch": "E"
           }
         ]
       }
