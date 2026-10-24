@@ -128,8 +128,10 @@ future pairings with `is_complete = false`.
 ### `score`
 `team_id` → team, `league_id`, `season`, `week`, `points` (NUMERIC(8,2)), `victory_points` (NUMERIC(10,6)), `vp_h2h`, `vp_top_half`, `vp_high`, `vp_low` (each NUMERIC(10,6)).
 Unique: (`team_id`, `season`, `week`). A future, unplayed matchup has no score row; provider zeroes
-for a game without a result are not stored as points. A numeric incomplete/live score may remain on
-an existing row, but its VP columns are reset to zero and it is excluded from standings.
+for a game without a result are not stored as points. A numeric incomplete/live score keeps its row
+while the provider still reports points for it, but its VP columns are reset to zero and it is
+excluded from standings; a team with no provider-reported points for the week has its score row
+deleted during reconciliation.
 
 ### Future schedule reconciliation
 
