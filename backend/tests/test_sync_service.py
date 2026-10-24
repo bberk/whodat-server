@@ -29,6 +29,7 @@ from app.providers.base import (
     WeekStatus,
 )
 from app.providers.fake import FakeProvider
+from app.services.standings_service import StandingsService
 from app.services.sync_service import (
     PROVIDER_CONFIG_REF,
     LeagueNotFoundError,
@@ -726,10 +727,116 @@ def test_AC_DB_12_completed_pairings_are_not_rewritten(session: Session) -> None
 # ---------------------------------------------------------------------------
 
 
-def test_AC_DB_11_default_sync_stores_full_schedule_before_week_one(
+def test_AC_DB_11_mixed_completion_week_gets_no_vp_and_repeat_sync_is_idempotent(
     session: Session,
 ) -> None:
-    """A known season length syncs scheduled weeks even when no week has completed."""
+    """A week with one final and one live matchup earns no VP, and repeat syncs stay stable."""
+    seed = _basic_seed(last_completed_week=1, regular_season_length=2)
+    # The final matchup sits under the lowest home team id, so a first-matchup completeness gate
+    # would wrongly treat this mid-week snapshot as a completed week.
+    seed[("league-1", 2026)][3][2] = [
+        MatchupDTO(
+            week=2,
+            home=MatchupSideDTO(team_external_id="team-1", points=Decimal("130.00")),
+            away=MatchupSideDTO(team_external_id="team-3", points=Decimal("95.00")),
+            is_playoff=False,
+            is_complete=True,
+        ),
+        _scheduled_matchup(
+            2,
+            "team-2",
+            "team-4",
+            home_points=Decimal("105.00"),
+            away_points=Decimal("115.00"),
+        ),
+    ]
+    service = SyncService(_build_provider(seed), session)
+
+    first = service.sync_league(_league_ref(), "fake", 2026)
+    session.commit()
+
+    repo = SyncRepository(session)
+    league = repo.get_league("fake", "league-1")
+    assert league is not None
+    assert first.weeks_synced == (1, 2)
+    assert first.weeks_with_vp_recomputed == (1,)
+    week2_scores = repo.get_week_scores(league.id, 2026, 2)
+    # Both the final and the live matchup have score rows, but the mixed week earns no VP.
+    assert len(week2_scores) == 4
+    assert all(score.victory_points == Decimal("0.000000") for score in week2_scores)
+    assert StandingsService(session).get_standings(league.id, 2026).completed_weeks == 1
+
+    # An identical second sync changes nothing and recomputes no week.
+    before = _vp_rows(session)
+    second = service.sync_league(_league_ref(), "fake", 2026)
+    session.commit()
+
+    assert second.weeks_synced == (1, 2)
+    assert second.weeks_with_vp_recomputed == ()
+    assert _vp_rows(session) == before
+
+
+def test_narrowing_a_completed_week_resets_its_stored_vp(session: Session) -> None:
+    """A week that becomes partially complete has its stale stored VP reset to zero."""
+    service = SyncService(_build_provider(_basic_seed(regular_season_length=2)), session)
+    service.sync_league(_league_ref(), "fake", 2026)
+    session.commit()
+
+    repo = SyncRepository(session)
+    league = repo.get_league("fake", "league-1")
+    assert league is not None
+    assert any(score.victory_points != 0 for score in repo.get_week_scores(league.id, 2026, 2)), (
+        "the fully completed seed must store nonzero week-2 VP"
+    )
+
+    narrowed = _basic_seed(last_completed_week=1, regular_season_length=2)
+    narrowed[("league-1", 2026)][3][2] = [
+        MatchupDTO(
+            week=2,
+            home=MatchupSideDTO(team_external_id="team-1", points=Decimal("130.00")),
+            away=MatchupSideDTO(team_external_id="team-3", points=Decimal("95.00")),
+            is_playoff=False,
+            is_complete=True,
+        ),
+        _scheduled_matchup(
+            2,
+            "team-2",
+            "team-4",
+            home_points=Decimal("105.00"),
+            away_points=Decimal("115.00"),
+        ),
+    ]
+    summary = SyncService(_build_provider(narrowed), session).sync_league(
+        _league_ref(), "fake", 2026
+    )
+    session.commit()
+
+    assert summary.weeks_synced == (1, 2)
+    assert summary.weeks_with_vp_recomputed == ()
+    assert all(
+        score.victory_points == Decimal("0.000000")
+        for score in repo.get_week_scores(league.id, 2026, 2)
+    )
+
+
+def test_sync_without_season_length_or_completed_week_syncs_no_weeks(
+    session: Session,
+) -> None:
+    """With no known season length and no completed week, no week range is guessed."""
+    seed = _basic_seed(last_completed_week=None, regular_season_length=None)
+    summary = SyncService(_build_provider(seed), session).sync_league(_league_ref(), "fake", 2026)
+    session.commit()
+
+    assert summary.weeks_synced == ()
+    assert summary.weeks_with_vp_recomputed == ()
+    assert session.scalar(select(func.count()).select_from(Matchup)) == 0
+    assert session.scalar(select(func.count()).select_from(Score)) == 0
+
+
+def test_AC_DB_11_default_sync_stores_every_regular_season_week(
+    session: Session,
+) -> None:
+    """A known season length syncs every regular-season week even when WeekStatus has none."""
     seed = _basic_seed(last_completed_week=None)
     provider = _build_provider(seed)
     service = SyncService(provider, session)

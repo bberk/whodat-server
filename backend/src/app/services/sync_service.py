@@ -259,11 +259,11 @@ class SyncService:
             matchups = self._repository.get_week_matchups(league_id, season, week)
             if not matchups:
                 continue
-            # Determine if week is complete and not playoff.
-            is_playoff = matchups[0].is_playoff
-            is_complete = matchups[0].is_complete
-            if is_playoff or not is_complete:
-                # VP remains zero for incomplete or playoff weeks.
+            # A week earns VP only when every matchup is final and none is a playoff game.
+            # A partially complete week is the normal mid-week state, so judging the week by
+            # one matchup would compute VP from an unfinished schedule.
+            if any(matchup.is_playoff or not matchup.is_complete for matchup in matchups):
+                # VP remains zero for incomplete, mixed, or playoff weeks.
                 continue
             self._recompute_week_vp(league_id, season, week)
             weeks_with_vp_recomputed.append(week)
@@ -327,8 +327,9 @@ class SyncService:
             if not matchups:
                 weeks_skipped.append(week)
                 continue
-            if matchups[0].is_playoff or not matchups[0].is_complete:
-                # Playoff and incomplete weeks earn no VP; leave their stored values untouched.
+            if any(matchup.is_playoff or not matchup.is_complete for matchup in matchups):
+                # Playoff, incomplete, and mixed-completion weeks earn no VP, so leave their
+                # stored values untouched.
                 weeks_skipped.append(week)
                 continue
             self._recompute_week_vp(league.id, season, week)
@@ -353,8 +354,10 @@ class SyncService:
         """Sync one week, reconciling only while its schedule is still incomplete.
 
         An incomplete week is a provider snapshot, not an append-only feed: stale pairings and
-        scores are removed before current rows are upserted. A completed week keeps the existing
-        immutable-schedule behavior, including the separate ability to correct reported scores.
+        scores are removed before current rows are upserted. A week with any incomplete matchup is
+        reconciled and has its VP columns reset to zero, so a mixed-completion week never keeps
+        stored VP. A completed week keeps the existing immutable-schedule behavior, including the
+        separate ability to correct reported scores.
         """
         resolved = [
             (
