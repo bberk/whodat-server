@@ -1,4 +1,5 @@
 import type { StandingsRow } from "../api/types";
+import { ClinchBadge } from "./ClinchBadge";
 import { formatPoints, formatRecord, formatVP, vpTone, vpToneClass } from "./format";
 import { seriesStyle } from "./series";
 
@@ -105,23 +106,26 @@ export function StandingsTable({
                     {row.rank}
                   </th>
                   <td
-                    className={`sticky left-[46px] z-10 min-w-[148px] px-3 py-2 shadow-[6px_0_8px_-6px_rgba(17,24,39,0.18)] ${stickyBackground}`}
+                    className={`sticky left-[46px] z-10 min-w-[168px] px-3 py-2 shadow-[6px_0_8px_-6px_rgba(17,24,39,0.18)] ${stickyBackground}`}
                   >
-                    <button
-                      type="button"
-                      aria-pressed={selected}
-                      onClick={() => onSelectTeam(row.team_id)}
-                      className="flex w-full items-center gap-2 rounded text-left font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-                    >
-                      <span
-                        aria-hidden="true"
-                        className="inline-flex h-5 w-5 flex-none items-center justify-center rounded-md border text-[11px] font-bold"
-                        style={{ color: style.color, borderColor: style.color }}
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() => onSelectTeam(row.team_id)}
+                        className="flex min-w-0 flex-1 items-center gap-2 rounded text-left font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
                       >
-                        {row.team_name.charAt(0)}
-                      </span>
-                      <span>{row.team_name}</span>
-                    </button>
+                        <span
+                          aria-hidden="true"
+                          className="inline-flex h-5 w-5 flex-none items-center justify-center rounded-md border text-[11px] font-bold"
+                          style={{ color: style.color, borderColor: style.color }}
+                        >
+                          {row.team_name.charAt(0)}
+                        </span>
+                        <span>{row.team_name}</span>
+                      </button>
+                      <ClinchBadge status={row.clinch} />
+                    </div>
                   </td>
                   <td className={`${numCell} text-left text-gray-600`}>{row.owner_name ?? "—"}</td>
                   <td className={`${numCell} font-bold ${vpToneClass(vpTone(row.victory_points))}`}>

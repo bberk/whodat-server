@@ -96,6 +96,7 @@ def _seed(
     team_specs: Sequence[tuple[str, str, str | None]],
     weeks: Mapping[int, Sequence[MatchupDTO]],
     regular_season_length: int,
+    playoff_team_count: int | None = None,
 ) -> SeededLeague:
     """Sync a fake league, store its league-season settings, and return stored ids."""
     owners = [
@@ -111,10 +112,16 @@ def _seed(
         )
         for index, (external_id, name, division) in enumerate(team_specs, start=1)
     ]
+    metadata: dict[str, object] = {
+        "regular_season_length": regular_season_length,
+        "team_count": len(team_specs),
+    }
+    if playoff_team_count is not None:
+        metadata["playoff_team_count"] = playoff_team_count
     league = LeagueDTO(
         external_id=LEAGUE_EXTERNAL_ID,
         name="Test League",
-        metadata={"regular_season_length": regular_season_length, "team_count": len(team_specs)},
+        metadata=metadata,
     )
     week_status = WeekStatus(last_completed_week=max(weeks) if weeks else None)
     seed = {
@@ -193,6 +200,94 @@ def test_AC_ST_01_season_vp_is_exact_sum_of_weekly_vp(session: Session) -> None:
     assert rows["Delta"].victory_points == Fraction(1)
     for row in standings.overall:
         assert row.victory_points == sum(row.weekly_vp, Fraction(0))
+
+
+def test_AC_PC_11_standings_rows_and_divisions_carry_finished_season_statuses(
+    session: Session,
+) -> None:
+    """A finished two-division season yields Z/Y and eliminates the other two teams."""
+    seeded = _seed(
+        session,
+        team_specs=FOUR_TEAMS,
+        weeks=_four_team_weeks(),
+        regular_season_length=2,
+        playoff_team_count=2,
+    )
+
+    standings = StandingsService(session).get_standings(seeded.league_id, SEASON)
+    rows = _by_name(standings)
+
+    assert {name: row.clinch for name, row in rows.items()} == {
+        "Alpha": "Z",
+        "Bravo": "E",
+        "Charlie": "E",
+        "Delta": "Y",
+    }
+    assert {
+        division.name: {row.team_name: row.clinch for row in division.standings}
+        for division in standings.divisions
+    } == {
+        "East": {"Alpha": "Z", "Bravo": "E"},
+        "West": {"Delta": "Y", "Charlie": "E"},
+    }
+
+
+def test_AC_PC_11_future_h2h_pairings_drive_live_standings_statuses(
+    session: Session,
+) -> None:
+    """Two 5-VP teams have already clinched X; their 0-VP opponents cannot reach the top two."""
+    tie_week = [
+        _m(1, "team-a", "50.00", "team-b", "120.00"),
+        _m(1, "team-c", "120.00", "team-d", "50.00"),
+    ]
+    future = [
+        _m(
+            3,
+            "team-a",
+            "0.00",
+            "team-b",
+            "0.00",
+            is_complete=False,
+        ),
+        _m(
+            3,
+            "team-c",
+            "0.00",
+            "team-d",
+            "0.00",
+            is_complete=False,
+        ),
+    ]
+    seeded = _seed(
+        session,
+        team_specs=tuple((external_id, name, None) for external_id, name, _ in FOUR_TEAMS),
+        weeks={1: tie_week, 2: tie_week, 3: future},
+        regular_season_length=3,
+        playoff_team_count=2,
+    )
+
+    rows = _by_name(StandingsService(session).get_standings(seeded.league_id, SEASON))
+
+    assert {name: row.clinch for name, row in rows.items()} == {
+        "Alpha": "E",
+        "Bravo": "X",
+        "Charlie": "X",
+        "Delta": "E",
+    }
+
+
+def test_AC_PC_08_standings_have_no_status_without_playoff_metadata(session: Session) -> None:
+    """An existing season whose metadata predates the field is null, not guessed."""
+    seeded = _seed(
+        session,
+        team_specs=FOUR_TEAMS,
+        weeks=_four_team_weeks(),
+        regular_season_length=2,
+    )
+
+    standings = StandingsService(session).get_standings(seeded.league_id, SEASON)
+
+    assert all(row.clinch is None for row in standings.overall)
 
 
 def test_AC_ST_10_cup_week_skips_wlt_but_keeps_points_for_and_other_vp(

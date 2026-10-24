@@ -95,7 +95,27 @@ Three tied teams each get exactly 1/3 high-score VP (tests must use exact fracti
 | AC-WD-07 | `GET /api/v1/leagues/{league_id}/seasons/{season}/wapdate` requires league membership (non-members get 404, unauthenticated requests get 401). It returns the offered periods with period number, start and end week, status (`complete` or `current`), counted weeks, and lowest-first rows with team id and name, VP as a string, wins, points for as a string, and an eliminated boolean. An empty season returns no periods. |
 | AC-WD-08 | The standings page shows a WAPDate section below the cumulative VP chart. An accessible period toggle lists only the offered periods, labelled with their week range and complete/in-progress state, and defaults to the current period or the latest complete one. The selected period shows Team, VP, Wins and PF lowest first, with a sticky team column and horizontal scrolling inside the table container and no page-body sideways scroll at 360px. Eliminated teams are greyed and carry a text/accessible "Safe" marker, never colour alone. Loading, empty, and error states match the other data views. |
 
-### 2.2 Elo history
+### 2.2 Playoff clinch designations
+
+The clinch calculator is a pure domain function over exact VP, wins, divisions, cup week, playoff
+field size, and remaining matchups. It never reads points for when proving a boundary.
+
+| ID | Criterion |
+|---|---|
+| AC-PC-01 | In a finished two-division season, the better division winner is Z, the other division winner is Y, other playoff teams are X, and non-playoff teams are E. Each team has at most one designation. |
+| AC-PC-02 | With zero or one division, the overall #1 seed is Z, other playoff teams are X, and Y is never used. |
+| AC-PC-03 | Precedence is E, then Z, then Y, then X, otherwise no designation. A VP+wins tie at a decisive boundary is undecided because points for could change it; differing wins break a VP tie before points for is considered. A tie for a division's top record does not clinch that division. |
+| AC-PC-04 | Remaining H2H pairings are respected: every non-cup game can be a home win, away win, or tie, contributing +1/+1/0.5 VP and wins only for a decisive winner. Direct H2H results that decide a late-season clinch or elimination are reflected rather than inferred from current totals. |
+| AC-PC-05 | Cup weeks still include feasible top-half/high/low VP and current totals, but contribute no H2H VP and no win in any scenario. |
+| AC-PC-06 | A bye is a valid remaining slot: it contributes rank VP extremes and no H2H VP or win. Missing, duplicate, unknown-team, self-team, wrong-week, or incomplete week coverage is not treated as a schedule. |
+| AC-PC-07 | No designations are attempted when more than four regular-season weeks remain; with four or fewer, the same data can produce proven statuses. |
+| AC-PC-08 | Missing or unusable playoff field size metadata yields only null designations. Existing seasons require a re-sync to acquire the field size; no value is guessed. |
+| AC-PC-09 | Cheap feasible VP/wins bounds run before scenario enumeration. If a per-team node cap is exceeded, that team receives no designation; a failed search never produces a false badge. |
+| AC-PC-10 | The calculator is deterministic and performs no I/O. Invalid settings, unsupported division shapes, and incomplete schedules return null designations for every affected team rather than partially guessing. |
+| AC-PC-11 | The standings service computes designations once for the selected league season and puts the same `clinch` value on every overall row and on the same team's division row. The calculation uses remaining stored matchups, not another season's data. |
+| AC-PC-12 | `app/domain/clinch.py` has 100% line and branch coverage in this feature's test suite. The conservative cross-team rank-VP relaxation and node-cap behavior are documented so a withheld badge is understood as intentional. |
+
+### 2.3 Elo history
 
 The Elo model is pure and deterministic. Expected numbers below use exact `Decimal` arithmetic;
 the API serializes ratings and changes as strings.
@@ -137,6 +157,8 @@ the API serializes ratings and changes as strings.
 | AC-DB-08 | ESPN credentials (`espn_s2`, `SWID`) never appear in logs, error messages, API responses, or the repository. |
 | AC-DB-09 | Each `league_season` stores an optional `cup_week` (nullable; `null` means no cup week). Sync preserves it, recompute stores `vp_h2h = 0` on that week, and changing it recomputes the season from stored data in the same operation. |
 | AC-DB-10 | Each `league_season` stores a nullable `last_refreshed_at` timestamp, surfaced as an ISO instant. A successful provider-backed sync (add league, add season, per-season refresh, or CLI sync) sets it; a provider-free recompute or cup-week edit never changes it. Existing rows are `null` ("Never") after migration 0007. |
+| AC-DB-11 | A default sync with a known regular-season length stores every regular-season matchup, including future incomplete pairings, and stores the provider's `playoff_team_count` in that season's metadata. Future sides with no provider points create no score row and earn no VP; an explicit bye is retained. |
+| AC-DB-12 | Syncing an incomplete week reconciles it against the provider: matchups whose home slot no longer exists are deleted, stale removed-team scores are deleted, current pairings and home/away swaps are inserted or updated, and a moved team may become a bye. Completed-week matchup and score data is not reconciled by a future schedule edit. |
 
 ## 4. Provider abstraction
 
@@ -190,6 +212,7 @@ the API serializes ratings and changes as strings.
 | AC-API-07 | `GET` and `PUT /leagues/{league_id}/seasons/{season}/cup-week` require league membership (non-members get 404) and `PUT` requires the admin role (403). `GET` returns season, cup_week, and regular_season_length. `PUT` accepts a week in 1..regular_season_length or `null` to clear it, rejects missing, zero, negative, and out-of-range values with a structured 4xx, persists the value, and recomputes the league's stored VP in the same operation. |
 | AC-API-08 | The league-admin endpoints `GET /leagues/{league_id}/members`, `DELETE /leagues/{league_id}/members/{user_id}`, `POST /leagues/{league_id}/invites`, and `DELETE /leagues/{league_id}` exist, match the committed OpenAPI document, and use the existing structured 401/403/404/409 error shapes. The two delete routes return 204 with no body. |
 | AC-API-09 | `GET /leagues/{league_id}/seasons/settings`, `POST /leagues/{league_id}/seasons/{season}/refresh`, and `DELETE /leagues/{league_id}/seasons/{season}` exist, match the committed OpenAPI document, and use the structured 401/403/404/409/422 error shapes with no credential, token, or provider exception text. `docs/openapi.json` and the generated frontend types are regenerated with them. |
+| AC-API-10 | Every standings row, in both `overall` and `divisions`, includes `clinch` as one of `"Z"`, `"Y"`, `"X"`, `"E"`, or `null`. The committed OpenAPI document and generated frontend types include the field, and authenticated responses serialize the same value for a team in both places. |
 
 ## 7. Frontend
 
@@ -213,6 +236,7 @@ the API serializes ratings and changes as strings.
 | AC-FE-16 | Each seasons-table refresh button syncs only that row's season through the provider with the caller's stored credentials, shows a per-row progress state and any structured error (including the 429 Retry-After window), and updates the row's last-refreshed value on success. Last refreshed displays a readable local value from the ISO timestamp, or `Never` when null. The table scrolls inside its own container with a sticky season column and no page-body sideways scroll at 360px; every control is keyboard operable with an accessible name. |
 | AC-FE-17 | Each seasons-table delete control is an X with an accessible name, opens a confirmation dialog naming the season, deletes only that season's data, and on success removes the row and refreshes the shared season and standings lists. If the deleted season was selected, the app selects the latest remaining season or none. |
 | AC-FE-18 | The standings page keeps the `Overall standings`, `Division standings`, `Cumulative VP by week`, and `WAPDate standings` headings, their tables/chart, the meta line under the page title, and all accessibility labels/captions, but shows no instructional subheader paragraph under a section and no footer note about decimal strings. |
+| AC-FE-19 | The overall and division standings show a small designation beside the team for Z/Y/X/E, with visible letter, tooltip, and accessible name spelling out `"Z — top seed"`, `"Y — division winner"`, `"X — clinched playoff berth"`, or `"E — eliminated"`. The team button keeps the team name as its accessible name, a text legend for all four sits near the overall table, colour is not the only signal, the sticky team/rank columns remain, and the page still fits 360px without body sideways scroll. |
 
 ## 8. Repository and delivery
 

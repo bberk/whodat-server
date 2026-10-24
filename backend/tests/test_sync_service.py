@@ -216,6 +216,26 @@ def _build_provider(
     return FakeProvider(seed)
 
 
+def _scheduled_matchup(
+    week: int,
+    home: str,
+    away: str | None,
+    *,
+    home_points: Decimal | None = None,
+    away_points: Decimal | None = None,
+) -> MatchupDTO:
+    """Build an incomplete regular-season slot, with optional live/previous scores."""
+    return MatchupDTO(
+        week=week,
+        home=MatchupSideDTO(team_external_id=home, points=home_points),
+        away=(
+            MatchupSideDTO(team_external_id=away, points=away_points) if away is not None else None
+        ),
+        is_playoff=False,
+        is_complete=False,
+    )
+
+
 # ---------------------------------------------------------------------------
 # AC-DB-01: After a sync, DB contains league, owners, teams, matchups, scores
 # ---------------------------------------------------------------------------
@@ -590,15 +610,126 @@ def test_non_scoring_weeks_store_rows_but_no_vp(
         assert score.vp_low == Decimal("0.000000")
 
 
+def test_AC_DB_11_future_regular_season_schedule_has_no_scores_or_vp(
+    session: Session,
+) -> None:
+    """Default sync stores future pairings but no fabricated team-week scores or VP."""
+    seed = _basic_seed(last_completed_week=2, regular_season_length=3)
+    seed[("league-1", 2026)][3][3] = [
+        _scheduled_matchup(3, "team-1", "team-2"),
+        _scheduled_matchup(3, "team-3", None),
+        _scheduled_matchup(3, "team-4", None),
+    ]
+
+    summary = SyncService(_build_provider(seed), session).sync_league(_league_ref(), "fake", 2026)
+    session.commit()
+
+    repo = SyncRepository(session)
+    league = repo.get_league("fake", "league-1")
+    assert league is not None
+    future = repo.get_week_matchups(league.id, 2026, 3)
+    assert summary.weeks_synced == (1, 2, 3)
+    assert summary.weeks_with_vp_recomputed == (1, 2)
+    assert len(future) == 3
+    assert all(not matchup.is_complete for matchup in future)
+    assert repo.get_week_scores(league.id, 2026, 3) == []
+
+
+def test_AC_DB_12_incomplete_schedule_edit_reconciles_rows_and_preserves_completed_week(
+    session: Session,
+) -> None:
+    """Moved, swapped, removed, and bye slots replace stale future data only."""
+    initial = _basic_seed(last_completed_week=1, regular_season_length=2)
+    initial[("league-1", 2026)][3][2] = [
+        _scheduled_matchup(
+            2, "team-1", "team-2", home_points=Decimal("10"), away_points=Decimal("20")
+        ),
+        _scheduled_matchup(
+            2, "team-3", "team-4", home_points=Decimal("30"), away_points=Decimal("40")
+        ),
+    ]
+    SyncService(_build_provider(initial), session).sync_league(_league_ref(), "fake", 2026)
+    session.commit()
+
+    repo = SyncRepository(session)
+    league = repo.get_league("fake", "league-1")
+    assert league is not None
+    completed_before = [
+        (matchup.home_team_id, matchup.away_team_id, matchup.is_complete)
+        for matchup in repo.get_week_matchups(league.id, 2026, 1)
+    ]
+    scores_before = _vp_rows(session)
+    assert len(repo.get_week_scores(league.id, 2026, 2)) == 4
+
+    edited = _basic_seed(last_completed_week=1, regular_season_length=2)
+    edited[("league-1", 2026)][3][2] = [
+        _scheduled_matchup(2, "team-2", "team-1"),
+        _scheduled_matchup(2, "team-3", None),
+    ]
+    summary = SyncService(_build_provider(edited), session).sync_league(_league_ref(), "fake", 2026)
+    session.commit()
+
+    teams = {team.external_id: team.id for team in repo.get_teams(league.id, 2026)}
+    future = repo.get_week_matchups(league.id, 2026, 2)
+    assert [(matchup.home_team_id, matchup.away_team_id) for matchup in future] == [
+        (teams["team-2"], teams["team-1"]),
+        (teams["team-3"], None),
+    ]
+    assert repo.get_week_scores(league.id, 2026, 2) == []
+    assert summary.weeks_with_vp_recomputed == ()
+    assert [
+        (matchup.home_team_id, matchup.away_team_id, matchup.is_complete)
+        for matchup in repo.get_week_matchups(league.id, 2026, 1)
+    ] == completed_before
+    assert {key: values for key, values in _vp_rows(session).items() if key[0] == 1} == {
+        key: values for key, values in scores_before.items() if key[0] == 1
+    }
+
+
+def test_AC_DB_12_completed_pairings_are_not_rewritten(session: Session) -> None:
+    """A later provider home/away change cannot rewrite an already completed pairing."""
+    initial = _basic_seed(last_completed_week=2, regular_season_length=2)
+    SyncService(_build_provider(initial), session).sync_league(_league_ref(), "fake", 2026)
+    session.commit()
+
+    repo = SyncRepository(session)
+    league = repo.get_league("fake", "league-1")
+    assert league is not None
+    before = [
+        (matchup.home_team_id, matchup.away_team_id)
+        for matchup in repo.get_week_matchups(league.id, 2026, 1)
+    ]
+
+    edited = _basic_seed(last_completed_week=2, regular_season_length=2)
+    edited[("league-1", 2026)][3][1] = [
+        MatchupDTO(
+            week=1,
+            home=MatchupSideDTO(team_external_id="team-4", points=Decimal("90.00")),
+            away=MatchupSideDTO(team_external_id="team-1", points=Decimal("120.00")),
+            is_playoff=False,
+            is_complete=True,
+        ),
+        *edited[("league-1", 2026)][3][1][1:],
+    ]
+    SyncService(_build_provider(edited), session).sync_league(_league_ref(), "fake", 2026)
+    session.commit()
+
+    after = [
+        (matchup.home_team_id, matchup.away_team_id)
+        for matchup in repo.get_week_matchups(league.id, 2026, 1)
+    ]
+    assert after == before
+
+
 # ---------------------------------------------------------------------------
 # WeekStatus=None and explicit weeks
 # ---------------------------------------------------------------------------
 
 
-def test_week_status_none_with_no_explicit_weeks_upserts_only_metadata(
+def test_AC_DB_11_default_sync_stores_full_schedule_before_week_one(
     session: Session,
 ) -> None:
-    """When no week has completed and none were requested, only league/owners/teams are upserted."""
+    """A known season length syncs scheduled weeks even when no week has completed."""
     seed = _basic_seed(last_completed_week=None)
     provider = _build_provider(seed)
     service = SyncService(provider, session)
@@ -606,15 +737,13 @@ def test_week_status_none_with_no_explicit_weeks_upserts_only_metadata(
     summary = service.sync_league(_league_ref(), "fake", 2026)
     session.commit()
 
-    # Metadata was persisted.
     assert summary.league_changed is True
     assert summary.owners_changed == 4
     assert summary.teams_changed == 4
-    # No matchup or score rows were written.
-    assert summary.weeks_synced == ()
-    assert summary.weeks_with_vp_recomputed == ()
-    assert session.scalar(select(func.count()).select_from(Matchup)) == 0
-    assert session.scalar(select(func.count()).select_from(Score)) == 0
+    assert summary.weeks_synced == (1, 2)
+    assert summary.weeks_with_vp_recomputed == (1, 2)
+    assert session.scalar(select(func.count()).select_from(Matchup)) == 4
+    assert session.scalar(select(func.count()).select_from(Score)) == 8
 
 
 def test_explicit_weeks_synced_regardless_of_week_status(session: Session) -> None:
@@ -1091,7 +1220,7 @@ def test_recompute_uses_each_seasons_own_regular_season_length(session: Session)
     }
     provider = _build_provider(seed)
     service = SyncService(provider, session)
-    service.sync_league(_league_ref(), "fake", 2025)
+    service.sync_league(_league_ref(), "fake", 2025, weeks=[1, 2])
     session.commit()
     service.sync_league(_league_ref(), "fake", 2026)
     session.commit()

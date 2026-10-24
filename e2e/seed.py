@@ -111,6 +111,7 @@ def _provider(fixture: dict[str, Any]) -> FakeProvider:
                 metadata={
                     "regular_season_length": league["regularSeasonLength"],
                     "team_count": len(teams),
+                    "playoff_team_count": league["playoffTeamCount"],
                 },
             ),
             _owner_dtos(fixture["teams"]),
@@ -198,6 +199,7 @@ def _validate(
         _check(errors, f"{label}.rank", row.rank, expected["rank"])
         _check(errors, f"{label}.owner", row.owner_name, expected["owner"])
         _check(errors, f"{label}.division", row.division, expected["division"])
+        _check(errors, f"{label}.clinch", row.clinch, expected["clinch"])
         _check(errors, f"{label}.vp", row.victory_points, expected["victoryPoints"])
         _check(errors, f"{label}.wins", row.wins, expected["wins"])
         _check(errors, f"{label}.losses", row.losses, expected["losses"])

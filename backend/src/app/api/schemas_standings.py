@@ -37,6 +37,7 @@ class StandingsRow(BaseModel):
     ties: int
     points_for: str
     weekly_vp: list[str]
+    clinch: Literal["X", "Y", "Z", "E"] | None
 
 
 class DivisionStandings(BaseModel):
@@ -140,6 +141,7 @@ def _row(row: ServiceStandingRow) -> StandingsRow:
         ties=row.ties,
         points_for=format_points(row.points_for),
         weekly_vp=[format_vp(value) for value in row.weekly_vp],
+        clinch=row.clinch,
     )
 
 

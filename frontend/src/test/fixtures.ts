@@ -123,6 +123,7 @@ export const standingsResponse: StandingsResponse = {
       ties: 0,
       points_for: "495",
       weekly_vp: ["2.5", "3", "3", "2.33"],
+      clinch: "Z",
     },
     {
       rank: 2,
@@ -136,6 +137,7 @@ export const standingsResponse: StandingsResponse = {
       ties: 0,
       points_for: "475",
       weekly_vp: ["2.5", "2", "2", "2.33"],
+      clinch: "X",
     },
     {
       rank: 3,
@@ -149,6 +151,7 @@ export const standingsResponse: StandingsResponse = {
       ties: 0,
       points_for: "405",
       weekly_vp: ["2", "1.5", "2", "0"],
+      clinch: "E",
     },
     {
       rank: 4,
@@ -162,6 +165,7 @@ export const standingsResponse: StandingsResponse = {
       ties: 0,
       points_for: "355",
       weekly_vp: ["0", "0", "-0.5", "2.33"],
+      clinch: "X",
     },
     {
       rank: 5,
@@ -175,6 +179,7 @@ export const standingsResponse: StandingsResponse = {
       ties: 0,
       points_for: "370",
       weekly_vp: ["0", "0.5", "0", "0"],
+      clinch: "Y",
     },
     {
       rank: 6,
@@ -188,6 +193,7 @@ export const standingsResponse: StandingsResponse = {
       ties: 0,
       points_for: "300",
       weekly_vp: ["-1", "-1", "-0.5", "-1"],
+      clinch: "E",
     },
   ],
   divisions: [

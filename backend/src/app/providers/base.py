@@ -42,10 +42,14 @@ class TeamDTO:
 
 @dataclass(frozen=True)
 class MatchupSideDTO:
-    """Represent one team's exact score in a matchup."""
+    """Represent one team's matchup slot and its score when the game has a result.
+
+    Future matchups have ``points=None``: their zero-looking provider score is not a result and
+    must not become a stored team-week score.
+    """
 
     team_external_id: str
-    points: Decimal
+    points: Decimal | None
 
 
 @dataclass(frozen=True)

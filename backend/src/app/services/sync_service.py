@@ -145,12 +145,13 @@ class SyncService:
         count, scoring type, ...) are written to this season's ``league_season`` row, so a league's
         seasons stay independent and refreshing one season never overwrites another's settings.
 
-        When weeks is None, sync defaults to 1..last_completed_week. If last_completed_week
-        is None and no explicit weeks were requested, only league/owners/teams are upserted
-        and no matchup/score rows are created.
+        When weeks is None and the provider supplies a regular-season length, sync ingests the
+        full regular-season schedule (including future incomplete matchups). Without that
+        metadata it falls back to 1..last_completed_week rather than guessing a season shape.
 
         When weeks is provided, those weeks are synced regardless of completion status.
-        Incomplete or playoff weeks are stored with VP zero.
+        Incomplete weeks are reconciled against the provider and receive no VP. Future sides
+        with no provider points have no score row; zero-looking future scores are not results.
 
         A successful sync records the season's ``last_refreshed_at`` instant, so the admin seasons
         table can show when the provider data was last brought up to date. Only a provider-backed
@@ -226,22 +227,17 @@ class SyncService:
             if team_result.changed:
                 teams_changed += 1
 
-        # Determine which weeks to sync.
+        # Determine which weeks to sync. A known season length means the full schedule is in
+        # scope, not just completed weeks; future pairings are required by the clinch calculator.
         week_status = provider.current_week(league_ref, season)
+        regular_season_length = _regular_season_length(league_dto.metadata)
         if weeks is None:
-            if week_status.last_completed_week is None:
-                # No completed weeks and no explicit request: only metadata, no matchups/scores.
-                self._repository.set_league_season_last_refreshed(league_id, season, self._clock())
-                return SyncSummary(
-                    league_id=league_id,
-                    season=season,
-                    weeks_synced=(),
-                    weeks_with_vp_recomputed=(),
-                    league_changed=league_changed,
-                    owners_changed=owners_changed,
-                    teams_changed=teams_changed,
-                )
-            weeks_to_sync = tuple(range(1, week_status.last_completed_week + 1))
+            if regular_season_length is not None:
+                weeks_to_sync = tuple(range(1, regular_season_length + 1))
+            elif week_status.last_completed_week is None:
+                weeks_to_sync = ()
+            else:
+                weeks_to_sync = tuple(range(1, week_status.last_completed_week + 1))
         else:
             weeks_to_sync = tuple(weeks)
 
@@ -354,42 +350,105 @@ class SyncService:
         matchups_dto: Sequence[MatchupDTO],
         team_external_to_id: Mapping[str, int],
     ) -> bool:
-        """Upsert matchups and scores for one week, returning whether anything changed."""
+        """Sync one week, reconciling only while its schedule is still incomplete.
+
+        An incomplete week is a provider snapshot, not an append-only feed: stale pairings and
+        scores are removed before current rows are upserted. A completed week keeps the existing
+        immutable-schedule behavior, including the separate ability to correct reported scores.
+        """
+        resolved = [
+            (
+                matchup_dto,
+                team_external_to_id[matchup_dto.home.team_external_id],
+                (
+                    team_external_to_id[matchup_dto.away.team_external_id]
+                    if matchup_dto.away is not None
+                    else None
+                ),
+            )
+            for matchup_dto in matchups_dto
+        ]
+        stored_matchups = self._repository.get_week_matchups(league_id, season, week)
+        reconcile = (
+            not resolved
+            or any(not matchup.is_complete for matchup, _, _ in resolved)
+            or any(not matchup.is_complete for matchup in stored_matchups)
+        )
+        completed_schedule = bool(stored_matchups) and not reconcile
         changed = False
-        for matchup_dto in matchups_dto:
-            home_team_id = team_external_to_id[matchup_dto.home.team_external_id]
-            away_team_id = (
-                team_external_to_id[matchup_dto.away.team_external_id]
-                if matchup_dto.away is not None
-                else None
-            )
-            matchup_result = self._repository.upsert_matchup(
-                league_id,
-                season,
-                week,
-                home_team_id,
-                away_team_id,
-                matchup_dto.is_playoff,
-                matchup_dto.is_complete,
-            )
-            if matchup_result.changed:
-                changed = True
 
-            # Upsert home team score.
-            home_score_result = self._repository.upsert_score(
-                home_team_id, league_id, season, week, matchup_dto.home.points
-            )
-            if home_score_result.changed:
-                changed = True
-
-            # Upsert away team score if present (not a bye).
-            if matchup_dto.away is not None:
-                away_team_id_int = team_external_to_id[matchup_dto.away.team_external_id]
-                away_score_result = self._repository.upsert_score(
-                    away_team_id_int, league_id, season, week, matchup_dto.away.points
-                )
-                if away_score_result.changed:
+        if reconcile:
+            desired_home_ids = {home_team_id for _, home_team_id, _ in resolved}
+            for stored_matchup in stored_matchups:
+                if stored_matchup.home_team_id not in desired_home_ids:
+                    self._repository.delete_matchup(stored_matchup)
                     changed = True
+
+            desired_points = {
+                home_team_id: matchup.home.points for matchup, home_team_id, _ in resolved
+            }
+            desired_points.update(
+                {
+                    away_team_id: matchup.away.points
+                    for matchup, _, away_team_id in resolved
+                    if away_team_id is not None and matchup.away is not None
+                }
+            )
+            for stored_score in self._repository.get_week_scores(league_id, season, week):
+                if desired_points.get(stored_score.team_id) is None:
+                    self._repository.delete_score(stored_score)
+                    changed = True
+
+        for matchup_dto, home_team_id, away_team_id in resolved:
+            if not completed_schedule:
+                matchup_result = self._repository.upsert_matchup(
+                    league_id,
+                    season,
+                    week,
+                    home_team_id,
+                    away_team_id,
+                    matchup_dto.is_playoff,
+                    matchup_dto.is_complete,
+                )
+                changed = changed or matchup_result.changed
+
+            if matchup_dto.home.points is not None:
+                home_score_result = self._repository.upsert_score(
+                    home_team_id, league_id, season, week, matchup_dto.home.points
+                )
+                changed = changed or home_score_result.changed
+
+            if (
+                away_team_id is not None
+                and matchup_dto.away is not None
+                and matchup_dto.away.points is not None
+            ):
+                away_score_result = self._repository.upsert_score(
+                    away_team_id, league_id, season, week, matchup_dto.away.points
+                )
+                changed = changed or away_score_result.changed
+
+        if reconcile:
+            scores = self._repository.get_week_scores(league_id, season, week)
+            zero = WeeklyVPValues(
+                victory_points=Decimal(0),
+                h2h=Decimal(0),
+                top_half=Decimal(0),
+                high=Decimal(0),
+                low=Decimal(0),
+            )
+            if any(
+                score.victory_points != 0
+                or score.vp_h2h != 0
+                or score.vp_top_half != 0
+                or score.vp_high != 0
+                or score.vp_low != 0
+                for score in scores
+            ):
+                changed = True
+            self._repository.persist_week_vp(
+                league_id, season, week, {score.team_id: zero for score in scores}
+            )
 
         return changed
 
