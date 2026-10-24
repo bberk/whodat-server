@@ -1,0 +1,111 @@
+# Production stack for one Linux server managed through an SSH Docker context.
+# Compose reads these files on the laptop and sends build contexts to the remote daemon.
+# Containers, named volumes, and all container paths live on that remote daemon.
+name: whodat-server
+
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:?Set POSTGRES_USER in deploy/server/.env}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in deploy/server/.env}"
+      POSTGRES_DB: "${POSTGRES_DB:?Set POSTGRES_DB in deploy/server/.env}"
+    volumes:
+      # Postgres 18 expects the volume at /var/lib/postgresql, not its old data subdirectory.
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    stop_grace_period: 60s
+    logging: *default-logging
+
+  backend:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: "${DATABASE_URL:?Set DATABASE_URL in deploy/server/.env}"
+      ENV: production
+      SECRET_KEY: "${SECRET_KEY:?Set SECRET_KEY in deploy/server/.env}"
+      LEAGUE_CREDENTIALS_KEY: >-
+        ${LEAGUE_CREDENTIALS_KEY:?Set LEAGUE_CREDENTIALS_KEY in deploy/server/.env}
+      CORS_ORIGINS: "${CORS_ORIGINS:?Set CORS_ORIGINS in deploy/server/.env}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      sh -c "uv run alembic upgrade head &&
+             exec uv run uvicorn app.api.main:app --host 0.0.0.0 --port 8000"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 30s
+    logging: *default-logging
+
+  frontend:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: "https://${DOMAIN:?Set DOMAIN in deploy/server/.env}"
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    logging: *default-logging
+
+  caddy:
+    build:
+      context: ./caddy
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DOMAIN: "${DOMAIN:?Set DOMAIN in deploy/server/.env}"
+      DUCKDNS_TOKEN: "${DUCKDNS_TOKEN:?Set DUCKDNS_TOKEN in deploy/server/.env}"
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    ports:
+      # DNS-01 does not need inbound port 80. It is published only for HTTP-to-HTTPS redirects.
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:2019/config/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    logging: *default-logging
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:
