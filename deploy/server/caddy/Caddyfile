@@ -1,0 +1,42 @@
+{
+	# Only TCP 443 is published, so do not advertise HTTP/3 on UDP 443.
+	servers {
+		protocols h1 h2
+	}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# Match the backend's 64 KiB (65,536-byte) JSON request limit.
+	request_body {
+		max_size 65536
+	}
+
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+	}
+
+	# DuckDNS DNS-01 works without inbound HTTP-01/TLS-ALPN-01 challenges.
+	tls {
+		dns duckdns {$DUCKDNS_TOKEN}
+	}
+
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+
+	handle /health {
+		reverse_proxy backend:8000
+	}
+
+	handle {
+		# SPA fallback: the frontend nginx image serves matching assets or index.html.
+		reverse_proxy frontend:8080
+	}
+}

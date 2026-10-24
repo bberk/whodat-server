@@ -23,7 +23,7 @@ later without changing the VP engine, database, API, or frontend.
 ## Status
 
 `0.x` — under active development. See the milestones in `SPEC.md` (section 8). A single-host
-Docker Compose stack exists, but there is no supported hosting target yet; see
+Docker Compose stack exists, along with a manually managed generic-server deployment kit; see
 [Deploy to production](#deploy-to-production).
 
 ## Documentation
@@ -215,9 +215,14 @@ branches, and the frontend thresholds in `frontend/vitest.config.ts`.
 
 ## Deploy to production
 
-The repository provides a production-style Compose stack, but **no hosting target**: there is no
-TLS terminator, managed database, registry, or orchestrator configuration here. The supported path
-is a single host where you supply those pieces and run the two images yourself.
+For the supported single-server path, see the
+[generic-server deployment runbook](docs/DEPLOY_SERVER.md). It manages a remote Docker context
+over SSH, uses Caddy for ingress and DuckDNS DNS-01 TLS, and covers Postgres backups. There is no
+GitHub Actions deployment workflow.
+
+The root `docker-compose.yml` also remains available as a production-style Compose stack without
+TLS, a managed database, registry, or orchestrator configuration. The steps below build and run
+those images manually; the local development instructions above are unchanged.
 
 Build both images. The API origin is compiled into the frontend bundle, so set
 `VITE_API_BASE_URL` before building and rebuild whenever it changes:

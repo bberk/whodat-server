@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh the whodat DuckDNS record every five minutes
+
+[Timer]
+OnCalendar=*-*-* *:0/5:00
+Persistent=true
+AccuracySec=1s
+Unit=duckdns-update.service
+
+[Install]
+WantedBy=timers.target
