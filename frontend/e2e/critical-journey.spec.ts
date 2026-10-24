@@ -17,6 +17,7 @@ async function expectOverallRow(row: Locator, expected: ExpectedRow): Promise<vo
   const cells = rowCells(row);
   await expect(cells.nth(0)).toHaveText(String(expected.rank));
   await expect(row.getByRole("button")).toHaveAccessibleName(expected.team);
+  await expect(row.getByRole("img", { name: new RegExp(`^${expected.clinch} — `) })).toBeVisible();
   await expect(cells.nth(2)).toHaveText(expected.owner);
   await expect(cells.nth(3)).toHaveText(expected.victoryPoints);
   await expect(cells.nth(4)).toHaveText(`${expected.wins}-${expected.losses}`);
@@ -85,6 +86,9 @@ test("sign up with a member invite, set owner, and read the seeded standings", a
   for (const [index, expected] of fixture.expected.overall.entries()) {
     await expectOverallRow(overallRows.nth(index + 1), expected);
   }
+  await expect(page.getByRole("list", { name: "Playoff designation legend" })).toContainText(
+    "X — clinched playoff berth",
+  );
 
   // AC-FE-02: one table per division, each row showing the team's overall league rank.
   for (const division of fixture.expected.divisions) {
@@ -99,6 +103,9 @@ test("sign up with a member invite, set owner, and read the seeded standings", a
       const row = rows.nth(index + 1);
       await expect(rowCells(row).nth(0)).toHaveText(String(expected.rank));
       await expect(row.getByRole("button")).toHaveAccessibleName(expected.team);
+      await expect(
+        row.getByRole("img", { name: new RegExp(`^${expected.clinch} — `) }),
+      ).toBeVisible();
     }
   }
 

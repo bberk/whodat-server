@@ -14,7 +14,9 @@ fixed four-week period (weeks 1-4, 5-8, 9-12), ordered by VP, then wins, then po
 teams that are already safe from last place greyed in the current period. A History tab adds a
 running Elo score per franchise across every stored season, with Actual schedule and Round robin
 models, a season filter, cup-week markers, and a current-ratings table; admins can tune the
-per-league Elo settings from the league admin page. Members sign up, are linked to their team
+per-league Elo settings from the league admin page. In the final four regular-season weeks, the
+standings also mark proven Z (top seed), Y (division winner), X (clinched berth), and E
+(eliminated) designations. Members sign up, are linked to their team
 owner, and see only their league's data.
 
 ESPN access is isolated behind a provider interface, so other league providers can be added

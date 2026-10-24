@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { ClinchLegend } from "../components/ClinchBadge";
 import { DataState, EmptyState, ErrorState, LoadingState } from "../components/DataStates";
 import { StandingsTable } from "../components/StandingsTable";
 import { VPRulesTooltip } from "../components/VPRulesTooltip";
@@ -156,16 +157,19 @@ export function StandingsPage() {
             onRetry={reload}
           />
         ) : (
-          <StandingsTable
-            caption={`Overall ${bundle.standings.season} standings: rank, team, owner, season victory points, head-to-head record, points for, and victory points for each completed week.`}
-            ariaLabel="Overall standings, scrollable horizontally"
-            rows={bundle.standings.overall}
-            weeks={weeks}
-            showTies={showTies}
-            selectedTeamId={selectedTeamId}
-            onSelectTeam={selectTeam}
-            seriesIndexByTeamId={teamStyles}
-          />
+          <>
+            <ClinchLegend />
+            <StandingsTable
+              caption={`Overall ${bundle.standings.season} standings: rank, team, playoff designation, owner, season victory points, head-to-head record, points for, and victory points for each completed week.`}
+              ariaLabel="Overall standings, scrollable horizontally"
+              rows={bundle.standings.overall}
+              weeks={weeks}
+              showTies={showTies}
+              selectedTeamId={selectedTeamId}
+              onSelectTeam={selectTeam}
+              seriesIndexByTeamId={teamStyles}
+            />
+          </>
         )}
       </section>
 

@@ -8,6 +8,27 @@ Follow the format used below. Newest entries at the top.
 
 ---
 
+## OQ-0015 — Clinch search is deliberately conservative at its score-ranking bounds
+
+- **Found:** Proving X/Y/Z/E exactly could require enumerating every remaining score ordering and
+  every tie group, not only H2H results. For a 12-team league with four weeks left, the full
+  combinatorial space is impractical for a read endpoint, and the owner explicitly requires no
+  false badge when a node/time cap is hit.
+- **Options:** (1) enumerate all score orderings exactly with a cap, accepting that most 12-team
+  late seasons would hit the cap and show no badges; (2) enumerate all H2H outcomes exactly while
+  bounding each team's non-H2H VP between its feasible weekly extremes (-1 and +2), then return no
+  designation if a per-team node cap is exhausted; (3) show approximate ESPN playoff percentages.
+- **Recommendation / owner-confirmed constraints:** option 2. Points-for ties stay undecided,
+  missing metadata/schedule produces no badge, and a cap never yields a provisional result.
+- **In the meantime:** `app/domain/clinch.py` enumerates every non-cup H2H home-win/away-win/tie
+  outcome while independently bounding rank VP components. The independent bound can withhold a
+  designation that a fully correlated score-order search might prove, but cannot invent one. The
+  default per-team node cap is 5,000 and exhaustion returns `null` for that team. This behavior is
+  documented in SPEC 3.6 and ARCHITECTURE 7.1; no schema migration is required because playoff
+  metadata is stored in the existing `league_season.metadata` JSON.
+
+---
+
 ## OQ-0014 — WAPDate elimination ignores points for and uses fixed period end weeks
 
 - **Found:** The confirmed WAPDate rule greys a team in the current period when another team can

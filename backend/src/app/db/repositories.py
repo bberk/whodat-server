@@ -257,6 +257,16 @@ class SyncRepository:
             self._session.flush()
         return UpsertResult(row, changed)
 
+    def delete_matchup(self, matchup: Matchup) -> None:
+        """Delete one stale scheduled matchup inside the caller's transaction."""
+        self._session.delete(matchup)
+        self._session.flush()
+
+    def delete_score(self, score: Score) -> None:
+        """Delete one stale team-week score inside the caller's transaction."""
+        self._session.delete(score)
+        self._session.flush()
+
     def get_league(self, provider: str, external_id: str) -> League | None:
         """Return a league by its natural key, or None if it is not stored."""
         return self._session.scalar(

@@ -36,6 +36,7 @@ def map_league(league: ESPNLeagueProto, external_id: str) -> LeagueDTO:
     - team_count: number of teams in the league
     - scoring_type: ESPN's scoring type (e.g., "H2H_POINTS")
     - division_count: number of divisions (0 if none)
+    - playoff_team_count: size of this season's playoff field, or None if unavailable
     """
     return LeagueDTO(
         external_id=external_id,
@@ -45,6 +46,7 @@ def map_league(league: ESPNLeagueProto, external_id: str) -> LeagueDTO:
             "team_count": league.settings.team_count,
             "scoring_type": league.settings.scoring_type,
             "division_count": len(league.settings.division_map),
+            "playoff_team_count": getattr(league.settings, "playoff_team_count", None),
         },
     )
 
@@ -104,46 +106,33 @@ def _get_team_outcome(team: ESPNTeamProto, week: int) -> str:
 
 
 def map_matchups(league: ESPNLeagueProto, week: int) -> list[MatchupDTO]:
-    """Map ESPN matchups for a week to normalized MatchupDTOs.
+    """Map played or scheduled ESPN matchups without treating future zeros as scores.
 
-    Uses league.scoreboard(week) to get matchups, then determines completion
-    status from team outcomes. Byes are represented as away=None.
-
-    Points are quantized to 2 decimal places per ARCHITECTURE.md.
+    ``scoreboard(week)`` reads the provider's full schedule, including future home/away pairings.
+    Completion comes from team outcomes. An incomplete matchup keeps its pairing but has no points;
+    a completed matchup has its points quantized to two decimal places. Byes use ``away=None``.
     """
     scoreboard_matchups = league.scoreboard(week)
     matchups: list[MatchupDTO] = []
 
-    # Build team lookup for outcome checking
     teams_by_id = {team.team_id: team for team in league.teams}
 
     for espn_matchup in scoreboard_matchups:
         home_team_id = espn_matchup._home_team_id
         away_team_id = espn_matchup._away_team_id
+        home_team = teams_by_id.get(home_team_id)
+        is_complete = home_team is not None and _get_team_outcome(home_team, week) != "U"
 
-        # Home side
-        home_points = _quantize_points(espn_matchup.home_score)
         home_side = MatchupSideDTO(
             team_external_id=str(home_team_id),
-            points=home_points,
+            points=_quantize_points(espn_matchup.home_score) if is_complete else None,
         )
-
-        # Away side (None for byes)
-        if away_team_id == 0:
-            away_side = None
-        else:
-            away_points = _quantize_points(espn_matchup.away_score)
+        away_side = None
+        if away_team_id != 0:
             away_side = MatchupSideDTO(
                 team_external_id=str(away_team_id),
-                points=away_points,
+                points=_quantize_points(espn_matchup.away_score) if is_complete else None,
             )
-
-        # Determine completion status from team outcomes
-        home_team = teams_by_id.get(home_team_id)
-        is_complete = False
-        if home_team:
-            outcome = _get_team_outcome(home_team, week)
-            is_complete = outcome != "U"
 
         matchups.append(
             MatchupDTO(

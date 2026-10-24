@@ -33,6 +33,7 @@ class TestESPNLeagueProviderMetadata:
         assert league_dto.metadata["team_count"] == 4
         assert league_dto.metadata["scoring_type"] == "H2H_POINTS"
         assert league_dto.metadata["division_count"] == 1
+        assert league_dto.metadata["playoff_team_count"] == 4
 
 
 class TestESPNLeagueProviderOwners:
@@ -108,6 +109,22 @@ class TestESPNLeagueProviderMatchups:
         assert m2.away.team_external_id == "4"
         assert m2.away.points == Decimal("100.00")
 
+    def test_AC_DB_11_future_schedule_has_pairings_but_no_scores(self) -> None:
+        """The provider exposes unplayed home/away slots without inventing zero scores."""
+        provider = ESPNLeagueProvider(
+            league_factory=lambda *args, **kwargs: create_fake_league("league_basic.json")
+        )
+
+        matchups = provider.fetch_matchups(LeagueRef(external_id="12345"), 2024, 2)
+
+        pairings = [
+            (m.home.team_external_id, m.away.team_external_id if m.away else None) for m in matchups
+        ]
+        assert pairings == [("4", "1"), ("2", "3")]
+        assert all(not matchup.is_complete for matchup in matchups)
+        assert all(matchup.home.points is None for matchup in matchups)
+        assert all(matchup.away is None or matchup.away.points is None for matchup in matchups)
+
 
 class TestESPNLeagueProviderByes:
     """Test bye week handling."""
@@ -125,7 +142,7 @@ class TestESPNLeagueProviderByes:
         # Find the matchup where team 4 is home (bye week)
         team4_matchup = next(m for m in matchups if m.home.team_external_id == "4")
         assert team4_matchup.away is None
-        assert team4_matchup.home.points == Decimal("95.00")
+        assert team4_matchup.home.points is None
 
 
 class TestESPNLeagueProviderCompletion:
