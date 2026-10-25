@@ -9,6 +9,7 @@ from app.api.routes_auth import router as auth_router
 from app.api.routes_elo import router as elo_router
 from app.api.routes_health import router as health_router
 from app.api.routes_leagues import router as leagues_router
+from app.api.routes_predictions import router as predictions_router
 from app.api.routes_standings import router as standings_router
 from app.api.schemas_auth import validation_exception_handler
 from app.config import DEFAULT_SECRET_KEY, get_settings
@@ -42,6 +43,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(leagues_router)
     app.include_router(standings_router)
+    app.include_router(predictions_router)
     app.include_router(elo_router)
     return app
 

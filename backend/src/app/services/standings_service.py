@@ -31,6 +31,13 @@ from app.domain.clinch import (
     ClinchTeam,
     compute_clinch_statuses,
 )
+from app.domain.predictions import (
+    CountedScore,
+    CountedWeek,
+    RemainingMatchup,
+    RemainingWeek,
+    TeamSeasonTotals,
+)
 from app.domain.standings import SeasonRow, rank_teams
 from app.domain.types import TeamWeek
 from app.domain.vp_engine import compute_week_vp
@@ -170,6 +177,26 @@ class Wapdate:
     season: int
     highest_completed_week: int | None
     periods: tuple[WapdatePeriod, ...]
+
+
+@dataclass(frozen=True)
+class PredictionSnapshot:
+    """The exact inputs the pure playoff simulator needs for one league season.
+
+    Current totals come from :meth:`StandingsService._aggregate`, so the simulation and the
+    standings page agree about the past. ``counted_weeks`` carries the raw scores used to estimate
+    the score model, and ``remaining_weeks`` lists every regular-season week that is not counted,
+    including a week with no stored schedule (the simulator reports it as incomplete).
+    """
+
+    league_id: int
+    season: int
+    regular_season_length: int
+    cup_week: int | None
+    playoff_team_count: int | None
+    teams: tuple[TeamSeasonTotals, ...]
+    counted_weeks: tuple[CountedWeek, ...]
+    remaining_weeks: tuple[RemainingWeek, ...]
 
 
 @dataclass(frozen=True)
@@ -355,6 +382,81 @@ class StandingsService:
             season=season,
             highest_completed_week=highest,
             periods=tuple(periods),
+        )
+
+    def get_prediction_snapshot(self, league_id: int, season: int) -> PredictionSnapshot:
+        """Return current exact totals, counted raw scores, and every remaining pairing.
+
+        The current totals reuse the same completed-week definition and aggregation as
+        :meth:`get_standings`. An invalid cup week is a season-settings fault and raises
+        :class:`SeasonSettingsError`; a missing playoff field is left as ``None`` so the simulator
+        can return its documented unavailable reason instead of a guessed field size.
+        """
+        context = self._load_context(league_id, season)
+        if context.cup_week is not None and (
+            isinstance(context.cup_week, bool)
+            or not 1 <= context.cup_week <= context.regular_season_length
+        ):
+            raise SeasonSettingsError(
+                league_id,
+                season,
+                "cup_week must be between 1 and the regular-season length",
+            )
+
+        weeks = self._completed_weeks(context)
+        aggregate = self._aggregate(context, weeks) if weeks else None
+
+        teams = tuple(
+            TeamSeasonTotals(
+                team_id=team.id,
+                team_name=team.name,
+                division=team.division,
+                vp=aggregate.season_vp[team.id] if aggregate is not None else Fraction(0),
+                wins=aggregate.wins[team.id] if aggregate is not None else 0,
+                points_for=aggregate.points_for[team.id] if aggregate is not None else Decimal(0),
+            )
+            for team in context.teams
+        )
+        counted = tuple(
+            CountedWeek(
+                week=week,
+                scores=tuple(
+                    CountedScore(team_id=score.team_id, points=score.points)
+                    for score in self._repository.get_week_scores(
+                        context.league_id, context.season, week
+                    )
+                ),
+            )
+            for week in weeks
+        )
+        completed = frozenset(weeks)
+        remaining_weeks: list[RemainingWeek] = []
+        for week in range(1, context.regular_season_length + 1):
+            if week in completed:
+                continue
+            matchups = self._repository.get_week_matchups(context.league_id, context.season, week)
+            remaining_weeks.append(
+                RemainingWeek(
+                    week=week,
+                    matchups=tuple(
+                        RemainingMatchup(
+                            home_team_id=matchup.home_team_id,
+                            away_team_id=matchup.away_team_id,
+                        )
+                        for matchup in matchups
+                    ),
+                    is_playoff=any(matchup.is_playoff for matchup in matchups),
+                )
+            )
+        return PredictionSnapshot(
+            league_id=league_id,
+            season=season,
+            regular_season_length=context.regular_season_length,
+            cup_week=context.cup_week,
+            playoff_team_count=context.playoff_team_count,
+            teams=teams,
+            counted_weeks=counted,
+            remaining_weeks=tuple(remaining_weeks),
         )
 
     def _load_context(self, league_id: int, season: int) -> _SeasonContext:

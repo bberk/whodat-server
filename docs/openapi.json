@@ -1064,6 +1064,190 @@
         "title": "OwnersResponse",
         "type": "object"
       },
+      "PlayoffOddsModel": {
+        "description": "Versioned model parameters, so a stored result can be reproduced and interpreted.",
+        "properties": {
+          "residual_mix_games": {
+            "title": "Residual Mix Games",
+            "type": "integer"
+          },
+          "score_precision": {
+            "title": "Score Precision",
+            "type": "string"
+          },
+          "shrink_games": {
+            "title": "Shrink Games",
+            "type": "integer"
+          },
+          "tiebreak_uses_points_for": {
+            "title": "Tiebreak Uses Points For",
+            "type": "boolean"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "shrink_games",
+          "residual_mix_games",
+          "score_precision",
+          "tiebreak_uses_points_for"
+        ],
+        "title": "PlayoffOddsModel",
+        "type": "object"
+      },
+      "PlayoffOddsResponse": {
+        "description": "Per-team playoff odds plus the metadata needed to read them.",
+        "properties": {
+          "completed_weeks": {
+            "title": "Completed Weeks",
+            "type": "integer"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "enum": [
+                  "low",
+                  "normal"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "division_count": {
+            "title": "Division Count",
+            "type": "integer"
+          },
+          "input_version": {
+            "title": "Input Version",
+            "type": "string"
+          },
+          "iterations": {
+            "title": "Iterations",
+            "type": "integer"
+          },
+          "league_id": {
+            "title": "League Id",
+            "type": "integer"
+          },
+          "model": {
+            "$ref": "#/components/schemas/PlayoffOddsModel"
+          },
+          "playoff_field": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Playoff Field"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "no_completed_weeks",
+                  "missing_playoff_field",
+                  "incomplete_schedule",
+                  "unsupported_division_shape"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "remaining_weeks": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Remaining Weeks",
+            "type": "array"
+          },
+          "season": {
+            "title": "Season",
+            "type": "integer"
+          },
+          "seed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "teams": {
+            "items": {
+              "$ref": "#/components/schemas/TeamPlayoffOdds"
+            },
+            "title": "Teams",
+            "type": "array"
+          }
+        },
+        "required": [
+          "league_id",
+          "season",
+          "status",
+          "reason",
+          "iterations",
+          "seed",
+          "input_version",
+          "model",
+          "confidence",
+          "completed_weeks",
+          "remaining_weeks",
+          "playoff_field",
+          "division_count",
+          "teams"
+        ],
+        "title": "PlayoffOddsResponse",
+        "type": "object"
+      },
+      "ProbabilityInterval": {
+        "description": "A probability estimate and its Wilson 95% interval, as fixed four-decimal strings.",
+        "properties": {
+          "high": {
+            "title": "High",
+            "type": "string"
+          },
+          "low": {
+            "title": "Low",
+            "type": "string"
+          },
+          "probability": {
+            "title": "Probability",
+            "type": "string"
+          }
+        },
+        "required": [
+          "probability",
+          "low",
+          "high"
+        ],
+        "title": "ProbabilityInterval",
+        "type": "object"
+      },
       "PublicUser": {
         "description": "The account fields safe to return to a browser.",
         "properties": {
@@ -1490,6 +1674,42 @@
           "clinch"
         ],
         "title": "StandingsRow",
+        "type": "object"
+      },
+      "TeamPlayoffOdds": {
+        "description": "One team's playoff, bye, and division-title estimates.",
+        "properties": {
+          "bye": {
+            "$ref": "#/components/schemas/ProbabilityInterval"
+          },
+          "division": {
+            "title": "Division",
+            "type": "string"
+          },
+          "division_title": {
+            "$ref": "#/components/schemas/ProbabilityInterval"
+          },
+          "playoff": {
+            "$ref": "#/components/schemas/ProbabilityInterval"
+          },
+          "team_id": {
+            "title": "Team Id",
+            "type": "integer"
+          },
+          "team_name": {
+            "title": "Team Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "team_id",
+          "team_name",
+          "division",
+          "playoff",
+          "bye",
+          "division_title"
+        ],
+        "title": "TeamPlayoffOdds",
         "type": "object"
       },
       "TeamVpHistory": {
@@ -2604,6 +2824,95 @@
         "summary": "Update Cup Week",
         "tags": [
           "leagues"
+        ]
+      }
+    },
+    "/api/v1/leagues/{league_id}/seasons/{season}/playoff-odds": {
+      "get": {
+        "description": "Return per-team playoff, bye, and division-title probabilities for a league season.",
+        "operationId": "get_playoff_odds_api_v1_leagues__league_id__seasons__season__playoff_odds_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "league_id",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "League Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "season",
+            "required": true,
+            "schema": {
+              "maximum": 2100,
+              "minimum": 2000,
+              "title": "Season",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Number of simulated seasons.",
+            "in": "query",
+            "name": "iterations",
+            "required": false,
+            "schema": {
+              "default": 10000,
+              "description": "Number of simulated seasons.",
+              "maximum": 50000,
+              "minimum": 1000,
+              "title": "Iterations",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Explicit seed; derived from the inputs when omitted.",
+            "in": "query",
+            "name": "seed",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 2147483647,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Explicit seed; derived from the inputs when omitted.",
+              "title": "Seed"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlayoffOddsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Playoff Odds",
+        "tags": [
+          "playoff-odds"
         ]
       }
     },
