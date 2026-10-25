@@ -51,6 +51,19 @@ describe("sortRows", () => {
     expect(sortedIds({ key: "value", direction: "desc" }).at(-1)).toBe("d");
   });
 
+  it("compares string values and sorts empty and missing values last", () => {
+    const mixed: { id: string; value: string | null }[] = [
+      { id: "a", value: "beta" },
+      { id: "b", value: null },
+      { id: "c", value: "alpha" },
+      { id: "d", value: "" },
+    ];
+    const asc = sortRows(mixed, { key: "value", direction: "asc" }, (row) => row.value);
+    const desc = sortRows(mixed, { key: "value", direction: "desc" }, (row) => row.value);
+    expect(asc.map((row) => row.id)).toEqual(["c", "a", "b", "d"]);
+    expect(desc.map((row) => row.id)).toEqual(["a", "c", "b", "d"]);
+  });
+
   it("passes the sort key to the value accessor for dynamic columns", () => {
     const weekly = [
       { id: "a", week1: 1, week2: 3 },

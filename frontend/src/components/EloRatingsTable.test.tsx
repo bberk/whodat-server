@@ -60,6 +60,12 @@ describe("EloRatingsTable", () => {
     expect(within(rows()[0]).getByRole("button", { name: "Alpha" })).toBeInTheDocument();
     expect(within(rows()[1]).getByRole("button", { name: "Charlie" })).toBeInTheDocument();
     expect(within(rows()[2]).getByRole("button", { name: "Bravo" })).toBeInTheDocument();
+
+    const thisSeason = screen.getByRole("columnheader", { name: "This season" });
+    await user.click(screen.getByRole("button", { name: "Sort by This season" }));
+    expect(thisSeason).toHaveAttribute("aria-sort", "descending");
+    expect(within(rows()[0]).getByRole("button", { name: "Alpha" })).toBeInTheDocument();
+    expect(within(rows()[2]).getByRole("button", { name: "Bravo" })).toBeInTheDocument();
   });
 
   it("keeps the current-score rank when the table is sorted by peak or low", async () => {
