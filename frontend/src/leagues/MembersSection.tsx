@@ -146,7 +146,12 @@ export function MembersSection({ leagueId, onSelfRemoved }: MembersSectionProps)
       )}
 
       {state.status === "ready" ? (
-        <div className="mt-3 overflow-x-auto rounded-xl border border-line bg-surface">
+        <div
+          role="region"
+          aria-label="League members, scrollable horizontally"
+          tabIndex={0}
+          className="mt-3 overflow-x-auto rounded-xl border border-line bg-surface"
+        >
           <table className="w-full min-w-[640px] border-collapse text-left text-[13px]">
             <caption className="sr-only">
               Accounts with access to this league, their role, owner association, and whether they
