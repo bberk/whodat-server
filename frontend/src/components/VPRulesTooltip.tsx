@@ -13,16 +13,16 @@ export function VPRulesTooltip() {
       <button
         type="button"
         aria-describedby="vp-rules-tip"
-        className="rounded-lg border border-gray-200 bg-white px-2 py-0.5 text-[13px] text-brand hover:border-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+        className="rounded-lg border border-line bg-surface px-2 py-0.5 text-[13px] text-brand-ink hover:border-brand-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-ink"
       >
         VP rules
       </button>
       <span
         id="vp-rules-tip"
         role="tooltip"
-        className="absolute left-0 top-full z-30 mt-1.5 hidden w-72 max-w-[calc(100vw-2rem)] rounded-lg border border-gray-200 bg-white p-2.5 text-left text-[12.5px] font-normal leading-snug text-gray-900 shadow-lg group-hover:block group-focus-within:block"
+        className="absolute left-0 top-full z-30 mt-1.5 hidden w-72 max-w-[calc(100vw-2rem)] rounded-lg border border-line bg-surface p-2.5 text-left text-[12.5px] font-normal leading-snug text-ink shadow-lg group-hover:block group-focus-within:block"
       >
-        <strong className="font-semibold text-gray-700">Weekly VP:</strong> 1 for a head-to-head
+        <strong className="font-semibold text-ink-muted">Weekly VP:</strong> 1 for a head-to-head
         win, 1 for a top-half score, 1 for the highest score, -1 for the lowest score; tied teams
         split the component. Ranked by season VP, then H2H wins, then points for.
       </span>

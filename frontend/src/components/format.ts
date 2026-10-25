@@ -45,12 +45,12 @@ export function vpTone(value: string): VPTone {
 /** A text class for the VP tone; the sign is always present, so color is never the only cue. */
 export function vpToneClass(tone: VPTone): string {
   if (tone === "neg") {
-    return "text-red-700";
+    return "text-danger-ink-soft";
   }
   if (tone === "zero") {
-    return "text-gray-500";
+    return "text-ink-faint";
   }
-  return "text-brand";
+  return "text-brand-ink";
 }
 
 /** Parse a decimal string for chart geometry and sorting only — never for equality. */

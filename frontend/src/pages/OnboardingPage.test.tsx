@@ -16,6 +16,7 @@ import {
   requestPath,
 } from "../test/fixtures";
 import { OnboardingPage } from "./OnboardingPage";
+import { ThemeProvider } from "../theme/ThemeProvider";
 
 function authValue(overrides: Partial<AuthContextValue> = {}): AuthContextValue {
   return {
@@ -32,14 +33,16 @@ function authValue(overrides: Partial<AuthContextValue> = {}): AuthContextValue 
 
 function renderPage(value: AuthContextValue = authValue()) {
   return render(
-    <AuthContext.Provider value={value}>
-      <MemoryRouter initialEntries={["/onboarding"]}>
-        <Routes>
-          <Route path="/onboarding" element={<OnboardingPage />} />
-          <Route path="/" element={<p>standings destination</p>} />
-        </Routes>
-      </MemoryRouter>
-    </AuthContext.Provider>,
+    <ThemeProvider>
+      <AuthContext.Provider value={value}>
+        <MemoryRouter initialEntries={["/onboarding"]}>
+          <Routes>
+            <Route path="/onboarding" element={<OnboardingPage />} />
+            <Route path="/" element={<p>standings destination</p>} />
+          </Routes>
+        </MemoryRouter>
+      </AuthContext.Provider>
+    </ThemeProvider>,
   );
 }
 

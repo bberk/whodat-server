@@ -111,7 +111,7 @@ export function OnboardingPage() {
           <button
             type="button"
             onClick={() => void logout()}
-            className="font-semibold text-brand hover:underline"
+            className="font-semibold text-brand-ink hover:underline"
           >
             Log out
           </button>
@@ -139,7 +139,7 @@ export function OnboardingPage() {
             placeholder="123456"
             aria-describedby="onboarding-league-id-note"
           />
-          <p id="onboarding-league-id-note" className="mt-1 text-xs text-gray-500">
+          <p id="onboarding-league-id-note" className="mt-1 text-xs text-ink-faint">
             The number in the ESPN league URL after <span className="font-mono">leagueId=</span>.
           </p>
         </div>
@@ -162,7 +162,7 @@ export function OnboardingPage() {
             className={inputClass}
             aria-describedby="onboarding-season-note"
           />
-          <p id="onboarding-season-note" className="mt-1 text-xs text-gray-500">
+          <p id="onboarding-season-note" className="mt-1 text-xs text-ink-faint">
             The year the league played, from {MIN_SEASON} to {MAX_SEASON}. Defaults to the current
             year.
           </p>
@@ -170,9 +170,11 @@ export function OnboardingPage() {
 
         <fieldset
           aria-describedby="onboarding-credentials-note"
-          className="rounded-lg border border-gray-200 p-3"
+          className="rounded-lg border border-line p-3"
         >
-          <legend className="px-1 text-[13px] font-semibold text-gray-700">ESPN credentials</legend>
+          <legend className="px-1 text-[13px] font-semibold text-ink-muted">
+            ESPN credentials
+          </legend>
           <div className="space-y-3">
             <div>
               <label htmlFor="onboarding-s2" className={labelClass}>
@@ -205,14 +207,14 @@ export function OnboardingPage() {
               />
             </div>
           </div>
-          <p id="onboarding-credentials-note" className="mt-3 text-xs text-gray-500">
+          <p id="onboarding-credentials-note" className="mt-3 text-xs text-ink-faint">
             Find both cookies in your browser&rsquo;s developer tools under Application &rarr;
             Cookies on espn.com. They are stored encrypted and are never shown again.
           </p>
         </fieldset>
 
         {formError === null ? null : (
-          <p role="alert" className="text-[13px] text-red-800">
+          <p role="alert" className="text-[13px] text-danger-ink">
             {formError}
           </p>
         )}

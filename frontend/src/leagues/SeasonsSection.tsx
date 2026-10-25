@@ -28,14 +28,12 @@ const MIN_SEASON = 2000;
 const MAX_SEASON = 2100;
 
 const headCell =
-  "whitespace-nowrap border-b border-gray-200 bg-gray-50 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500";
+  "whitespace-nowrap border-b border-line bg-surface-muted px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-faint";
 const bodyCell = "px-3 py-2 align-middle";
-const stickyHead =
-  "sticky left-0 z-20 min-w-[88px] bg-gray-50 shadow-[6px_0_8px_-6px_rgba(17,24,39,0.18)]";
-const stickyBody =
-  "sticky left-0 z-10 min-w-[88px] bg-white shadow-[6px_0_8px_-6px_rgba(17,24,39,0.18)]";
+const stickyHead = "sticky left-0 z-20 min-w-[88px] bg-surface-muted shadow-sticky";
+const stickyBody = "sticky left-0 z-10 min-w-[88px] bg-surface shadow-sticky";
 const ROW_DIVIDER =
-  "[&>th]:border-b [&>td]:border-b [&>th]:border-gray-100 [&>td]:border-gray-100 last:[&>th]:border-b-0 last:[&>td]:border-b-0";
+  "[&>th]:border-b [&>td]:border-b [&>th]:border-line-subtle [&>td]:border-line-subtle last:[&>th]:border-b-0 last:[&>td]:border-b-0";
 
 type SeasonsState =
   | { status: "loading" }
@@ -300,7 +298,7 @@ export function SeasonsSection({ leagueId }: { leagueId: number }) {
           <h2 id="h-seasons" className="text-base font-bold">
             Seasons
           </h2>
-          <p className="mt-1 text-[13px] text-gray-500">
+          <p className="mt-1 text-[13px] text-ink-faint">
             Refresh one season with your stored credentials, choose its cup week, or delete only
             that season&rsquo;s data.
           </p>
@@ -335,14 +333,14 @@ export function SeasonsSection({ leagueId }: { leagueId: number }) {
       ) : null}
 
       {actionMessage === null ? null : (
-        <p role="status" className="mt-3 text-[13px] font-semibold text-gray-800">
+        <p role="status" className="mt-3 text-[13px] font-semibold text-ink-strong">
           {actionMessage}
         </p>
       )}
 
       {state.status === "ready" ? (
         <div
-          className="mt-3 overflow-x-auto rounded-xl border border-gray-200 bg-white"
+          className="mt-3 overflow-x-auto rounded-xl border border-line bg-surface"
           tabIndex={0}
           role="region"
           aria-label="Seasons, scrollable horizontally"
@@ -425,7 +423,7 @@ export function SeasonsSection({ leagueId }: { leagueId: number }) {
                         ))}
                       </select>
                       {rowBusy === "cup" ? (
-                        <span className="ml-2 text-[12px] text-gray-600">Saving…</span>
+                        <span className="ml-2 text-[12px] text-ink-subtle">Saving…</span>
                       ) : null}
                     </td>
                     <td className={bodyCell}>
@@ -466,11 +464,11 @@ export function SeasonsSection({ leagueId }: { leagueId: number }) {
                     <tr key={`${row.season}-message`} className={ROW_DIVIDER}>
                       <td colSpan={5} className="px-3 py-2">
                         {rowError !== undefined ? (
-                          <p role="alert" className="text-[12.5px] text-red-800">
+                          <p role="alert" className="text-[12.5px] text-danger-ink">
                             {rowError}
                           </p>
                         ) : (
-                          <p role="status" className="text-[12.5px] text-gray-600">
+                          <p role="status" className="text-[12.5px] text-ink-subtle">
                             {rowNotice}
                           </p>
                         )}
@@ -485,17 +483,17 @@ export function SeasonsSection({ leagueId }: { leagueId: number }) {
       ) : null}
 
       {addOpen ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-gray-900/40 p-4 sm:items-center">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-overlay/40 p-4 sm:items-center">
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="h-add-season"
-            className="w-full max-w-md rounded-xl border border-gray-200 bg-white p-5 shadow-xl"
+            className="w-full max-w-md rounded-xl border border-line bg-surface p-5 shadow-xl"
           >
             <h3 id="h-add-season" className="text-lg font-bold">
               Add a season
             </h3>
-            <p className="mt-2 text-[13px] text-gray-600">
+            <p className="mt-2 text-[13px] text-ink-subtle">
               Sync another season for this league using your stored credentials.
             </p>
             <form onSubmit={submitAdd} noValidate className="mt-3">
@@ -517,17 +515,17 @@ export function SeasonsSection({ leagueId }: { leagueId: number }) {
                 disabled={addSaving}
                 aria-describedby="add-season-year-note"
               />
-              <p id="add-season-year-note" className="mt-1 text-xs text-gray-500">
+              <p id="add-season-year-note" className="mt-1 text-xs text-ink-faint">
                 A whole year from {MIN_SEASON} to {MAX_SEASON}.
               </p>
               {addFormError === null ? null : (
-                <p role="alert" className="mt-2 text-[13px] text-red-800">
+                <p role="alert" className="mt-2 text-[13px] text-danger-ink">
                   {addFormError}
                 </p>
               )}
               <ApiAlert error={addError} />
               {addSaving ? (
-                <p role="status" className="mt-2 text-[13px] text-gray-700">
+                <p role="status" className="mt-2 text-[13px] text-ink-muted">
                   Adding and syncing season…
                 </p>
               ) : null}
@@ -551,17 +549,17 @@ export function SeasonsSection({ leagueId }: { leagueId: number }) {
       ) : null}
 
       {pendingDelete === null ? null : (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-gray-900/40 p-4 sm:items-center">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-overlay/40 p-4 sm:items-center">
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="h-delete-season"
-            className="w-full max-w-md rounded-xl border border-gray-200 bg-white p-5 shadow-xl"
+            className="w-full max-w-md rounded-xl border border-line bg-surface p-5 shadow-xl"
           >
             <h3 id="h-delete-season" className="text-lg font-bold">
               Delete season {pendingDelete.season}?
             </h3>
-            <p className="mt-2 text-[13px] text-gray-600">
+            <p className="mt-2 text-[13px] text-ink-subtle">
               This removes only the {pendingDelete.season} season&rsquo;s teams, matchups, and
               scores. The league, its owners, members, invites, and every other season stay.
             </p>

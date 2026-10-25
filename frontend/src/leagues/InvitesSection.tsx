@@ -88,7 +88,7 @@ export function InvitesSection({ leagueId }: { leagueId: number }) {
       <h2 id="h-invites" className="text-base font-bold">
         Invites
       </h2>
-      <p className="mt-1 text-[13px] text-gray-500">
+      <p className="mt-1 text-[13px] text-ink-faint">
         A member invite joins this league at signup. An admin invite has no league and lets the new
         account create or add one. Invite codes work for anyone who uses them until they expire.
       </p>
@@ -96,7 +96,7 @@ export function InvitesSection({ leagueId }: { leagueId: number }) {
       <form
         onSubmit={onSubmit}
         noValidate
-        className="mt-3 rounded-xl border border-gray-200 bg-white p-4"
+        className="mt-3 rounded-xl border border-line bg-surface p-4"
       >
         <label htmlFor="invite-role" className={labelClass}>
           Invite type
@@ -130,19 +130,19 @@ export function InvitesSection({ leagueId }: { leagueId: number }) {
           disabled={generating}
           aria-describedby="invite-expiry-note"
         />
-        <p id="invite-expiry-note" className="mt-1 text-xs text-gray-500">
+        <p id="invite-expiry-note" className="mt-1 text-xs text-ink-faint">
           Default 7 days, between {MIN_EXPIRY_DAYS} and {MAX_EXPIRY_DAYS}.
         </p>
 
         {formError === null ? null : (
-          <p role="alert" className="mt-3 text-[13px] text-red-800">
+          <p role="alert" className="mt-3 text-[13px] text-danger-ink">
             {formError}
           </p>
         )}
         <ApiAlert error={apiError} />
 
         {generating ? (
-          <p role="status" className="mt-3 text-[13px] text-gray-700">
+          <p role="status" className="mt-3 text-[13px] text-ink-muted">
             Generating invite…
           </p>
         ) : null}
@@ -155,11 +155,11 @@ export function InvitesSection({ leagueId }: { leagueId: number }) {
       </form>
 
       {invite === null ? null : (
-        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
-          <h3 className="text-sm font-bold text-gray-900">
+        <div className="mt-3 rounded-xl border border-warning-line bg-warning-surface p-4">
+          <h3 className="text-sm font-bold text-ink">
             {invite.role === "admin" ? "Admin invite code" : "Member invite code"}
           </h3>
-          <p className="mt-1 text-[13px] text-gray-700">
+          <p className="mt-1 text-[13px] text-ink-muted">
             This code is shown only once. Store it now: it cannot be retrieved again, and
             regenerating means creating a new invite.
           </p>
@@ -184,7 +184,7 @@ export function InvitesSection({ leagueId }: { leagueId: number }) {
               Copy code
             </button>
           </div>
-          <p className="mt-2 text-[12.5px] text-gray-600">
+          <p className="mt-2 text-[12.5px] text-ink-subtle">
             {invite.league_id === null
               ? "League-less admin invite"
               : "Member invite for this league"}
@@ -192,7 +192,7 @@ export function InvitesSection({ leagueId }: { leagueId: number }) {
             Expires {new Date(invite.expires_at).toLocaleString()}
           </p>
           {copyStatus === null ? null : (
-            <p role="status" className="mt-2 text-[13px] font-semibold text-gray-800">
+            <p role="status" className="mt-2 text-[13px] font-semibold text-ink-strong">
               {copyStatus}
             </p>
           )}

@@ -3,7 +3,24 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
     <title>Victory Points Standings</title>
+    <script>
+      // Apply the resolved theme before the first paint so the page never flashes light before
+      // switching. This must stay dependency-free and in sync with src/theme/theme.ts.
+      (function () {
+        try {
+          var preference = localStorage.getItem("vp-theme");
+          var dark =
+            preference === "dark" ||
+            (preference !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.classList.toggle("dark", dark);
+          document.documentElement.style.colorScheme = dark ? "dark" : "light";
+        } catch (error) {
+          // No storage or matchMedia: keep the light default.
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -26,14 +26,14 @@ export function InfoTooltip({ label, text, id }: InfoTooltipProps) {
         type="button"
         aria-label={label}
         aria-describedby={tipId}
-        className="ml-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-gray-300 bg-white text-[11px] font-bold text-gray-600 hover:border-brand hover:text-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+        className="ml-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-line-strong bg-surface text-[11px] font-bold text-ink-subtle hover:border-brand-ink hover:text-brand-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-ink"
       >
         <span aria-hidden="true">?</span>
       </button>
       <span
         id={tipId}
         role="tooltip"
-        className="absolute left-0 top-full z-40 mt-1.5 hidden w-72 max-w-[calc(100vw-2rem)] rounded-lg border border-gray-200 bg-white p-2.5 text-left text-[12.5px] font-normal leading-snug text-gray-900 shadow-lg group-hover:block group-focus-within:block"
+        className="absolute left-0 top-full z-40 mt-1.5 hidden w-72 max-w-[calc(100vw-2rem)] rounded-lg border border-line bg-surface p-2.5 text-left text-[12.5px] font-normal leading-snug text-ink shadow-lg group-hover:block group-focus-within:block"
       >
         {text}
       </span>

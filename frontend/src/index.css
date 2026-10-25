@@ -2,12 +2,170 @@
 @tailwind components;
 @tailwind utilities;
 
-html,
-body,
-#root {
-  height: 100%;
-}
+@layer base {
+  /*
+   * Light theme tokens. Each value is the exact Tailwind colour the UI used before theming, so the
+   * light design is unchanged. Channel triples keep Tailwind's opacity modifiers working.
+   */
+  :root {
+    color-scheme: light;
 
-body {
-  @apply bg-gray-50 text-gray-900 antialiased;
+    --color-page: 249 250 251;
+    --color-surface: 255 255 255;
+    --color-surface-muted: 249 250 251;
+    --color-surface-strong: 243 244 246;
+    --color-surface-emphasis: 229 231 235;
+    --color-surface-disabled: 209 213 219;
+    --color-surface-hover: 249 250 251;
+    --color-overlay: 17 24 39;
+    --color-fade: 17 24 39;
+
+    --color-line: 229 231 235;
+    --color-line-subtle: 243 244 246;
+    --color-line-strong: 209 213 219;
+    --color-line-emphasis: 156 163 175;
+
+    --color-ink: 17 24 39;
+    --color-ink-strong: 31 41 55;
+    --color-ink-muted: 55 65 81;
+    --color-ink-subtle: 75 85 99;
+    --color-ink-faint: 107 114 128;
+    --color-ink-disabled: 156 163 175;
+
+    --color-brand-ink: 15 118 110;
+    --color-brand-soft: 240 253 250;
+    --color-brand-soft-line: 204 251 241;
+
+    --color-danger-surface: 254 242 242;
+    --color-danger-line: 254 202 202;
+    --color-danger-line-strong: 252 165 165;
+    --color-danger-ink: 153 27 27;
+    --color-danger-ink-strong: 127 29 29;
+    --color-danger-ink-soft: 185 28 28;
+
+    --color-warning-surface: 255 251 235;
+    --color-warning-line: 253 230 138;
+    --color-warning-ink: 120 53 15;
+
+    --color-chart-axis: 107 114 128;
+    --color-chart-axis-strong: 55 65 81;
+    --color-chart-label: 55 65 81;
+    --color-chart-label-muted: 75 85 99;
+    --color-chart-plot: 248 250 252;
+    --color-chart-grid: 229 231 235;
+    --color-chart-zero: 156 163 175;
+    --color-chart-boundary: 203 213 225;
+    --color-chart-start: 148 163 184;
+    --color-chart-start-label: 100 116 139;
+    --color-chart-cup: 180 83 9;
+    --color-chart-cup-label: 146 64 14;
+    --color-chart-brand-label: 17 94 89;
+
+    --color-shadow: 17 24 39;
+    --shadow-strength: 0.18;
+
+    /*
+     * Series palette for the VP and Elo charts. Light values are the colours the charts shipped
+     * with; every series also carries a dash pattern and marker shape so colour is never the only
+     * cue. Keep the count in sync with SERIES_STYLES in src/components/series.ts.
+     */
+    --series-0: #0f766e;
+    --series-1: #b45309;
+    --series-2: #1d4ed8;
+    --series-3: #7e22ce;
+    --series-4: #be123c;
+    --series-5: #4b5563;
+    --series-6: #0891b2;
+    --series-7: #a16207;
+    --series-8: #4338ca;
+    --series-9: #9f1239;
+    --series-10: #4d7c0f;
+    --series-11: #7c2d12;
+  }
+
+  /*
+   * Dark theme. Surfaces and ink are deliberately re-picked rather than the light values inverted:
+   * text pairs stay at or above 4.5:1, borders stay visible without glare, and the chart series use
+   * a brighter palette so lines, markers, and labels stay distinguishable on dark surfaces.
+   */
+  :root.dark {
+    color-scheme: dark;
+
+    --color-page: 9 14 26;
+    --color-surface: 17 26 43;
+    --color-surface-muted: 23 34 54;
+    --color-surface-strong: 31 43 66;
+    --color-surface-emphasis: 37 51 77;
+    --color-surface-disabled: 51 65 85;
+    --color-surface-hover: 26 37 59;
+    --color-overlay: 3 6 12;
+    --color-fade: 255 255 255;
+
+    --color-line: 42 58 83;
+    --color-line-subtle: 31 43 66;
+    --color-line-strong: 58 77 107;
+    --color-line-emphasis: 100 116 139;
+
+    --color-ink: 232 238 248;
+    --color-ink-strong: 219 228 240;
+    --color-ink-muted: 195 206 222;
+    --color-ink-subtle: 167 180 198;
+    --color-ink-faint: 142 160 182;
+    --color-ink-disabled: 126 144 168;
+
+    --color-brand-ink: 94 234 212;
+    --color-brand-soft: 16 49 47;
+    --color-brand-soft-line: 20 82 76;
+
+    --color-danger-surface: 43 17 22;
+    --color-danger-line: 127 29 29;
+    --color-danger-line-strong: 153 27 27;
+    --color-danger-ink: 252 165 165;
+    --color-danger-ink-strong: 254 202 202;
+    --color-danger-ink-soft: 248 113 113;
+
+    --color-warning-surface: 42 32 8;
+    --color-warning-line: 120 53 15;
+    --color-warning-ink: 252 211 77;
+
+    --color-chart-axis: 148 163 184;
+    --color-chart-axis-strong: 203 213 225;
+    --color-chart-label: 203 213 225;
+    --color-chart-label-muted: 167 180 198;
+    --color-chart-plot: 13 22 38;
+    --color-chart-grid: 42 58 83;
+    --color-chart-zero: 100 116 139;
+    --color-chart-boundary: 71 85 105;
+    --color-chart-start: 100 116 139;
+    --color-chart-start-label: 148 163 184;
+    --color-chart-cup: 251 191 36;
+    --color-chart-cup-label: 252 211 77;
+    --color-chart-brand-label: 94 234 212;
+
+    --color-shadow: 0 0 0;
+    --shadow-strength: 0.6;
+
+    --series-0: #5eead4;
+    --series-1: #fcd34d;
+    --series-2: #60a5fa;
+    --series-3: #d8b4fe;
+    --series-4: #fb7185;
+    --series-5: #94a3b8;
+    --series-6: #67e8f9;
+    --series-7: #fde047;
+    --series-8: #a5b4fc;
+    --series-9: #f472b6;
+    --series-10: #bef264;
+    --series-11: #fdba74;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-page text-ink antialiased;
+  }
 }

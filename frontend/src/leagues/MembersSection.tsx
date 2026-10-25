@@ -121,7 +121,7 @@ export function MembersSection({ leagueId, onSelfRemoved }: MembersSectionProps)
       <h2 id="h-members" className="text-base font-bold">
         Members
       </h2>
-      <p className="mt-1 text-[13px] text-gray-500">
+      <p className="mt-1 text-[13px] text-ink-faint">
         Everyone with access to this league. Removing a member deletes only their membership here;
         their account and other leagues are not affected.
       </p>
@@ -140,20 +140,20 @@ export function MembersSection({ leagueId, onSelfRemoved }: MembersSectionProps)
       ) : null}
 
       {removed === null ? null : (
-        <p role="status" className="mt-3 text-[13px] font-semibold text-gray-800">
+        <p role="status" className="mt-3 text-[13px] font-semibold text-ink-strong">
           {removed}
         </p>
       )}
 
       {state.status === "ready" ? (
-        <div className="mt-3 overflow-x-auto rounded-xl border border-gray-200 bg-white">
+        <div className="mt-3 overflow-x-auto rounded-xl border border-line bg-surface">
           <table className="w-full min-w-[640px] border-collapse text-left text-[13px]">
             <caption className="sr-only">
               Accounts with access to this league, their role, owner association, and whether they
               hold stored credentials.
             </caption>
             <thead>
-              <tr className="border-b border-gray-200 bg-gray-50 text-gray-700">
+              <tr className="border-b border-line bg-surface-muted text-ink-muted">
                 <th scope="col" className="px-3 py-2 font-semibold">
                   Email
                 </th>
@@ -176,18 +176,18 @@ export function MembersSection({ leagueId, onSelfRemoved }: MembersSectionProps)
                 const isSelf = member.user_id === user?.id;
                 const isLastAdmin = member.role === "admin" && adminCount === 1;
                 return (
-                  <tr key={member.user_id} className="border-b border-gray-100 last:border-0">
-                    <th scope="row" className="max-w-[220px] px-3 py-2 font-medium text-gray-900">
+                  <tr key={member.user_id} className="border-b border-line-subtle last:border-0">
+                    <th scope="row" className="max-w-[220px] px-3 py-2 font-medium text-ink">
                       <span className="break-all">{member.email}</span>
                       {isSelf ? (
-                        <span className="ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-semibold text-gray-700">
+                        <span className="ml-2 rounded bg-surface-strong px-1.5 py-0.5 text-[11px] font-semibold text-ink-muted">
                           You
                         </span>
                       ) : null}
                     </th>
-                    <td className="px-3 py-2 text-gray-700">{roleLabel(member.role)}</td>
-                    <td className="px-3 py-2 text-gray-700">{member.owner_name ?? "—"}</td>
-                    <td className="px-3 py-2 text-gray-700">
+                    <td className="px-3 py-2 text-ink-muted">{roleLabel(member.role)}</td>
+                    <td className="px-3 py-2 text-ink-muted">{member.owner_name ?? "—"}</td>
+                    <td className="px-3 py-2 text-ink-muted">
                       {member.has_credentials ? "Stored" : "None"}
                     </td>
                     <td className="px-3 py-2">
@@ -203,7 +203,7 @@ export function MembersSection({ leagueId, onSelfRemoved }: MembersSectionProps)
                       {isLastAdmin ? (
                         <span
                           id={`last-admin-${member.user_id}`}
-                          className="mt-1 block text-[12px] text-gray-600"
+                          className="mt-1 block text-[12px] text-ink-subtle"
                         >
                           The league&rsquo;s last admin cannot be removed.
                         </span>
@@ -218,33 +218,33 @@ export function MembersSection({ leagueId, onSelfRemoved }: MembersSectionProps)
       ) : null}
 
       {pending === null ? null : (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-gray-900/40 p-4 sm:items-center">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-overlay/40 p-4 sm:items-center">
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="h-remove-member"
-            className="w-full max-w-md rounded-xl border border-gray-200 bg-white p-5 shadow-xl"
+            className="w-full max-w-md rounded-xl border border-line bg-surface p-5 shadow-xl"
           >
             <h3 id="h-remove-member" className="text-lg font-bold">
               Remove {pending.email}?
             </h3>
-            <p className="mt-2 text-[13px] text-gray-600">
+            <p className="mt-2 text-[13px] text-ink-subtle">
               This deletes {pending.email}&rsquo;s membership in this league only. Their account and
               any other leagues are not affected.
             </p>
             {targetIsSelf ? (
-              <p className="mt-2 text-[13px] font-semibold text-gray-800">
+              <p className="mt-2 text-[13px] font-semibold text-ink-strong">
                 This is your own membership. You will lose access to this league.
               </p>
             ) : null}
             {targetIsOnlyCredentialHolder ? (
-              <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-900">
+              <p className="mt-2 rounded-lg border border-warning-line bg-warning-surface px-3 py-2 text-[13px] text-warning-ink">
                 Refresh will stop working after this removal: this member is the only one in the
                 league with stored ESPN credentials.
               </p>
             ) : null}
             {targetIsLastAdmin ? (
-              <p className="mt-2 text-[13px] text-red-800">
+              <p className="mt-2 text-[13px] text-danger-ink">
                 This is the league&rsquo;s last admin. Add another admin member before removing
                 them.
               </p>

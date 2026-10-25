@@ -7,7 +7,7 @@ export function SeasonPicker() {
 
   return (
     <div className="flex items-center gap-2">
-      <label htmlFor="season-picker" className="text-[13px] font-semibold text-gray-700">
+      <label htmlFor="season-picker" className="text-[13px] font-semibold text-ink-muted">
         Season
       </label>
       <select
