@@ -20,6 +20,9 @@ export interface EloRatingsTableProps {
 
 const headCell =
   "whitespace-nowrap border-b border-line bg-surface-muted px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-faint";
+// The rank cell must keep the exact width the sticky team cell offsets by (`left-11` = 44px):
+// `w-11` alone can shrink below 44px when the other columns' min-content widths exceed the table's
+// minimum width, which leaves a transparent gap the scrolled columns show through.
 const RANK_CELL = "sticky left-0 z-10 w-11 min-w-11 max-w-11";
 const RANK_HEAD = "sticky left-0 z-20 w-11 min-w-11 max-w-11";
 const TEAM_CELL = "sticky left-11 z-10 min-w-[168px]";
@@ -144,6 +147,9 @@ export function EloRatingsTable({ teams, selectedTeamKey, onSelectTeam }: EloRat
           {ordered.map((team) => {
             const selected = team.team_key === selectedTeamKey;
             const name = teamDisplayName(team, teams);
+            // Pinned cells paint their own opaque token per row state. The row background alone
+            // cannot stop scrolled columns showing through, and `bg-inherit` resolves to
+            // transparent on unselected rows.
             const pinnedBackground = selected
               ? "bg-brand-soft"
               : "bg-surface group-hover:bg-surface-hover";

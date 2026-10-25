@@ -12,7 +12,7 @@ export const secondaryButtonClass =
   "inline-flex items-center justify-center rounded-lg border border-line bg-surface px-3 py-1.5 text-[13px] text-ink-muted hover:border-brand-ink hover:text-brand-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-ink disabled:cursor-not-allowed disabled:border-line disabled:text-ink-disabled";
 
 export const dangerButtonClass =
-  "inline-flex items-center justify-center rounded-lg bg-danger px-3.5 py-2 text-sm font-semibold text-white hover:bg-danger-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger-ink-soft disabled:cursor-not-allowed disabled:bg-surface-disabled disabled:text-ink-subtle";
+  "inline-flex items-center justify-center rounded-lg bg-danger px-3.5 py-2 text-sm font-semibold text-danger-foreground hover:bg-danger-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger-ink-soft disabled:cursor-not-allowed disabled:bg-surface-disabled disabled:text-ink-subtle";
 
 export const dangerSecondaryButtonClass =
   "inline-flex items-center justify-center rounded-lg border border-danger-line-strong bg-surface px-3 py-1.5 text-[13px] font-semibold text-danger-ink hover:border-danger-ink-soft hover:bg-danger-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger-ink-soft disabled:cursor-not-allowed disabled:border-line disabled:text-ink-disabled";

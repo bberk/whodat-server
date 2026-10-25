@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import fixture from "../../e2e/fixture.json" with { type: "json" };
 import { expectNoBlockingAxeViolations } from "./axe";
@@ -16,6 +16,119 @@ async function expectPageDoesNotScrollSideways(page: Page): Promise<void> {
   expect(width.scrollWidth, "the page body must not scroll horizontally").toBeLessThanOrEqual(
     width.clientWidth,
   );
+}
+
+/** The resolved token backgrounds used by the pinned cells in each theme. */
+const THEME_BACKGROUNDS = {
+  dark: {
+    surface: "rgb(17, 26, 43)",
+    hover: "rgb(26, 37, 59)",
+    selected: "rgb(16, 49, 47)",
+    header: "rgb(23, 34, 54)",
+  },
+  light: {
+    surface: "rgb(255, 255, 255)",
+    hover: "rgb(249, 250, 251)",
+    selected: "rgb(240, 253, 250)",
+    header: "rgb(249, 250, 251)",
+  },
+} as const;
+
+interface PinnedCellStyle {
+  position: string;
+  backgroundColor: string;
+  alpha: number;
+  left: number;
+  right: number;
+  width: number;
+}
+
+/** Read the computed background and geometry of a sticky cell in the live page. */
+async function readPinnedCell(cell: Locator): Promise<PinnedCellStyle> {
+  return cell.evaluate((element) => {
+    const style = getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    const channels = style.backgroundColor.match(/[\d.]+/g)?.map(Number) ?? [];
+    return {
+      position: style.position,
+      backgroundColor: style.backgroundColor,
+      alpha: channels.length === 4 ? channels[3] : 1,
+      left: rect.left,
+      right: rect.right,
+      width: rect.width,
+    };
+  });
+}
+
+/**
+ * A pinned cell must stay sticky and paint a fully opaque token, otherwise the horizontally
+ * scrolled columns show through it.
+ */
+async function expectOpaquePinnedCell(
+  cell: Locator,
+  label: string,
+  background: string,
+): Promise<PinnedCellStyle> {
+  const style = await readPinnedCell(cell);
+  expect(style.position, `${label} must stay pinned`).toBe("sticky");
+  expect(style.alpha, `${label} must have an opaque background`).toBe(1);
+  expect(style.backgroundColor, `${label} must use its row-state token`).toBe(background);
+  return style;
+}
+
+/**
+ * Assert the Elo table's pinned rank and team cells paint an opaque token in every row state, and
+ * that the rank cell fills exactly the offset the team cell pins by, with the table scrolled to its
+ * end so the other columns sit underneath them.
+ */
+async function expectEloPinnedTableOpaque(
+  page: Page,
+  theme: keyof typeof THEME_BACKGROUNDS,
+): Promise<void> {
+  const backgrounds = THEME_BACKGROUNDS[theme];
+  const region = page.getByRole("region", {
+    name: "Elo score history current scores, scrollable horizontally",
+  });
+  const headerRank = region.locator("thead th").nth(0);
+  const headerTeam = region.locator("thead th").nth(1);
+  const firstRow = region.locator("tbody tr").first();
+  const rank = firstRow.locator("th").first();
+  const team = firstRow.locator("td").first();
+
+  // Scroll the wide table fully so other columns sit underneath the pinned ones.
+  await region.evaluate((element) => {
+    element.scrollLeft = element.scrollWidth;
+  });
+  const scroll = await region.evaluate((element) => ({
+    scrollWidth: element.scrollWidth,
+    clientWidth: element.clientWidth,
+  }));
+  expect(scroll.scrollWidth, "the Elo table must scroll at 360px").toBeGreaterThan(
+    scroll.clientWidth,
+  );
+
+  await expectOpaquePinnedCell(headerRank, "Elo header rank", backgrounds.header);
+  await expectOpaquePinnedCell(headerTeam, "Elo header team", backgrounds.header);
+  const normalRank = await expectOpaquePinnedCell(rank, "Elo rank", backgrounds.surface);
+  const normalTeam = await expectOpaquePinnedCell(team, "Elo team", backgrounds.surface);
+  expect(
+    Math.abs(normalRank.right - normalTeam.left),
+    "the pinned team cell must start where the rank cell ends",
+  ).toBeLessThanOrEqual(1);
+  expect(normalRank.width, "the rank cell must keep the 44px pinned offset").toBeGreaterThanOrEqual(
+    43,
+  );
+
+  await firstRow.getByRole("button").hover();
+  await expectOpaquePinnedCell(rank, "hovered Elo rank", backgrounds.hover);
+  await expectOpaquePinnedCell(team, "hovered Elo team", backgrounds.hover);
+
+  await firstRow.getByRole("button").click();
+  await expect(firstRow.getByRole("button")).toHaveAttribute("aria-pressed", "true");
+  await expectOpaquePinnedCell(rank, "selected Elo rank", backgrounds.selected);
+  await expectOpaquePinnedCell(team, "selected Elo team", backgrounds.selected);
+  await firstRow.getByRole("button").click();
+  await expect(firstRow.getByRole("button")).toHaveAttribute("aria-pressed", "false");
 }
 
 /**
@@ -93,4 +206,71 @@ test("follows the OS theme, persists an explicit choice, and stays accessible in
     body: await page.screenshot({ fullPage: true }),
     contentType: "image/png",
   });
+
+  // The Elo table is wider than a phone. At 360px its pinned rank and team columns must stay
+  // opaque over the scrolled values in both themes, so check them once at the narrow viewport.
+  if (testInfo.project.name === "mobile-360") {
+    await page.getByRole("link", { name: "History" }).click();
+    await expect(page).toHaveURL(/\/history$/);
+    await expect(page.getByRole("heading", { name: "Current scores" })).toBeVisible();
+
+    await expectEloPinnedTableOpaque(page, "dark");
+    await expectPageDoesNotScrollSideways(page);
+
+    await page.getByText("Light", { exact: true }).click();
+    await expect(root).not.toHaveClass(/dark/);
+    await expectEloPinnedTableOpaque(page, "light");
+    await expectPageDoesNotScrollSideways(page);
+
+    await page.getByText("System", { exact: true }).click();
+    await expect(root).toHaveClass(/dark/);
+    expect(await storedTheme()).toBeNull();
+  }
+});
+
+/**
+ * Load the page with the application bundle held at the network layer. The inline script in
+ * `index.html` must resolve and paint the dark theme before any React code runs, so the first
+ * styled paint cannot flash light.
+ */
+test("applies the dark theme before the application bundle runs", async ({ page }) => {
+  let releaseBundle: () => void = () => undefined;
+  const bundleGate = new Promise<void>((resolve) => {
+    releaseBundle = resolve;
+  });
+  let markBundleRequested: () => void = () => undefined;
+  const bundleRequested = new Promise<void>((resolve) => {
+    markBundleRequested = resolve;
+  });
+  await page.route(/\/(assets\/.*\.js|src\/main\.tsx)$/, async (route) => {
+    markBundleRequested();
+    await bundleGate;
+    await route.continue();
+  });
+
+  try {
+    await page.goto("/login", { waitUntil: "commit" });
+    // The application bundle has been requested but is held here, so nothing from React can run.
+    await bundleRequested;
+    await page.waitForFunction(() => document.body !== null);
+
+    await expect(page.locator("html")).toHaveClass(/dark/);
+    expect(
+      await page.evaluate(() => document.documentElement.style.colorScheme),
+      "the inline script sets the dark colour scheme",
+    ).toBe("dark");
+
+    await page.waitForFunction(
+      () => getComputedStyle(document.body).backgroundColor === "rgb(9, 14, 26)",
+    );
+    expect(
+      await page.evaluate(() => document.getElementById("root")?.childElementCount ?? -1),
+      "React must not have mounted before the dark first paint",
+    ).toBe(0);
+  } finally {
+    releaseBundle();
+  }
+
+  await page.waitForLoadState("load");
+  await expect(page.getByRole("heading", { name: "Log in" })).toBeVisible();
 });
