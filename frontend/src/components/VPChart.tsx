@@ -44,21 +44,29 @@ interface MarkerProps {
 function Marker({ shape, x, y, color, size }: MarkerProps) {
   switch (shape) {
     case "circle":
-      return <circle cx={x} cy={y} r={size} fill={color} />;
+      return <circle cx={x} cy={y} r={size} style={{ fill: color }} />;
     case "square":
-      return <rect x={x - size} y={y - size} width={size * 2} height={size * 2} fill={color} />;
+      return (
+        <rect
+          x={x - size}
+          y={y - size}
+          width={size * 2}
+          height={size * 2}
+          style={{ fill: color }}
+        />
+      );
     case "triangle":
       return (
         <path
           d={`M ${x} ${y - size} L ${x + size} ${y + size} L ${x - size} ${y + size} Z`}
-          fill={color}
+          style={{ fill: color }}
         />
       );
     case "diamond":
       return (
         <path
           d={`M ${x} ${y - size} L ${x + size} ${y} L ${x} ${y + size} L ${x - size} ${y} Z`}
-          fill={color}
+          style={{ fill: color }}
         />
       );
     case "plus":
@@ -66,7 +74,7 @@ function Marker({ shape, x, y, color, size }: MarkerProps) {
         <path
           d={`M ${x - size} ${y} H ${x + size} M ${x} ${y - size} V ${y + size}`}
           fill="none"
-          stroke={color}
+          style={{ stroke: color }}
           strokeWidth={2}
           strokeLinecap="round"
         />
@@ -76,7 +84,7 @@ function Marker({ shape, x, y, color, size }: MarkerProps) {
         <path
           d={`M ${x - size} ${y - size} L ${x + size} ${y + size} M ${x + size} ${y - size} L ${x - size} ${y + size}`}
           fill="none"
-          stroke={color}
+          style={{ stroke: color }}
           strokeWidth={2}
           strokeLinecap="round"
         />
@@ -105,7 +113,7 @@ export function VPChart({
 
   if (weeks.length === 0 || series.length === 0) {
     return (
-      <div className="mt-3 rounded-xl border border-gray-200 bg-white p-6 text-center text-sm text-gray-500">
+      <div className="mt-3 rounded-xl border border-line bg-surface p-6 text-center text-sm text-ink-faint">
         No chart data for this season yet.
       </div>
     );
@@ -143,7 +151,7 @@ export function VPChart({
   const xLabelY = layout.height - (compact ? 8 : 10);
 
   return (
-    <div className="mt-3 rounded-xl border border-gray-200 bg-white p-4">
+    <div className="mt-3 rounded-xl border border-line bg-surface p-4">
       <svg
         className="block h-auto w-full"
         viewBox={`0 0 ${layout.width} ${layout.height}`}
@@ -151,7 +159,7 @@ export function VPChart({
         aria-label={summary}
       >
         <title>Cumulative victory points by week</title>
-        <g fontSize={compact ? 9 : 11} fill="#6b7280" textAnchor="end">
+        <g fontSize={compact ? 9 : 11} textAnchor="end" className="fill-chart-axis">
           {scale.ticks.map((tick) => {
             const y = yFor(tick);
             return (
@@ -161,7 +169,7 @@ export function VPChart({
                   y1={y}
                   x2={layout.width - layout.right}
                   y2={y}
-                  stroke={tick === 0 ? "#9ca3af" : "#e5e7eb"}
+                  className={tick === 0 ? "stroke-chart-zero" : "stroke-chart-grid"}
                   strokeWidth={tick === 0 ? 1.2 : 1}
                 />
                 <text x={layout.left - 4} y={y + 3}>
@@ -171,7 +179,7 @@ export function VPChart({
             );
           })}
         </g>
-        <g fontSize={compact ? 9.5 : 11} fill="#6b7280" textAnchor="middle">
+        <g fontSize={compact ? 9.5 : 11} textAnchor="middle" className="fill-chart-axis">
           {weeks.map((week, index) => (
             <text key={week} x={xFor(index)} y={xLabelY}>
               W{week}
@@ -179,7 +187,7 @@ export function VPChart({
           ))}
         </g>
         {compact ? null : (
-          <g fontSize={11} fill="#374151" textAnchor="middle">
+          <g fontSize={11} textAnchor="middle" className="fill-chart-label">
             <text x={layout.left + plotWidth / 2} y={layout.height - 4} fontWeight={600}>
               Week
             </text>
@@ -204,9 +212,9 @@ export function VPChart({
                 points={entry.cumulative
                   .map((value, index) => `${xFor(index)},${yFor(toNumber(value))}`)
                   .join(" ")}
-                stroke={style.color}
-                strokeWidth={selected ? 3.2 : 2.2}
                 strokeDasharray={style.dash}
+                strokeWidth={selected ? 3.2 : 2.2}
+                style={{ stroke: style.color }}
               />
             );
           })}
@@ -234,14 +242,14 @@ export function VPChart({
             y={endLabelY[index] + 4}
             fontSize={11.5}
             fontWeight={600}
-            fill={seriesStyle(item.entry.styleIndex).color}
+            style={{ fill: seriesStyle(item.entry.styleIndex).color }}
           >
             {item.entry.teamName} {formatVP(lastValue(item.entry))}
           </text>
         ))}
       </svg>
 
-      <p id="vp-chart-legend-hint" className="mt-3 text-xs text-gray-500">
+      <p id="vp-chart-legend-hint" className="mt-3 text-xs text-ink-faint">
         Click a team to hide or show it. Double-click a team to show only that team.
       </p>
       <ul
@@ -261,9 +269,9 @@ export function VPChart({
                 onClick={() => onToggleTeam(entry.teamId)}
                 onDoubleClick={() => onIsolateTeam(entry.teamId)}
                 title={`Show or hide ${entry.teamName}. Double-click to show only ${entry.teamName}.`}
-                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[13px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
-                  selected ? "border-brand bg-brand-foreground" : "border-gray-200 bg-white"
-                } ${shown ? "text-gray-700" : "text-gray-500 line-through"}`}
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[13px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-ink ${
+                  selected ? "border-brand-ink bg-brand-soft" : "border-line bg-surface"
+                } ${shown ? "text-ink-muted" : "text-ink-disabled line-through"}`}
               >
                 <svg width={30} height={10} aria-hidden="true">
                   <line
@@ -271,15 +279,17 @@ export function VPChart({
                     y1={5}
                     x2={29}
                     y2={5}
-                    stroke={style.color}
                     strokeWidth={2.2}
                     strokeDasharray={style.dash}
                     strokeLinecap="round"
+                    style={{ stroke: style.color }}
                   />
                   <Marker shape={style.marker} x={15} y={5} color={style.color} size={3} />
                 </svg>
-                <span className={selected ? "font-semibold text-brand" : ""}>{entry.teamName}</span>
-                <span className="tabular-nums text-gray-500">{formatVP(lastValue(entry))}</span>
+                <span className={selected ? "font-semibold text-brand-ink" : ""}>
+                  {entry.teamName}
+                </span>
+                <span className="tabular-nums text-ink-faint">{formatVP(lastValue(entry))}</span>
               </button>
             </li>
           );
@@ -287,11 +297,11 @@ export function VPChart({
       </ul>
 
       <details className="mt-3">
-        <summary className="cursor-pointer text-[13px] font-semibold text-brand">
+        <summary className="cursor-pointer text-[13px] font-semibold text-brand-ink">
           View chart data as a table
         </summary>
         <div
-          className="relative mt-2 overflow-x-auto rounded-xl border border-gray-200 bg-white"
+          className="relative mt-2 overflow-x-auto rounded-xl border border-line bg-surface"
           tabIndex={0}
           role="region"
           aria-label="Cumulative VP data table"
@@ -301,10 +311,10 @@ export function VPChart({
               Cumulative victory points per team, weeks {weeks[0]} to {weeks[weeks.length - 1]}.
             </caption>
             <thead>
-              <tr className="border-b border-gray-300">
+              <tr className="border-b border-line-strong">
                 <th
                   scope="col"
-                  className="whitespace-nowrap px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500"
+                  className="whitespace-nowrap px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-faint"
                 >
                   Team
                 </th>
@@ -312,7 +322,7 @@ export function VPChart({
                   <th
                     key={week}
                     scope="col"
-                    className="whitespace-nowrap px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500"
+                    className="whitespace-nowrap px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-ink-faint"
                   >
                     W{week}
                   </th>
@@ -321,14 +331,14 @@ export function VPChart({
             </thead>
             <tbody>
               {series.map((entry) => (
-                <tr key={entry.teamId} className="border-b border-gray-200 last:border-b-0">
+                <tr key={entry.teamId} className="border-b border-line last:border-b-0">
                   <th scope="row" className="whitespace-nowrap px-3 py-2 text-left font-semibold">
                     {entry.teamName}
                   </th>
                   {entry.cumulative.map((value, index) => (
                     <td
                       key={`${entry.teamId}-${index}`}
-                      className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-gray-600"
+                      className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-subtle"
                     >
                       {formatVP(value)}
                     </td>

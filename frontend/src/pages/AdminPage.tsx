@@ -47,7 +47,7 @@ export function AdminPage() {
   return (
     <div className="pt-5 md:pt-6">
       <h1 className="text-xl font-bold md:text-2xl">League admin</h1>
-      <p className="mt-1 text-[13px] text-gray-500">{leagueName}</p>
+      <p className="mt-1 text-[13px] text-ink-faint">{leagueName}</p>
 
       <MembersSection leagueId={leagueId} onSelfRemoved={leaveAfterRemoval} />
 

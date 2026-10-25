@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import { adminUser } from "../test/fixtures";
+import { ThemeProvider } from "../theme/ThemeProvider";
 import { AuthContext, type AuthContextValue } from "./AuthContext";
 import { LoginPage } from "./LoginPage";
 import { SignupPage } from "./SignupPage";
@@ -24,15 +25,17 @@ function authValue(overrides: Partial<AuthContextValue> = {}): AuthContextValue 
 
 function renderAt(path: string, element: ReactElement, value = authValue()) {
   return render(
-    <AuthContext.Provider value={value}>
-      <MemoryRouter initialEntries={[path]}>
-        <Routes>
-          <Route path={path} element={element} />
-          <Route path="/" element={<p>standings destination</p>} />
-          <Route path="/onboarding" element={<p>onboarding destination</p>} />
-        </Routes>
-      </MemoryRouter>
-    </AuthContext.Provider>,
+    <ThemeProvider>
+      <AuthContext.Provider value={value}>
+        <MemoryRouter initialEntries={[path]}>
+          <Routes>
+            <Route path={path} element={element} />
+            <Route path="/" element={<p>standings destination</p>} />
+            <Route path="/onboarding" element={<p>onboarding destination</p>} />
+          </Routes>
+        </MemoryRouter>
+      </AuthContext.Provider>
+    </ThemeProvider>,
   );
 }
 

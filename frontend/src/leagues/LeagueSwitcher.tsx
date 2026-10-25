@@ -7,7 +7,7 @@ export function LeagueSwitcher({ onSelect }: { onSelect?: (leagueId: number) => 
 
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <label htmlFor="league-switcher" className="text-[13px] font-semibold text-gray-700">
+      <label htmlFor="league-switcher" className="text-[13px] font-semibold text-ink-muted">
         League
       </label>
       <select

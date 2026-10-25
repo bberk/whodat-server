@@ -35,8 +35,8 @@ interface WindowChoice {
 }
 
 const filterButtonClass = (active: boolean) =>
-  `rounded-lg px-2.5 py-1 text-[12.5px] font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
-    active ? "bg-brand text-brand-foreground" : "bg-white text-gray-600 hover:text-brand"
+  `rounded-lg px-2.5 py-1 text-[12.5px] font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-ink ${
+    active ? "bg-brand text-brand-foreground" : "bg-surface text-ink-subtle hover:text-brand-ink"
   }`;
 
 /**
@@ -154,7 +154,7 @@ export function HistoryPage() {
     <div className="flex min-h-full min-w-0 flex-col">
       <div className="flex flex-col gap-1 pt-5 md:pt-6">
         <h1 className="text-xl font-bold md:text-2xl">{leagueName} — history</h1>
-        <p className="text-[13px] text-gray-500">{meta}</p>
+        <p className="text-[13px] text-ink-faint">{meta}</p>
       </div>
 
       <section aria-labelledby="h-elo-model" className="mt-5">
@@ -171,7 +171,7 @@ export function HistoryPage() {
         <div
           role="group"
           aria-label="Elo model"
-          className="mt-2 inline-flex flex-wrap gap-1 rounded-xl border border-gray-200 bg-white p-1"
+          className="mt-2 inline-flex flex-wrap gap-1 rounded-xl border border-line bg-surface p-1"
         >
           <button
             type="button"
@@ -190,12 +190,12 @@ export function HistoryPage() {
             Actual schedule
           </button>
         </div>
-        <p className="mt-2 max-w-3xl text-[13px] text-gray-600">{MODE_DESCRIPTIONS[mode]}</p>
-        <details className="mt-2 rounded-lg border border-gray-200 bg-white">
-          <summary className="cursor-pointer px-3 py-2 text-[13px] font-semibold text-brand">
+        <p className="mt-2 max-w-3xl text-[13px] text-ink-subtle">{MODE_DESCRIPTIONS[mode]}</p>
+        <details className="mt-2 rounded-lg border border-line bg-surface">
+          <summary className="cursor-pointer px-3 py-2 text-[13px] font-semibold text-brand-ink">
             How the Elo score works
           </summary>
-          <div className="space-y-1 px-3 pb-3 text-[12.5px] text-gray-600">
+          <div className="space-y-1 px-3 pb-3 text-[12.5px] text-ink-subtle">
             <p>
               Expected score: <code>E = 1 / (1 + 10^((R_b − R_a) / 400))</code>. Update:{" "}
               <code>R' = R + K × m × (S − E)</code>, where S is 1 for a win, 0.5 for a tie and 0 for
@@ -213,18 +213,18 @@ export function HistoryPage() {
         </details>
 
         {ready === null ? null : (
-          <div className="mt-3 flex flex-wrap gap-2 text-[12px] text-gray-700">
-            <span className="rounded-full border border-teal-100 bg-brand-foreground px-2.5 py-1">
+          <div className="mt-3 flex flex-wrap gap-2 text-[12px] text-ink-muted">
+            <span className="rounded-full border border-brand-soft-line bg-brand-soft px-2.5 py-1">
               <strong>{formatEloValue(ready.config.starting_rating)}</strong> start
             </span>
-            <span className="rounded-full border border-teal-100 bg-brand-foreground px-2.5 py-1">
+            <span className="rounded-full border border-brand-soft-line bg-brand-soft px-2.5 py-1">
               <strong>K {formatEloValue(ready.config.k_factor)}</strong> per update
             </span>
-            <span className="rounded-full border border-teal-100 bg-brand-foreground px-2.5 py-1">
+            <span className="rounded-full border border-brand-soft-line bg-brand-soft px-2.5 py-1">
               <strong>+{Math.round(Number(ready.config.margin_weight) * 100)}%</strong> max margin
               bonus · cap {formatEloValue(ready.config.margin_cap)}
             </span>
-            <span className="rounded-full border border-teal-100 bg-brand-foreground px-2.5 py-1">
+            <span className="rounded-full border border-brand-soft-line bg-brand-soft px-2.5 py-1">
               <strong>{Math.round(Number(ready.config.season_regression) * 100)}%</strong> season
               reset
             </span>
@@ -259,7 +259,7 @@ export function HistoryPage() {
             <h2 id="h-elo-chart" className="text-base font-bold">
               Elo score history
             </h2>
-            <p className="mt-1 text-[13px] text-gray-500">
+            <p className="mt-1 text-[13px] text-ink-faint">
               {MODE_LABELS[mode]} · one line per franchise · dashed vertical rules mark season
               resets
               {filtered === null
@@ -267,7 +267,7 @@ export function HistoryPage() {
                 : ` · ${filtered.weeks.length} of ${ready.weeks.length} weeks shown`}
             </p>
 
-            <div className="mt-3 rounded-xl border border-gray-200 bg-white p-3">
+            <div className="mt-3 rounded-xl border border-line bg-surface p-3">
               <div role="group" aria-label="Quick time range" className="flex flex-wrap gap-1">
                 <button
                   type="button"
@@ -298,7 +298,7 @@ export function HistoryPage() {
                 <div>
                   <label
                     htmlFor="elo-window-from"
-                    className="block text-[12.5px] font-semibold text-gray-700"
+                    className="block text-[12.5px] font-semibold text-ink-muted"
                   >
                     From week
                   </label>
@@ -323,7 +323,7 @@ export function HistoryPage() {
                 <div>
                   <label
                     htmlFor="elo-window-to"
-                    className="block text-[12.5px] font-semibold text-gray-700"
+                    className="block text-[12.5px] font-semibold text-ink-muted"
                   >
                     To week
                   </label>
@@ -346,7 +346,7 @@ export function HistoryPage() {
                   </select>
                 </div>
               </div>
-              <p id="elo-window-hint" className="mt-2 text-[12.5px] text-gray-500">
+              <p id="elo-window-hint" className="mt-2 text-[12.5px] text-ink-faint">
                 {filtered === null || filtered.weeks.length === 0
                   ? "No rated weeks in this range."
                   : `Showing ${filtered.weeks[0].season} W${filtered.weeks[0].week} to ${
@@ -389,11 +389,11 @@ export function HistoryPage() {
                 <h2 id="h-elo-current" className="text-base font-bold">
                   Current scores
                 </h2>
-                <p className="mt-1 text-[13px] text-gray-500">
+                <p className="mt-1 text-[13px] text-ink-faint">
                   Sorted by current Elo · change this week and this season shown to two decimals
                 </p>
               </div>
-              <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[12px] font-semibold text-gray-700">
+              <span className="rounded-full bg-surface-strong px-2.5 py-1 text-[12px] font-semibold text-ink-muted">
                 {MODE_LABELS[mode]}
               </span>
             </div>
@@ -404,7 +404,7 @@ export function HistoryPage() {
             />
 
             {ready.unrated_teams.length === 0 ? null : (
-              <p className="mt-2 text-[12.5px] text-gray-600">
+              <p className="mt-2 text-[12.5px] text-ink-subtle">
                 {ready.unrated_teams.length} team
                 {ready.unrated_teams.length === 1 ? "" : "s"} have no rated matchups yet:{" "}
                 {ready.unrated_teams.map((team) => team.name).join(", ")}.
@@ -412,7 +412,7 @@ export function HistoryPage() {
             )}
 
             {ready.warnings.length === 0 ? null : (
-              <div className="mt-2 text-[12.5px] text-amber-900">
+              <div className="mt-2 text-[12.5px] text-warning-ink">
                 <p className="font-semibold">Some stored data was skipped:</p>
                 <ul className="list-disc pl-5">
                   {ready.warnings.map((warning) => (
@@ -424,14 +424,14 @@ export function HistoryPage() {
               </div>
             )}
 
-            <p className="mt-3 text-[12.5px] text-gray-500">
+            <p className="mt-3 text-[12.5px] text-ink-faint">
               Ratings follow the franchise slot, not the owner. A renamed team keeps its history and
               is shown with its latest name. History is recalculated whenever seasons change.{" "}
               {user?.role === "admin" ? (
                 <button
                   type="button"
                   onClick={() => navigate(`/leagues/${leagueId}/admin`)}
-                  className="font-semibold text-brand underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                  className="font-semibold text-brand-ink underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-ink"
                 >
                   League admin can change the Elo settings.
                 </button>

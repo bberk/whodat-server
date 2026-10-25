@@ -109,7 +109,7 @@ export function OwnerPage() {
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div>
           <h1 className="text-xl font-bold md:text-2xl">Owner · {leagueName}</h1>
-          <p className="mt-1 text-[13px] text-gray-500">
+          <p className="mt-1 text-[13px] text-ink-faint">
             Choose the team you own in this league. This only changes your own membership.
           </p>
         </div>
@@ -140,8 +140,11 @@ export function OwnerPage() {
         ) : null}
 
         {ownersState.status === "ready" ? (
-          <form onSubmit={submit} className="mt-3 rounded-xl border border-gray-200 bg-white p-4">
-            <label htmlFor="owner-select" className="block text-[13px] font-semibold text-gray-700">
+          <form onSubmit={submit} className="mt-3 rounded-xl border border-line bg-surface p-4">
+            <label
+              htmlFor="owner-select"
+              className="block text-[13px] font-semibold text-ink-muted"
+            >
               Owner
             </label>
             <select
@@ -162,12 +165,12 @@ export function OwnerPage() {
             </select>
 
             {error === null ? null : (
-              <p role="alert" className="mt-3 text-[13px] text-red-800">
+              <p role="alert" className="mt-3 text-[13px] text-danger-ink">
                 {error.message}
               </p>
             )}
             {saved ? (
-              <p role="status" className="mt-3 text-[13px] text-brand">
+              <p role="status" className="mt-3 text-[13px] text-brand-ink">
                 Owner saved.
               </p>
             ) : null}

@@ -18,7 +18,8 @@ presets), cup-week markers, and a current-ratings table; admins can tune the
 per-league Elo settings from the league admin page. In the final four regular-season weeks, the
 standings also mark proven Z (top seed), Y (division winner), X (clinched berth), and E
 (eliminated) designations. Members sign up, are linked to their team
-owner, and see only their league's data.
+owner, and see only their league's data. A System/Light/Dark theme control follows the operating
+system on the first visit, remembers an explicit choice, and covers every page and chart.
 
 ESPN access is isolated behind a provider interface, so other league providers can be added
 later without changing the VP engine, database, API, or frontend.

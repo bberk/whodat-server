@@ -55,7 +55,7 @@ export function LoginPage() {
           <Link
             to="/signup"
             state={location.state}
-            className="font-semibold text-brand hover:underline"
+            className="font-semibold text-brand-ink hover:underline"
           >
             Create an account
           </Link>
@@ -63,7 +63,7 @@ export function LoginPage() {
       }
     >
       {bootError === null ? null : (
-        <p role="alert" className="mb-4 text-[13px] text-red-800">
+        <p role="alert" className="mb-4 text-[13px] text-danger-ink">
           {bootError}
         </p>
       )}

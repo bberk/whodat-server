@@ -50,17 +50,19 @@ export function DeleteLeagueSection({ leagueId, leagueName, onDeleted }: DeleteL
   return (
     <section
       aria-labelledby="h-danger-zone"
-      className="mt-9 rounded-xl border-2 border-red-300 bg-red-50 p-4 md:p-5"
+      className="mt-9 rounded-xl border-2 border-danger-line-strong bg-danger-surface p-4 md:p-5"
     >
-      <h2 id="h-danger-zone" className="text-base font-bold text-red-900">
+      <h2 id="h-danger-zone" className="text-base font-bold text-danger-ink-strong">
         Danger zone: delete this league
       </h2>
-      <p className="mt-1 text-[13px] text-gray-700">
+      <p className="mt-1 text-[13px] text-ink-muted">
         Deleting <span className="font-semibold">{leagueName}</span> permanently removes this league
         and all of its data: seasons, teams, owners, matchups, scores, memberships, and invites
         bound to it. Accounts, league-less admin invites, and your other leagues are not affected.
       </p>
-      <p className="mt-2 text-[13px] font-semibold text-red-900">This cannot be undone.</p>
+      <p className="mt-2 text-[13px] font-semibold text-danger-ink-strong">
+        This cannot be undone.
+      </p>
 
       <form onSubmit={onSubmit} noValidate className="mt-3 max-w-lg">
         <label htmlFor="delete-league-name" className={labelClass}>
@@ -79,14 +81,14 @@ export function DeleteLeagueSection({ leagueId, leagueName, onDeleted }: DeleteL
           disabled={deleting}
           aria-describedby="delete-league-name-note"
         />
-        <p id="delete-league-name-note" className="mt-1 text-xs text-gray-600">
+        <p id="delete-league-name-note" className="mt-1 text-xs text-ink-subtle">
           Type <span className="font-mono font-semibold">{leagueName}</span> exactly.
         </p>
 
         <ApiAlert error={error} />
 
         {deleting ? (
-          <p role="status" className="mt-3 text-[13px] text-gray-800">
+          <p role="status" className="mt-3 text-[13px] text-ink-strong">
             Deleting the league…
           </p>
         ) : null}

@@ -128,7 +128,7 @@ describe("WapdateSection (AC-WD-08)", () => {
       .getAllByRole("row")
       .find((row) => row.textContent?.includes("Alpha"));
     expect(alphaRow).toBeDefined();
-    expect(alphaRow).toHaveClass("bg-gray-50");
+    expect(alphaRow).toHaveClass("bg-surface-muted");
 
     const badge = screen.getByTitle("cannot finish last");
     expect(badge).toHaveTextContent("Safe");

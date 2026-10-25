@@ -53,14 +53,14 @@ export function SortableHeader({
         onClick={() => onSort(sortKey, initialDirection)}
         aria-label={buttonName}
         title={buttonName}
-        className={`inline-flex w-full items-center gap-1 rounded py-0.5 hover:text-gray-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
+        className={`inline-flex w-full items-center gap-1 rounded py-0.5 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-ink ${
           align === "right" ? "justify-end text-right" : "justify-start text-left"
         }`}
       >
         <span>{label}</span>
         <span
           aria-hidden="true"
-          className={`text-[9px] leading-none ${active ? "text-gray-700" : "text-gray-400"}`}
+          className={`text-[9px] leading-none ${active ? "text-ink-muted" : "text-ink-disabled"}`}
         >
           {DIRECTION_MARK[sort]}
         </span>

@@ -216,7 +216,7 @@ export function EloSettingsSection({ leagueId }: { leagueId: number }) {
           <h2 id="h-elo-settings" className="text-base font-bold">
             Elo settings
           </h2>
-          <p className="mt-1 text-[13px] text-gray-500">
+          <p className="mt-1 text-[13px] text-ink-faint">
             Per league · saved changes recompute the History page from stored results.
           </p>
         </div>
@@ -234,7 +234,7 @@ export function EloSettingsSection({ leagueId }: { leagueId: number }) {
             void submit(event);
           }}
           noValidate
-          className="mt-3 rounded-xl border border-gray-200 bg-white p-4"
+          className="mt-3 rounded-xl border border-line bg-surface p-4"
         >
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {FIELDS.map((field) => {
@@ -263,11 +263,11 @@ export function EloSettingsSection({ leagueId }: { leagueId: number }) {
                     disabled={saving}
                     className={inputClass}
                   />
-                  <p id={`elo-hint-${field.key}`} className="mt-1 text-xs text-gray-500">
+                  <p id={`elo-hint-${field.key}`} className="mt-1 text-xs text-ink-faint">
                     {field.hint}
                   </p>
                   {error === undefined ? null : (
-                    <p role="alert" className="mt-1 text-[12.5px] text-red-800">
+                    <p role="alert" className="mt-1 text-[12.5px] text-danger-ink">
                       {field.label}: {error}
                     </p>
                   )}
@@ -276,7 +276,7 @@ export function EloSettingsSection({ leagueId }: { leagueId: number }) {
             })}
           </div>
 
-          <p className="mt-3 text-[12.5px] text-gray-500">
+          <p className="mt-3 text-[12.5px] text-ink-faint">
             Saving these values does not store a snapshot: every History view is recomputed from
             stored matchups and scores, so adding or deleting a season also changes it.
           </p>
@@ -287,7 +287,7 @@ export function EloSettingsSection({ leagueId }: { leagueId: number }) {
             </div>
           )}
           {success === null ? null : (
-            <p role="status" className="mt-3 text-[13px] font-semibold text-gray-800">
+            <p role="status" className="mt-3 text-[13px] font-semibold text-ink-strong">
               {success}
             </p>
           )}

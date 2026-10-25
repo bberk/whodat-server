@@ -145,7 +145,7 @@ export function StandingsPage() {
     <div className="flex min-h-full flex-col">
       <div className="flex flex-col gap-1 pt-5 md:pt-6">
         <h1 className="text-xl font-bold md:text-2xl">{selectedLeague.name} — standings</h1>
-        <p className="text-[13px] text-gray-500">{meta}</p>
+        <p className="text-[13px] text-ink-faint">{meta}</p>
       </div>
 
       <section aria-labelledby="h-overall" className="mt-7 md:mt-9">
@@ -203,7 +203,7 @@ export function StandingsPage() {
               const name = division.name ?? `Division ${index + 1}`;
               return (
                 <div key={`${division.name ?? "division"}-${index}`} className="min-w-0">
-                  <h3 className="text-sm font-semibold text-gray-700">{name}</h3>
+                  <h3 className="text-sm font-semibold text-ink-muted">{name}</h3>
                   <StandingsTable
                     caption={`${name} division standings, ${bundle.standings.season}: rank, team, owner, season victory points, head-to-head record, and points for. Ranks are overall league ranks; weekly VP columns stay on the overall table.`}
                     ariaLabel={`${name} division standings, scrollable horizontally`}

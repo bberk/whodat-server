@@ -142,19 +142,19 @@ export function AddLeagueDialog({ open, onClose }: { open: boolean; onClose: () 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-gray-900/40 p-4 sm:items-center">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-overlay/40 p-4 sm:items-center">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="league-dialog-title"
-        className="w-full max-w-md rounded-xl border border-gray-200 bg-white p-5 shadow-xl"
+        className="w-full max-w-md rounded-xl border border-line bg-surface p-5 shadow-xl"
       >
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 id="league-dialog-title" className="text-lg font-bold">
               {isAdmin ? "Add a league" : "Join a league"}
             </h2>
-            <p className="mt-1 text-[13px] text-gray-500">
+            <p className="mt-1 text-[13px] text-ink-faint">
               {isAdmin
                 ? "Add an ESPN league and optionally store credentials for private leagues."
                 : "Enter the member invite code from your league admin. Joining needs no credentials."}
@@ -195,7 +195,7 @@ export function AddLeagueDialog({ open, onClose }: { open: boolean; onClose: () 
               </div>
               <div>
                 <label htmlFor="add-league-season" className={labelClass}>
-                  Season <span className="font-normal text-gray-500">(optional)</span>
+                  Season <span className="font-normal text-ink-faint">(optional)</span>
                 </label>
                 <input
                   id="add-league-season"
@@ -211,8 +211,8 @@ export function AddLeagueDialog({ open, onClose }: { open: boolean; onClose: () 
                   placeholder="2026"
                 />
               </div>
-              <fieldset className="rounded-lg border border-gray-200 p-3">
-                <legend className="px-1 text-[13px] font-semibold text-gray-700">
+              <fieldset className="rounded-lg border border-line p-3">
+                <legend className="px-1 text-[13px] font-semibold text-ink-muted">
                   ESPN credentials (optional)
                 </legend>
                 <div className="space-y-3">
@@ -268,14 +268,14 @@ export function AddLeagueDialog({ open, onClose }: { open: boolean; onClose: () 
                 className={inputClass}
                 aria-describedby="join-invite-code-note"
               />
-              <p id="join-invite-code-note" className="mt-1 text-xs text-gray-500">
+              <p id="join-invite-code-note" className="mt-1 text-xs text-ink-faint">
                 The code is checked once and is never shown again.
               </p>
             </div>
           )}
 
           {formError === null ? null : (
-            <p role="alert" className="text-[13px] text-red-800">
+            <p role="alert" className="text-[13px] text-danger-ink">
               {formError}
             </p>
           )}

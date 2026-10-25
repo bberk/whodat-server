@@ -46,9 +46,9 @@ describe("vpTone", () => {
   });
 
   it("maps each tone to a distinct text class", () => {
-    expect(vpToneClass("pos")).toBe("text-brand");
-    expect(vpToneClass("neg")).toBe("text-red-700");
-    expect(vpToneClass("zero")).toBe("text-gray-500");
+    expect(vpToneClass("pos")).toBe("text-brand-ink");
+    expect(vpToneClass("neg")).toBe("text-danger-ink-soft");
+    expect(vpToneClass("zero")).toBe("text-ink-faint");
   });
 });
 

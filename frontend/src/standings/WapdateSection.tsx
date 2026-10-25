@@ -14,10 +14,10 @@ import {
 import { useWapdateData } from "./useWapdateData";
 
 const headCell =
-  "whitespace-nowrap px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500";
+  "whitespace-nowrap px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-faint";
 const numCell = "whitespace-nowrap px-3 py-2 text-right tabular-nums";
 const ROW_DIVIDER =
-  "[&>th]:border-b [&>td]:border-b [&>th]:border-gray-200 [&>td]:border-gray-200 last:[&>th]:border-b-0 last:[&>td]:border-b-0";
+  "[&>th]:border-b [&>td]:border-b [&>th]:border-line [&>td]:border-line last:[&>th]:border-b-0 last:[&>td]:border-b-0";
 
 /** Numeric value for a sortable WAPDate column. */
 function sortValueFor(row: WapdateRow, key: string): SortValue {
@@ -106,10 +106,10 @@ export function WapdateSection({ leagueId, season, dataVersion }: WapdateSection
                 return (
                   <label
                     key={period.period}
-                    className={`inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-[13px] font-medium focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-brand ${
+                    className={`inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-[13px] font-medium focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-brand-ink ${
                       checked
-                        ? "border-brand bg-brand-foreground text-gray-900"
-                        : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
+                        ? "border-brand-ink bg-brand-soft text-ink"
+                        : "border-line bg-surface text-ink-muted hover:border-line-strong"
                     }`}
                   >
                     <input
@@ -118,7 +118,7 @@ export function WapdateSection({ leagueId, season, dataVersion }: WapdateSection
                       value={period.period}
                       checked={checked}
                       onChange={() => setSelectedPeriod(period.period)}
-                      className="h-4 w-4 accent-brand"
+                      className="h-4 w-4 accent-brand-ink"
                     />
                     <span>{periodLabel(period)}</span>
                   </label>
@@ -127,13 +127,13 @@ export function WapdateSection({ leagueId, season, dataVersion }: WapdateSection
             </div>
           </fieldset>
 
-          <p className="mt-2 text-[13px] text-gray-500">
+          <p className="mt-2 text-[13px] text-ink-faint">
             Weeks counted: {active.weeks.length === 0 ? "none" : active.weeks.join(", ")}.
           </p>
 
           <div className="relative mt-3">
             <div
-              className="relative overflow-x-auto rounded-xl border border-gray-200 bg-white"
+              className="relative overflow-x-auto rounded-xl border border-line bg-surface"
               tabIndex={0}
               role="region"
               aria-label="WAPDate standings, scrollable horizontally"
@@ -145,10 +145,10 @@ export function WapdateSection({ leagueId, season, dataVersion }: WapdateSection
                   wins, and points for, lowest first.
                 </caption>
                 <thead>
-                  <tr className="[&>th]:border-b [&>th]:border-gray-300">
+                  <tr className="[&>th]:border-b [&>th]:border-line-strong">
                     <th
                       scope="col"
-                      className={`${headCell} sticky left-0 z-20 min-w-[176px] bg-white shadow-[6px_0_8px_-6px_rgba(17,24,39,0.18)]`}
+                      className={`${headCell} sticky left-0 z-20 min-w-[176px] bg-surface shadow-sticky`}
                     >
                       Team
                     </th>
@@ -180,25 +180,27 @@ export function WapdateSection({ leagueId, season, dataVersion }: WapdateSection
                 </thead>
                 <tbody>
                   {orderedRows.map((row) => {
-                    const pinnedBackground = row.eliminated
-                      ? "bg-gray-50"
-                      : "bg-white group-hover:bg-gray-50";
+                    const stickyBackground = row.eliminated
+                      ? "bg-surface-muted"
+                      : "bg-surface group-hover:bg-surface-hover";
                     return (
                       <tr
                         key={row.team_id}
                         className={`group ${ROW_DIVIDER} ${
-                          row.eliminated ? "bg-gray-50 text-gray-500" : "hover:bg-gray-50"
+                          row.eliminated
+                            ? "bg-surface-muted text-ink-faint"
+                            : "hover:bg-surface-hover"
                         }`}
                       >
                         <th
                           scope="row"
-                          className={`sticky left-0 z-10 min-w-[176px] px-3 py-2 text-left font-semibold shadow-[6px_0_8px_-6px_rgba(17,24,39,0.18)] ${pinnedBackground}`}
+                          className={`sticky left-0 z-10 min-w-[176px] px-3 py-2 text-left font-semibold shadow-sticky ${stickyBackground}`}
                         >
                           <span className="inline-flex flex-wrap items-center gap-2">
                             <span>{row.team_name}</span>
                             {row.eliminated ? (
                               <span
-                                className="inline-flex items-center rounded-full border border-gray-300 bg-gray-200 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-800"
+                                className="inline-flex items-center rounded-full border border-line-strong bg-surface-emphasis px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-strong"
                                 title="cannot finish last"
                               >
                                 Safe<span className="sr-only"> — cannot finish last</span>
@@ -207,8 +209,8 @@ export function WapdateSection({ leagueId, season, dataVersion }: WapdateSection
                           </span>
                         </th>
                         <td className={`${numCell} font-bold`}>{formatVP(row.victory_points)}</td>
-                        <td className={`${numCell} text-gray-600`}>{row.wins}</td>
-                        <td className={`${numCell} text-gray-600`}>
+                        <td className={`${numCell} text-ink-subtle`}>{row.wins}</td>
+                        <td className={`${numCell} text-ink-subtle`}>
                           {formatPoints(row.points_for)}
                         </td>
                       </tr>
@@ -219,7 +221,7 @@ export function WapdateSection({ leagueId, season, dataVersion }: WapdateSection
             </div>
             <div
               aria-hidden="true"
-              className="pointer-events-none absolute inset-y-0 right-0 z-30 w-7 rounded-r-xl bg-gradient-to-l from-gray-900/5 to-transparent"
+              className="pointer-events-none absolute inset-y-0 right-0 z-30 w-7 rounded-r-xl bg-gradient-to-l from-fade/5 to-transparent"
             />
           </div>
         </>

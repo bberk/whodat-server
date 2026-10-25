@@ -11,47 +11,50 @@ import { HistoryPage } from "./pages/HistoryPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
 import { OwnerPage } from "./pages/OwnerPage";
 import { StandingsPage } from "./pages/StandingsPage";
+import { ThemeProvider } from "./theme/ThemeProvider";
 
 /** Route tree without a router, so tests can mount it inside a MemoryRouter. */
 export function AppRoutes() {
   return (
-    <AuthProvider>
-      <Routes>
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/signup" element={<SignupPage />} />
-        <Route
-          path="/onboarding"
-          element={
-            <OnboardingRoute>
-              <OnboardingPage />
-            </OnboardingRoute>
-          }
-        />
-        <Route
-          path="/"
-          element={
-            <ProtectedRoute>
-              <LeagueProvider>
-                <AppShell />
-              </LeagueProvider>
-            </ProtectedRoute>
-          }
-        >
-          <Route index element={<StandingsPage />} />
-          <Route path="leagues/:leagueId/history" element={<HistoryPage />} />
-          <Route path="leagues/:leagueId/owner" element={<OwnerPage />} />
+    <ThemeProvider>
+      <AuthProvider>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/signup" element={<SignupPage />} />
           <Route
-            path="leagues/:leagueId/admin"
+            path="/onboarding"
             element={
-              <AdminRoute>
-                <AdminPage />
-              </AdminRoute>
+              <OnboardingRoute>
+                <OnboardingPage />
+              </OnboardingRoute>
             }
           />
-        </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </AuthProvider>
+          <Route
+            path="/"
+            element={
+              <ProtectedRoute>
+                <LeagueProvider>
+                  <AppShell />
+                </LeagueProvider>
+              </ProtectedRoute>
+            }
+          >
+            <Route index element={<StandingsPage />} />
+            <Route path="leagues/:leagueId/history" element={<HistoryPage />} />
+            <Route path="leagues/:leagueId/owner" element={<OwnerPage />} />
+            <Route
+              path="leagues/:leagueId/admin"
+              element={
+                <AdminRoute>
+                  <AdminPage />
+                </AdminRoute>
+              }
+            />
+          </Route>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
 

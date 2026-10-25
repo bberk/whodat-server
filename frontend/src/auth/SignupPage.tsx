@@ -59,7 +59,7 @@ export function SignupPage() {
           <Link
             to="/login"
             state={location.state}
-            className="font-semibold text-brand hover:underline"
+            className="font-semibold text-brand-ink hover:underline"
           >
             Log in
           </Link>
@@ -100,7 +100,7 @@ export function SignupPage() {
             onChange={(event) => setPassword(event.target.value)}
             className={inputClass}
           />
-          <p className="mt-1 text-xs text-gray-500">At least 8 characters, ASCII only.</p>
+          <p className="mt-1 text-xs text-ink-faint">At least 8 characters, ASCII only.</p>
         </div>
         <div>
           <label htmlFor="signup-invite" className={labelClass}>

@@ -7,13 +7,14 @@ import { AddLeagueDialog } from "../leagues/AddLeagueDialog";
 import { useLeague } from "../leagues/LeagueContext";
 import { LeagueSwitcher } from "../leagues/LeagueSwitcher";
 import { SeasonPicker } from "../leagues/SeasonPicker";
+import { ThemeToggle } from "../theme/ThemeToggle";
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   `rounded-lg px-2.5 py-1.5 text-[13px] font-semibold ${
-    isActive ? "bg-brand-foreground text-brand" : "text-gray-600 hover:text-brand"
+    isActive ? "bg-brand-soft text-brand-ink" : "text-ink-subtle hover:text-brand-ink"
   }`;
 
-/** Signed-in layout: brand and navigation, league/season controls, and the routed page content. */
+/** Signed-in layout: brand and navigation, league/season controls, theme control, and the page. */
 export function AppShell() {
   const { user, logout } = useAuth();
   const { leaguesStatus, leaguesError, reloadLeagues, selectedLeague, season } = useLeague();
@@ -32,8 +33,8 @@ export function AppShell() {
     !location.pathname.endsWith("/admin");
 
   return (
-    <div className="flex min-h-full flex-col bg-gray-50 text-gray-900">
-      <header className="border-b border-gray-200 bg-white">
+    <div className="flex min-h-full flex-col bg-page text-ink">
+      <header className="border-b border-line bg-surface">
         <div className="mx-auto max-w-[1200px] px-4 md:px-6">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3">
             <Link to="/" className="flex items-center gap-2.5">
@@ -53,14 +54,14 @@ export function AppShell() {
                 Standings
               </NavLink>
               {historyPath === null ? (
-                <span className="px-2.5 py-1.5 text-[13px] text-gray-400">History</span>
+                <span className="px-2.5 py-1.5 text-[13px] text-ink-faint">History</span>
               ) : (
                 <NavLink to={historyPath} className={navLinkClass}>
                   History
                 </NavLink>
               )}
               {ownerPath === null ? (
-                <span className="px-2.5 py-1.5 text-[13px] text-gray-400">Owner</span>
+                <span className="px-2.5 py-1.5 text-[13px] text-ink-faint">Owner</span>
               ) : (
                 <NavLink to={ownerPath} className={navLinkClass}>
                   Owner
@@ -73,7 +74,7 @@ export function AppShell() {
               )}
             </nav>
 
-            <div className="flex items-center gap-2 border-l border-gray-200 pl-3 text-[13px] text-gray-700">
+            <div className="flex items-center gap-2 border-l border-line pl-3 text-[13px] text-ink-muted">
               <span className="hidden max-w-[180px] truncate sm:inline">{user?.email}</span>
               <button
                 type="button"
@@ -88,7 +89,7 @@ export function AppShell() {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-gray-100 py-2.5">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-line-subtle py-2.5">
             <LeagueSwitcher
               onSelect={(leagueId) => {
                 const suffix = location.pathname.endsWith("/owner")
@@ -105,6 +106,7 @@ export function AppShell() {
             />
             {showSeasonPicker ? <SeasonPicker /> : null}
             <div className="flex-1" />
+            <ThemeToggle />
             <button type="button" onClick={() => setAddOpen(true)} className={secondaryButtonClass}>
               {user?.role === "admin" ? "Add league" : "Join league"}
             </button>
@@ -115,7 +117,7 @@ export function AppShell() {
       {leaguesStatus === "error" ? (
         <div
           role="alert"
-          className="border-b border-red-200 bg-red-50 px-4 py-2 text-[13px] text-red-800 md:px-6"
+          className="border-b border-danger-line bg-danger-surface px-4 py-2 text-[13px] text-danger-ink md:px-6"
         >
           <div className="mx-auto flex max-w-[1200px] flex-wrap items-center gap-2">
             <span>{leaguesError ?? "Could not load your leagues."}</span>

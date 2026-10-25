@@ -37,13 +37,13 @@ const RANK_CELL = "sticky left-0 z-10 w-12 min-w-12 max-w-12";
 const RANK_HEAD = "sticky left-0 z-20 w-12 min-w-12 max-w-12";
 const TEAM_CELL = "sticky left-12 z-10 min-w-[176px]";
 const TEAM_HEAD = "sticky left-12 z-20 min-w-[176px]";
-const PINNED_SHADOW = "shadow-[6px_0_8px_-6px_rgba(17,24,39,0.18)]";
+const PINNED_SHADOW = "shadow-sticky";
 const ROW_DIVIDER =
-  "[&>th]:border-b [&>td]:border-b [&>th]:border-gray-200 [&>td]:border-gray-200 last:[&>th]:border-b-0 last:[&>td]:border-b-0";
-const HEAD_DIVIDER = "[&>th]:border-b [&>th]:border-gray-300";
+  "[&>th]:border-b [&>td]:border-b [&>th]:border-line [&>td]:border-line last:[&>th]:border-b-0 last:[&>td]:border-b-0";
+const HEAD_DIVIDER = "[&>th]:border-b [&>th]:border-line-strong";
 
 const headCell =
-  "whitespace-nowrap px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500";
+  "whitespace-nowrap px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-faint";
 const numCell = "whitespace-nowrap px-3 py-2 text-right tabular-nums";
 
 /** Numeric value for a sortable column; `null` keeps missing values last in either direction. */
@@ -77,6 +77,9 @@ function sortValueFor(row: StandingsRow, key: string, weeks: readonly number[]):
  * Season VP, the record, points for, and each weekly VP column are sortable. Team, owner, and rank
  * are not: identity columns keep the API's rank order, and the rank value never changes when the
  * client sorts. Division tables pass no `weeks`, so they never render weekly VP columns.
+ *
+ * Pinned cells carry an opaque theme token (never `bg-inherit`), so scrolled content cannot show
+ * through the rank and team columns in either theme.
  */
 export function StandingsTable({
   caption,
@@ -102,7 +105,7 @@ export function StandingsTable({
           label) inside this scroll container; without it such a box escapes the clip and makes
           the whole page scroll sideways at narrow widths. */}
       <div
-        className="relative overflow-x-auto rounded-xl border border-gray-200 bg-white"
+        className="relative overflow-x-auto rounded-xl border border-line bg-surface"
         tabIndex={0}
         role="region"
         aria-label={ariaLabel}
@@ -111,10 +114,10 @@ export function StandingsTable({
           <caption className="sr-only">{caption}</caption>
           <thead>
             <tr className={HEAD_DIVIDER}>
-              <th scope="col" className={`${headCell} ${RANK_HEAD} bg-white text-left`}>
+              <th scope="col" className={`${headCell} ${RANK_HEAD} bg-surface text-left`}>
                 #
               </th>
-              <th scope="col" className={`${headCell} ${TEAM_HEAD} ${PINNED_SHADOW} bg-white`}>
+              <th scope="col" className={`${headCell} ${TEAM_HEAD} ${PINNED_SHADOW} bg-surface`}>
                 Team
               </th>
               <th scope="col" className={headCell}>
@@ -162,32 +165,32 @@ export function StandingsTable({
           <tbody>
             {orderedRows.map((row) => {
               const selected = row.team_id === selectedTeamId;
-              const pinnedBackground = selected
-                ? "bg-brand-foreground"
-                : "bg-white group-hover:bg-gray-50";
+              const stickyBackground = selected
+                ? "bg-brand-soft"
+                : "bg-surface group-hover:bg-surface-hover";
               const style = seriesStyle(seriesIndexByTeamId.get(row.team_id) ?? 0);
               return (
                 <tr
                   key={row.team_id}
                   className={`group ${ROW_DIVIDER} ${
-                    selected ? "bg-brand-foreground" : "hover:bg-gray-50"
+                    selected ? "bg-brand-soft" : "hover:bg-surface-hover"
                   }`}
                 >
                   <th
                     scope="row"
-                    className={`${numCell} ${RANK_CELL} text-left font-normal text-gray-600 ${pinnedBackground} ${
-                      selected ? "shadow-[inset_3px_0_0_0_#0f766e]" : ""
+                    className={`${numCell} ${RANK_CELL} text-left font-normal text-ink-subtle ${stickyBackground} ${
+                      selected ? "shadow-[inset_3px_0_0_0_rgb(var(--color-brand-ink))]" : ""
                     }`}
                   >
                     {row.rank}
                   </th>
-                  <td className={`${TEAM_CELL} ${PINNED_SHADOW} px-3 py-2 ${pinnedBackground}`}>
+                  <td className={`${TEAM_CELL} ${PINNED_SHADOW} px-3 py-2 ${stickyBackground}`}>
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
                         aria-pressed={selected}
                         onClick={() => onSelectTeam(row.team_id)}
-                        className="flex min-w-0 flex-1 items-center gap-2 rounded text-left font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                        className="flex min-w-0 flex-1 items-center gap-2 rounded text-left font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-ink"
                       >
                         <span
                           aria-hidden="true"
@@ -201,12 +204,14 @@ export function StandingsTable({
                       <ClinchBadge status={row.clinch} />
                     </div>
                   </td>
-                  <td className={`${numCell} text-left text-gray-600`}>{row.owner_name ?? "—"}</td>
+                  <td className={`${numCell} text-left text-ink-subtle`}>
+                    {row.owner_name ?? "—"}
+                  </td>
                   <td className={`${numCell} font-bold ${vpToneClass(vpTone(row.victory_points))}`}>
                     {formatVP(row.victory_points)}
                   </td>
-                  <td className={`${numCell} text-gray-600`}>{formatRecord(row, showTies)}</td>
-                  <td className={`${numCell} text-gray-600`}>{formatPoints(row.points_for)}</td>
+                  <td className={`${numCell} text-ink-subtle`}>{formatRecord(row, showTies)}</td>
+                  <td className={`${numCell} text-ink-subtle`}>{formatPoints(row.points_for)}</td>
                   {row.weekly_vp.map((vp, index) => {
                     if (weeks[index] === undefined) {
                       return null;
@@ -228,7 +233,7 @@ export function StandingsTable({
       </div>
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-y-0 right-0 z-30 w-7 rounded-r-xl bg-gradient-to-l from-gray-900/5 to-transparent"
+        className="pointer-events-none absolute inset-y-0 right-0 z-30 w-7 rounded-r-xl bg-gradient-to-l from-fade/5 to-transparent"
       />
     </div>
   );
