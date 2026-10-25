@@ -168,7 +168,7 @@ describe("HistoryPage", () => {
     );
   });
 
-  it("filters the chart to one season without losing the current table", async () => {
+  it("filters the chart to a week range without losing the current table", async () => {
     eloFetch();
     const user = userEvent.setup();
     renderPage();
@@ -176,16 +176,79 @@ describe("HistoryPage", () => {
     const chart = await screen.findByRole("img", { name: /Elo score history/i });
     expect(chart.getAttribute("aria-label")).toContain("2025 week 1 to 2026 week 1");
 
-    await user.click(screen.getByRole("button", { name: "2025" }));
+    await user.selectOptions(screen.getByLabelText("From week"), "2025-1");
+    await user.selectOptions(screen.getByLabelText("To week"), "2025-2");
 
     const filtered = screen.getByRole("img", { name: /Elo score history/i });
     expect(filtered.getAttribute("aria-label")).toContain("2025 week 1 to 2025 week 2");
-    expect(screen.getByRole("button", { name: "2025" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/Showing 2025 W1 to 2025 W2\./)).toBeInTheDocument();
     expect(
       screen.getByRole("region", {
         name: "Elo score history current scores, scrollable horizontally",
       }),
     ).toBeInTheDocument();
+    // Changing the selects leaves the quick presets unselected.
+    for (const name of ["All history", "Current season", "Last 12 weeks"]) {
+      expect(screen.getByRole("button", { name })).toHaveAttribute("aria-pressed", "false");
+    }
+  });
+
+  it("applies the quick time presets and clamps an inverted From/To pair", async () => {
+    eloFetch();
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByRole("img", { name: /Elo score history/i });
+    expect(screen.getByRole("button", { name: "All history" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Current season" }));
+    expect(screen.getByRole("button", { name: "Current season" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(
+      screen.getByRole("img", { name: /Elo score history/i }).getAttribute("aria-label"),
+    ).toContain("2026 week 1 to 2026 week 1");
+
+    await user.click(screen.getByRole("button", { name: "Last 12 weeks" }));
+    expect(screen.getByRole("button", { name: "Last 12 weeks" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(
+      screen.getByRole("img", { name: /Elo score history/i }).getAttribute("aria-label"),
+    ).toContain("2025 week 1 to 2026 week 1");
+
+    // Choosing a To before a From that is later swaps the two ends instead of showing an empty chart.
+    await user.selectOptions(screen.getByLabelText("To week"), "2025-1");
+    await user.selectOptions(screen.getByLabelText("From week"), "2026-1");
+    expect(screen.getByLabelText("From week")).toHaveValue("2025-1");
+    expect(screen.getByLabelText("To week")).toHaveValue("2026-1");
+    expect(
+      screen.getByRole("img", { name: /Elo score history/i }).getAttribute("aria-label"),
+    ).toContain("2025 week 1 to 2026 week 1");
+  });
+
+  it("isolates one franchise when its legend chip is double-clicked", async () => {
+    eloFetch();
+    const user = userEvent.setup();
+    const { container } = renderPage();
+
+    await screen.findByRole("img", { name: /Elo score history/i });
+    const toggle = screen.getByRole("button", { name: "Show or hide Bravo series" });
+    await user.dblClick(toggle);
+
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    expect(container.querySelector('[data-team-key="espn:2"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-team-key="espn:1"]')).not.toBeInTheDocument();
+    expect(container.querySelector('[data-team-key="espn:3"]')).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show or hide Alpha series" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
   });
 
   it("shows warnings and links admins to the settings page", async () => {
@@ -214,19 +277,22 @@ describe("HistoryPage", () => {
     expect(screen.getByText("Admin stub")).toBeInTheDocument();
   });
 
-  it("shows an empty state for a season with no rated weeks", async () => {
+  it("shows an empty state when the current season has no rated weeks", async () => {
     eloFetch((path) =>
       path === "/api/v1/leagues/1/elo-history"
-        ? jsonResponse({ ...eloHistoryResponse, seasons: [2024, 2025, 2026] })
+        ? jsonResponse({ ...eloHistoryResponse, seasons: [2025, 2026, 2027] })
         : errorResponse(404, { code: "not_found", message: path }),
     );
     const user = userEvent.setup();
     renderPage();
 
     await screen.findByRole("img", { name: /Elo score history/i });
-    await user.click(screen.getByRole("button", { name: "2024" }));
+    await user.click(screen.getByRole("button", { name: "Current season" }));
 
-    expect(screen.getByText("No rated weeks in this season")).toBeInTheDocument();
+    expect(screen.getByText("No rated weeks in this range")).toBeInTheDocument();
+    expect(
+      screen.getByText(/The current scores table below always lists every team/),
+    ).toBeInTheDocument();
   });
 
   it("hides admin-only text and handles empty unrated lists", async () => {

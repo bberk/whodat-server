@@ -13,7 +13,8 @@ standings, and a cumulative VP chart. It also shows WAPDate standings: the worst
 fixed four-week period (weeks 1-4, 5-8, 9-12), ordered by VP, then wins, then points for, with
 teams that are already safe from last place greyed in the current period. A History tab adds a
 running Elo score per franchise across every stored season, with Actual schedule and Round robin
-models, a season filter, cup-week markers, and a current-ratings table; admins can tune the
+models, a week-range filter (From/To week plus all-history, current-season, and last-12-weeks
+presets), cup-week markers, and a current-ratings table; admins can tune the
 per-league Elo settings from the league admin page. In the final four regular-season weeks, the
 standings also mark proven Z (top seed), Y (division winner), X (clinched berth), and E
 (eliminated) designations. Members sign up, are linked to their team

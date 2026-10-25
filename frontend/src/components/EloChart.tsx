@@ -22,6 +22,8 @@ export interface EloChartProps {
   visibleTeamKeys: readonly string[];
   selectedTeamKey: string | null;
   onToggleTeam: (teamKey: string) => void;
+  /** Hide every series except this team (legend double-click). */
+  onIsolateTeam: (teamKey: string) => void;
   onSelectTeam: (teamKey: string) => void;
   compact: boolean;
 }
@@ -171,6 +173,7 @@ export function EloChart({
   visibleTeamKeys,
   selectedTeamKey,
   onToggleTeam,
+  onIsolateTeam,
   onSelectTeam,
   compact,
 }: EloChartProps) {
@@ -434,7 +437,14 @@ export function EloChart({
         )}
       </svg>
 
-      <ul className="mt-4 flex flex-wrap gap-2" aria-label="Chart series toggles">
+      <p id="elo-chart-legend-hint" className="mt-3 text-xs text-gray-500">
+        Click a team to hide or show its line. Double-click a team to show only that team.
+      </p>
+      <ul
+        className="mt-2 flex flex-wrap gap-2"
+        aria-label="Chart series toggles"
+        aria-describedby="elo-chart-legend-hint"
+      >
         {series.map((entry) => {
           const style = seriesStyle(entry.styleIndex);
           const shown = visible.has(entry.teamKey);
@@ -442,6 +452,8 @@ export function EloChart({
           return (
             <li
               key={entry.teamKey}
+              onDoubleClick={() => onIsolateTeam(entry.teamKey)}
+              title={`Show or hide ${entry.name}. Double-click to show only ${entry.name}.`}
               className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[13px] ${
                 selected ? "border-brand bg-brand-foreground" : "border-gray-200 bg-white"
               }`}
@@ -474,7 +486,7 @@ export function EloChart({
                 aria-label={`Highlight ${entry.name}`}
                 onClick={() => onSelectTeam(entry.teamKey)}
                 className={`flex items-center gap-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
-                  shown ? "" : "line-through opacity-60"
+                  shown ? "" : "line-through"
                 }`}
               >
                 <span className={selected ? "font-semibold text-brand" : ""}>{entry.name}</span>
@@ -495,16 +507,16 @@ export function EloChart({
           role="region"
           aria-label="Elo score history data table"
         >
-          <table className="w-full border-collapse text-sm">
+          <table className="w-full border-separate border-spacing-0 text-sm">
             <caption className="sr-only">
               Elo score for each team after each chart week, {weeks[0].season} week {weeks[0].week}{" "}
               through {weeks[weeks.length - 1].season} week {weeks[weeks.length - 1].week}.
             </caption>
             <thead>
-              <tr className="border-b border-gray-300">
+              <tr>
                 <th
                   scope="col"
-                  className="sticky left-0 z-10 whitespace-nowrap bg-white px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500"
+                  className="sticky left-0 z-10 whitespace-nowrap border-b border-gray-300 bg-white px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500"
                 >
                   Team
                 </th>
@@ -512,7 +524,7 @@ export function EloChart({
                   <th
                     key={`${week.season}-${week.week}`}
                     scope="col"
-                    className="whitespace-nowrap px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500"
+                    className="whitespace-nowrap border-b border-gray-300 px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500"
                   >
                     {week.season} W{week.week}
                     {week.is_cup_week ? " (cup)" : ""}
@@ -522,7 +534,10 @@ export function EloChart({
             </thead>
             <tbody>
               {series.map((entry) => (
-                <tr key={entry.teamKey} className="border-b border-gray-200 last:border-b-0">
+                <tr
+                  key={entry.teamKey}
+                  className="[&>th]:border-b [&>td]:border-b [&>th]:border-gray-200 [&>td]:border-gray-200 last:[&>th]:border-b-0 last:[&>td]:border-b-0"
+                >
                   <th
                     scope="row"
                     className="sticky left-0 z-10 whitespace-nowrap bg-white px-3 py-2 text-left font-semibold"

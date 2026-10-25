@@ -1,13 +1,37 @@
 import { useState } from "react";
 
-import type { WapdatePeriod } from "../api/types";
+import type { WapdatePeriod, WapdateRow } from "../api/types";
 import { EmptyState, ErrorState, LoadingState } from "../components/DataStates";
 import { formatPoints, formatVP } from "../components/format";
+import { SortableHeader } from "../components/SortableHeader";
+import {
+  sortRows,
+  toggleSort,
+  type SortDirection,
+  type SortState,
+  type SortValue,
+} from "../components/sorting";
 import { useWapdateData } from "./useWapdateData";
 
 const headCell =
   "whitespace-nowrap px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500";
 const numCell = "whitespace-nowrap px-3 py-2 text-right tabular-nums";
+const ROW_DIVIDER =
+  "[&>th]:border-b [&>td]:border-b [&>th]:border-gray-200 [&>td]:border-gray-200 last:[&>th]:border-b-0 last:[&>td]:border-b-0";
+
+/** Numeric value for a sortable WAPDate column. */
+function sortValueFor(row: WapdateRow, key: string): SortValue {
+  switch (key) {
+    case "vp":
+      return Number(row.victory_points);
+    case "wins":
+      return row.wins;
+    case "pf":
+      return Number(row.points_for);
+    default:
+      return null;
+  }
+}
 
 /** The current period when there is one, otherwise the latest complete period. */
 function defaultWapdatePeriod(periods: readonly WapdatePeriod[]): WapdatePeriod | null {
@@ -37,14 +61,23 @@ export interface WapdateSectionProps {
  * wins, then points for. The period toggle lists only the periods the API offers and defaults to
  * the current period (or the latest complete one). Rows safe from last place in the current
  * period are greyed and carry a visible, accessible "Safe" marker, never colour alone.
+ *
+ * VP, wins, and points for sort on the client; the team column is not sortable. The team column is
+ * pinned at the left edge with an opaque background so nothing shows through it while scrolling.
  */
 export function WapdateSection({ leagueId, season, dataVersion }: WapdateSectionProps) {
   const { state, reload } = useWapdateData(leagueId, season, dataVersion);
   const [selectedPeriod, setSelectedPeriod] = useState<number | null>(null);
+  const [sort, setSort] = useState<SortState | null>(null);
 
   const periods = state.status === "ready" ? state.wapdate.periods : [];
   const active =
     periods.find((period) => period.period === selectedPeriod) ?? defaultWapdatePeriod(periods);
+
+  const handleSort = (key: string, initialDirection: SortDirection) => {
+    setSort((current) => toggleSort(current, key, initialDirection));
+  };
+  const orderedRows = sortRows(active?.rows ?? [], sort, sortValueFor);
 
   return (
     <section aria-labelledby="h-wapdate" className="mt-7 md:mt-9">
@@ -105,44 +138,61 @@ export function WapdateSection({ leagueId, season, dataVersion }: WapdateSection
               role="region"
               aria-label="WAPDate standings, scrollable horizontally"
             >
-              <table className="w-full min-w-[420px] border-collapse text-sm">
+              <table className="w-full min-w-[420px] border-separate border-spacing-0 text-sm">
                 <caption className="sr-only">
                   WAPDate standings for weeks {active.start_week}-{active.end_week},{" "}
                   {active.status === "current" ? "in progress" : "complete"}: team, victory points,
                   wins, and points for, lowest first.
                 </caption>
                 <thead>
-                  <tr className="border-b border-gray-300">
+                  <tr className="[&>th]:border-b [&>th]:border-gray-300">
                     <th
                       scope="col"
-                      className={`${headCell} sticky left-0 z-20 min-w-[168px] bg-white shadow-[6px_0_8px_-6px_rgba(17,24,39,0.18)]`}
+                      className={`${headCell} sticky left-0 z-20 min-w-[176px] bg-white shadow-[6px_0_8px_-6px_rgba(17,24,39,0.18)]`}
                     >
                       Team
                     </th>
-                    <th scope="col" className={`${headCell} text-right`}>
-                      VP
-                    </th>
-                    <th scope="col" className={`${headCell} text-right`}>
-                      Wins
-                    </th>
-                    <th scope="col" className={`${headCell} text-right`}>
-                      PF
-                    </th>
+                    <SortableHeader
+                      label="VP"
+                      sortKey="vp"
+                      state={sort}
+                      onSort={handleSort}
+                      initialDirection="asc"
+                      className={headCell}
+                    />
+                    <SortableHeader
+                      label="Wins"
+                      sortKey="wins"
+                      state={sort}
+                      onSort={handleSort}
+                      initialDirection="asc"
+                      className={headCell}
+                    />
+                    <SortableHeader
+                      label="PF"
+                      sortKey="pf"
+                      state={sort}
+                      onSort={handleSort}
+                      initialDirection="asc"
+                      className={headCell}
+                    />
                   </tr>
                 </thead>
                 <tbody>
-                  {active.rows.map((row) => {
-                    const stickyBackground = row.eliminated ? "bg-gray-50" : "bg-white";
+                  {orderedRows.map((row) => {
+                    const pinnedBackground = row.eliminated
+                      ? "bg-gray-50"
+                      : "bg-white group-hover:bg-gray-50";
                     return (
                       <tr
                         key={row.team_id}
-                        className={`border-b border-gray-200 last:border-b-0 ${
+                        className={`group ${ROW_DIVIDER} ${
                           row.eliminated ? "bg-gray-50 text-gray-500" : "hover:bg-gray-50"
                         }`}
                       >
                         <th
                           scope="row"
-                          className={`sticky left-0 z-10 min-w-[168px] px-3 py-2 text-left font-semibold shadow-[6px_0_8px_-6px_rgba(17,24,39,0.18)] ${stickyBackground}`}
+                          className={`sticky left-0 z-10 min-w-[176px] px-3 py-2 text-left font-semibold shadow-[6px_0_8px_-6px_rgba(17,24,39,0.18)] ${pinnedBackground}`}
                         >
                           <span className="inline-flex flex-wrap items-center gap-2">
                             <span>{row.team_name}</span>
@@ -169,11 +219,8 @@ export function WapdateSection({ leagueId, season, dataVersion }: WapdateSection
             </div>
             <div
               aria-hidden="true"
-              className="pointer-events-none absolute inset-y-0 right-0 w-7 rounded-r-xl bg-gradient-to-l from-gray-900/5 to-transparent"
+              className="pointer-events-none absolute inset-y-0 right-0 z-30 w-7 rounded-r-xl bg-gradient-to-l from-gray-900/5 to-transparent"
             />
-            <p aria-hidden="true" className="mt-1.5 px-0.5 text-xs text-gray-500">
-              Table scrolls sideways — team stays pinned.
-            </p>
           </div>
         </>
       ) : null}

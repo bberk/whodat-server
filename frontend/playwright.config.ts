@@ -1,7 +1,9 @@
 import { defineConfig } from "@playwright/test";
 
-const frontendUrl = "http://localhost:4173";
-const apiUrl = "http://localhost:8000";
+const frontendPort = Number(process.env.E2E_FRONTEND_PORT ?? 4173);
+const apiPort = Number(process.env.E2E_API_PORT ?? 8000);
+const frontendUrl = `http://localhost:${frontendPort}`;
+const apiUrl = `http://localhost:${apiPort}`;
 
 /**
  * End-to-end suite for the critical journey and the accessibility checks.
@@ -42,7 +44,7 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: "../e2e/start-backend.sh",
+      command: `CORS_ORIGINS=${frontendUrl} E2E_API_PORT=${apiPort} ../e2e/start-backend.sh`,
       url: `${apiUrl}/health`,
       reuseExistingServer: true,
       timeout: 180_000,
@@ -50,7 +52,7 @@ export default defineConfig({
       stderr: "pipe",
     },
     {
-      command: "pnpm build && pnpm preview --host localhost --port 4173 --strictPort",
+      command: `VITE_API_BASE_URL=${apiUrl} pnpm build && pnpm preview --host localhost --port ${frontendPort} --strictPort`,
       url: frontendUrl,
       reuseExistingServer: true,
       timeout: 180_000,

@@ -51,6 +51,41 @@ describe("WapdateSection (AC-WD-08)", () => {
     expect(rows[2]).toHaveTextContent("Bravo");
     expect(rows[3]).toHaveTextContent("Alpha");
     expect(screen.getByText("Weeks counted: 5, 6.")).toBeInTheDocument();
+    expect(screen.queryByText(/Table scrolls sideways/i)).not.toBeInTheDocument();
+  });
+
+  it("sorts by VP, wins, and points for but never by team", async () => {
+    wapdateFetch(wapdateResponse);
+    const user = userEvent.setup();
+    renderSection();
+
+    await screen.findByRole("region", { name: "WAPDate standings, scrollable horizontally" });
+    const teamHeader = screen.getByRole("columnheader", { name: "Team" });
+    expect(teamHeader).not.toHaveAttribute("aria-sort");
+    expect(within(teamHeader).queryByRole("button")).not.toBeInTheDocument();
+
+    const vpHeader = screen.getByRole("columnheader", { name: "VP" });
+    await user.click(screen.getByRole("button", { name: "Sort by VP" }));
+    expect(vpHeader).toHaveAttribute("aria-sort", "ascending");
+    expect(within(wapdateTable()).getAllByRole("rowheader")[0]).toHaveTextContent("Foxtrot");
+    await user.click(screen.getByRole("button", { name: "Sort by VP" }));
+    expect(vpHeader).toHaveAttribute("aria-sort", "descending");
+    expect(within(wapdateTable()).getAllByRole("rowheader")[0]).toHaveTextContent("Alpha");
+
+    await user.click(screen.getByRole("button", { name: "Sort by Wins" }));
+    expect(screen.getByRole("columnheader", { name: "Wins" })).toHaveAttribute(
+      "aria-sort",
+      "ascending",
+    );
+    expect(within(wapdateTable()).getAllByRole("rowheader")[0]).toHaveTextContent("Foxtrot");
+
+    await user.click(screen.getByRole("button", { name: "Sort by PF" }));
+    expect(screen.getByRole("columnheader", { name: "PF" })).toHaveAttribute(
+      "aria-sort",
+      "ascending",
+    );
+    await user.click(screen.getByRole("button", { name: "Sort by PF" }));
+    expect(within(wapdateTable()).getAllByRole("rowheader")[0]).toHaveTextContent("Alpha");
   });
 
   it("switches to another offered period and shows its rows and counted weeks", async () => {
