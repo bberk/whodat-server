@@ -36,57 +36,6 @@ const MODE_LABELS = {
   round_robin: "Round robin",
 } as const;
 
-interface MarkerProps {
-  shape: ReturnType<typeof seriesStyle>["marker"];
-  x: number;
-  y: number;
-  color: string;
-  size: number;
-}
-
-function Marker({ shape, x, y, color, size }: MarkerProps) {
-  switch (shape) {
-    case "circle":
-      return <circle cx={x} cy={y} r={size} fill={color} />;
-    case "square":
-      return <rect x={x - size} y={y - size} width={size * 2} height={size * 2} fill={color} />;
-    case "triangle":
-      return (
-        <path
-          d={`M ${x} ${y - size} L ${x + size} ${y + size} L ${x - size} ${y + size} Z`}
-          fill={color}
-        />
-      );
-    case "diamond":
-      return (
-        <path
-          d={`M ${x} ${y - size} L ${x + size} ${y} L ${x} ${y + size} L ${x - size} ${y} Z`}
-          fill={color}
-        />
-      );
-    case "plus":
-      return (
-        <path
-          d={`M ${x - size} ${y} H ${x + size} M ${x} ${y - size} V ${y + size}`}
-          fill="none"
-          stroke={color}
-          strokeWidth={2}
-          strokeLinecap="round"
-        />
-      );
-    case "cross":
-      return (
-        <path
-          d={`M ${x - size} ${y - size} L ${x + size} ${y + size} M ${x + size} ${y - size} L ${x - size} ${y + size}`}
-          fill="none"
-          stroke={color}
-          strokeWidth={2}
-          strokeLinecap="round"
-        />
-      );
-  }
-}
-
 interface Point {
   x: number;
   y: number;
@@ -158,9 +107,9 @@ function summaryFor(
  *
  * Season starts get vertical rules and labels, cup weeks get a distinct marker, and non-null
  * values are joined in segments so a franchise that missed a season has a real gap. Series differ
- * by color, dash pattern, and marker shape; the selected team is drawn last and thicker, and
- * legend buttons toggle visibility or select a team. The `<details>` table is the chart's
- * non-visual equivalent and includes every exact value and cup-week header.
+ * by color and dash pattern, with a plain dot at each week; the selected team is drawn last and
+ * thicker, and legend buttons toggle visibility or select a team. The `<details>` table is the
+ * chart's non-visual equivalent and includes every exact value and cup-week header.
  */
 export function EloChart({
   weeks,
@@ -391,13 +340,12 @@ export function EloChart({
               value === null
                 ? []
                 : [
-                    <Marker
+                    <circle
                       key={`${entry.teamKey}-${index}`}
-                      shape={style.marker}
-                      x={xFor(index)}
-                      y={yFor(Number(value))}
-                      color={style.color}
-                      size={selected ? 4 : compact ? 2.2 : 2.8}
+                      cx={xFor(index)}
+                      cy={yFor(Number(value))}
+                      r={selected ? 2.6 : compact ? 1.4 : 1.6}
+                      fill={style.color}
                     />,
                   ],
             );
@@ -465,7 +413,7 @@ export function EloChart({
                     strokeLinecap="round"
                     opacity={shown ? 1 : 0.3}
                   />
-                  <Marker shape={style.marker} x={15} y={5} color={style.color} size={3} />
+                  <circle cx={15} cy={5} r={3} fill={style.color} />
                 </svg>
               </button>
               <button

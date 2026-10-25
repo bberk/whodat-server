@@ -72,6 +72,14 @@ describe("EloChart", () => {
     expect(screen.queryByText("Week", { exact: true })).not.toBeInTheDocument();
   });
 
+  it("marks every rated week with a plain dot regardless of series style", () => {
+    const { container } = render(<EloChart {...chartProps()} />);
+
+    // Alpha has three rated weeks and Bravo two, plus one dot per legend chip.
+    expect(container.querySelectorAll("svg circle")).toHaveLength(5 + SERIES.length);
+    expect(container.querySelectorAll("svg path")).toHaveLength(0);
+  });
+
   it("handles a view with every series hidden and a team with no data", () => {
     render(<EloChart {...chartProps({ visibleTeamKeys: [] })} />);
 
