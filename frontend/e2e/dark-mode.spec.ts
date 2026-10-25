@@ -131,11 +131,42 @@ async function expectEloPinnedTableOpaque(
   await expect(firstRow.getByRole("button")).toHaveAttribute("aria-pressed", "false");
 }
 
+/** The resolved `ink-faint` token a hidden VP legend chip must paint in each theme (>= 4.5:1). */
+const HIDDEN_VP_CHIP_COLORS = {
+  dark: "rgb(142, 160, 182)",
+  light: "rgb(107, 114, 128)",
+} as const;
+
+/**
+ * Hide the first VP series from the chart legend and prove its dimmed state is still readable.
+ *
+ * The chip only dims after a click, so no static page scan sees it. axe checks the built CSS for
+ * contrast, and the computed colour pins the AA-compliant `ink-faint` token so a dimmed token
+ * cannot creep back in even where axe's own contrast heuristic might miss it.
+ */
+async function expectHiddenVpSeriesIsAccessible(
+  page: Page,
+  theme: keyof typeof HIDDEN_VP_CHIP_COLORS,
+): Promise<void> {
+  const chip = page.getByRole("list", { name: "Chart series toggles" }).getByRole("button").first();
+  const label = await chip.getAttribute("title");
+  await chip.click();
+  await expect(chip, "the legend chip toggles to hidden").toHaveAttribute("aria-pressed", "false");
+  await expect(chip, "the hidden chip keeps the line-through cue").toHaveClass(/line-through/);
+  await expectNoBlockingAxeViolations(page, `standings with a hidden VP series (${theme})`);
+  expect(
+    await chip.evaluate((element) => getComputedStyle(element).color),
+    `the hidden chip (${label}) must use the contrast-safe ink-faint token in ${theme}`,
+  ).toBe(HIDDEN_VP_CHIP_COLORS[theme]);
+  await chip.click();
+  await expect(chip).toHaveAttribute("aria-pressed", "true");
+}
+
 /**
  * Dark-mode smoke journey: a first visit follows the OS preference with no flash of light, an
- * explicit choice overrides it and survives reloads, the signed-in surfaces (including the pinned
- * table columns) render dark, and both the auth page and the standings pass axe at the project's
- * viewport width.
+ * explicit choice overrides it and survives reloads, the signed-in surfaces render dark, and axe
+ * passes at the project's viewport width on the auth page, the standings, History, Admin, a modal
+ * dialog, and the VP legend's hidden state — in both themes, since a token can fail only on one.
  */
 test("follows the OS theme, persists an explicit choice, and stays accessible in dark mode", async ({
   page,
@@ -196,6 +227,37 @@ test("follows the OS theme, persists an explicit choice, and stays accessible in
   await expectPageDoesNotScrollSideways(page);
   await expectNoBlockingAxeViolations(page, "standings (dark)");
 
+  // The VP legend's hidden state only exists after a click, so no static scan can see it.
+  await expectHiddenVpSeriesIsAccessible(page, "dark");
+
+  // The rest of the signed-in surfaces: History (Elo chart, controls, current-scores table) and
+  // Admin (members, Elo settings, seasons), plus a modal dialog that is hidden until it opens.
+  await page.getByRole("link", { name: "History" }).click();
+  await expect(page).toHaveURL(/\/history$/);
+  await expect(page.getByRole("heading", { level: 2, name: "Current scores" })).toBeVisible();
+  await expectNoBlockingAxeViolations(page, "history (dark)");
+  await expectPageDoesNotScrollSideways(page);
+
+  await page.getByRole("link", { name: "Admin" }).click();
+  await expect(page).toHaveURL(/\/admin$/);
+  await expect(page.getByRole("heading", { level: 1, name: "League admin" })).toBeVisible();
+  await expectNoBlockingAxeViolations(page, "league admin (dark)");
+
+  await page.getByRole("button", { name: "Add league" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add a league" });
+  await expect(dialog).toBeVisible();
+  await expectNoBlockingAxeViolations(page, "add-league dialog (dark)");
+  await dialog.getByRole("button", { name: "Close add-league dialog" }).click();
+  await expect(dialog).toHaveCount(0);
+
+  // The light theme must pass the same scans, including the hidden chip on its white surface.
+  await page.getByText("Light", { exact: true }).click();
+  await expect(root).not.toHaveClass(/dark/);
+  await page.getByRole("link", { name: "Standings", exact: true }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expectHiddenVpSeriesIsAccessible(page, "light");
+  await expectPageDoesNotScrollSideways(page);
+
   // Returning to System follows the (dark) OS preference again and clears the stored value.
   await page.getByText("System", { exact: true }).click();
   await expect(root).toHaveClass(/dark/);
@@ -255,6 +317,10 @@ test("applies the dark theme before the application bundle runs", async ({ page 
     await page.waitForFunction(() => document.body !== null);
 
     await expect(page.locator("html")).toHaveClass(/dark/);
+    expect(
+      await page.evaluate(() => document.documentElement.dataset.theme),
+      "the inline script sets the data-theme hook that applyResolvedTheme also writes",
+    ).toBe("dark");
     expect(
       await page.evaluate(() => document.documentElement.style.colorScheme),
       "the inline script sets the dark colour scheme",

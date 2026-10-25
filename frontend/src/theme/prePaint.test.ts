@@ -17,6 +17,7 @@ describe("pre-paint theme script", () => {
     expect(html).toContain(`"${THEME_STORAGE_KEY}"`);
     expect(html).toContain(`"${DARK_MEDIA_QUERY}"`);
     expect(html).toContain('classList.toggle("dark"');
+    expect(html).toContain('dataset.theme = dark ? "dark" : "light"');
     expect(html).toContain("style.colorScheme");
   });
 });

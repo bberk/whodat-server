@@ -271,7 +271,7 @@ export function VPChart({
                 title={`Show or hide ${entry.teamName}. Double-click to show only ${entry.teamName}.`}
                 className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[13px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-ink ${
                   selected ? "border-brand-ink bg-brand-soft" : "border-line bg-surface"
-                } ${shown ? "text-ink-muted" : "text-ink-disabled line-through"}`}
+                } ${shown ? "text-ink-muted" : "text-ink-faint line-through"}`}
               >
                 <svg width={30} height={10} aria-hidden="true">
                   <line
