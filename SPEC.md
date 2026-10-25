@@ -138,6 +138,40 @@ field size stored from the provider's season settings.
   gets no designation. A withheld badge is preferred to a false one, so a very ambiguous season
   can show fewer designations than a full brute-force result would.
 
+### 3.7 Playoff odds
+
+The standings page also shows an **estimate** of each team's chance of making the playoffs, earning
+a first-round bye, and winning its division. Odds are derived by simulating the remaining
+regular-season weeks with the full Victory Points system; they are not a new scoring rule and never
+change standings, clinch designations, Elo, or stored data.
+
+- **Simulation.** Each simulated season starts from the exact current totals (season VP, H2H wins,
+  and points for) and draws a score for every team in every remaining regular-season week. Weekly VP
+  is computed with the same rules as section 3, including H2H ties, the top-half cutoff, high/low
+  splits, byes, and cup weeks. A cup week adds VP and points for but no H2H win.
+- **Score model.** Team strength is the team's mean points shrunk toward the league mean with three
+  pseudo-games. Future scores combine the shrunk team level with an empirical residual drawn from
+  the team's own residuals (when it has at least two observations, with four pseudo-games of
+  shrinkage toward the pooled set) or the pooled residual set. With fewer than two counted weeks (or
+  no team with two observations) the model uses week-centred residuals and no team deviation. No
+  prior or invented score is used.
+- **Seeding.** The final table ranks by season VP, then H2H wins, then points for, then team name and
+  id. Division winners are seeded first, in that same order; the remaining teams follow in overall
+  order. Exactly `playoff_team_count` teams qualify.
+- **Byes.** The bracket's next power of two above the playoff field determines the bye count:
+  `max(0, next_power_of_two(P) - P)`, capped at the number of divisions. Byes go only to division
+  winners, in seed order. With more divisions than byes, the remaining division winners are seeded
+  normally and receive no bye.
+- **Divisions.** At least one stored division is required. Every team must have a non-empty
+  division. The simulation does not guess a division or a playoff field.
+- **Unavailable.** No completed week, a missing or unusable playoff field, an incomplete or
+  inconsistent remaining schedule (including a playoff game inside the regular season), and an
+  unsupported division shape produce an explicit unavailable result. Corrupt season settings still
+  produce the standings-style structured error.
+- **Presentation.** Probabilities are estimates with a 95% interval for Monte Carlo uncertainty; the
+  interval is not a statement of model certainty. A finished regular season is reported as exact
+  final seeding with no simulation.
+
 ## 4. Functional requirements
 
 ### 4.1 Data ingestion
@@ -269,6 +303,12 @@ Pages and views:
    - Season selector (default: current season).
    - **Overall standings table**: rank, team, owner, season VP, H2H record (W-L-T), points for, and one column per week showing that week's VP. A proven playoff designation appears beside the team: **Z** top seed, **Y** division winner, **X** clinched playoff berth, or **E** eliminated. A text legend near the table explains all four; status is never conveyed by colour alone.
    - **Division standings**: one table per division; the division only filters and groups the rows, and the rank displayed for each team is its overall league rank. Division rows carry the same designation as the overall table.
+   - **Playoff odds**: below the overall table, a separately loaded section estimates each team's
+     playoff berth, first-round bye, and division-title probability from a Monte Carlo simulation of
+     the remaining season (section 3.7). It shows Team, Division, Playoff %, Bye %, and the
+     uncertainty range; numeric columns sort on the client, and the team column is pinned at narrow
+     widths. Loading, unavailable, empty, and error states are present, and the copy says these are
+     estimates.
    - **WAPDate standings**: below the cumulative VP chart, a toggle for the offered four-week
      periods (weeks 1-4, 5-8, 9-12) labelled with the week range and complete/in-progress state,
      defaulting to the current period or the latest complete one. The selected period lists the

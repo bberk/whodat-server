@@ -143,6 +143,26 @@ the API serializes ratings and changes as strings.
 | AC-Elo-19 | The admin page has an Elo settings section with labelled fields for starting rating, K factor, margin weight, margin cap, and season regression. Each field has an accessible tooltip that works on hover and keyboard focus. "Recalculate Elo history" validates ranges, saves through the API, shows saving, success, and error states, and invalidates/refetches the History view. The section does not interfere with the Seasons, Members, Invites, or delete-league sections. |
 | AC-Elo-20 | The History page and the admin Elo settings section pass an axe scan with no serious or critical violations; controls are keyboard operable and the chart summary, table caption, and cup/week/season markers are exposed as text. |
 
+### 2.4 Playoff odds
+
+The playoff-odds simulator is pure and additive. It starts from the exact current totals the
+standings page shows, simulates only the remaining regular-season weeks, and never writes data.
+
+| ID | Criterion |
+|---|---|
+| AC-PO-01 | A pure domain simulator accepts exact current totals, divisions, settings, and the remaining stored schedule, and returns per-team playoff, bye, and division-title counts plus diagnostics. Scores are integer cents and VP is integer ticks; no `float` is used for either. |
+| AC-PO-02 | Every simulated week's VP equals `compute_week_vp` exactly, component by component, including H2H ties, top-half cutoff ties, high/low splits, byes, and cup weeks (property test). |
+| AC-PO-03 | The sampler shrinks a team's deviation from the league mean with three pseudo-games, draws a team's own residuals with probability `n / (n + 4)` when `n >= 2` (otherwise the pooled pool), and uses week-centred residuals with no team deviation when fewer than two counted weeks exist or no team has two observations. Outliers are kept and a team with no history uses the pooled residuals. |
+| AC-PO-04 | Division winners are seeded first in VP/wins/points-for order, followed by the remaining teams in that order. The bye count is `max(0, next_power_of_two(P) - P)` capped at the number of divisions, and byes go only to the top division winners. Exactly `playoff_team_count` teams qualify in every simulated season; a missing, out-of-range, or too-small playoff field is unavailable rather than guessed. |
+| AC-PO-05 | The final table ranks by VP, H2H wins, points for, then team name and id. A level VP+wins tie is resolved by points for, which may differ from the conservative clinch designation. Division-title probability is reported separately and only division winners receive it. |
+| AC-PO-06 | The simulator is deterministic for a given input and seed, and a finished regular season is evaluated once with `iterations = 0` instead of sampling. The API runs exactly the requested number of iterations (1,000-50,000), returns the seed, and reproduces identical counts for the same input and seed. |
+| AC-PO-07 | `GET /api/v1/leagues/{league_id}/seasons/{season}/playoff-odds` is member-only (401 unauthenticated, 404 non-member or unknown league), returns the documented JSON with fixed four-decimal probability strings and Wilson 95% intervals, validates `iterations` and `seed` with structured 422s, sets `Cache-Control: private, max-age=300`, and is rate limited with 429 and `Retry-After`. |
+| AC-PO-08 | No completed weeks, a missing playoff field, an incomplete or inconsistent remaining schedule (including a playoff week inside the regular season), an unsupported division shape, and a finished regular season each produce the documented `status`/`reason`/`iterations` response. Corrupt season settings still return the standings-style structured 400. |
+| AC-PO-09 | Results are cached in process per `(league, season, input digest, iterations, seed, model version)`. A score, schedule, cup-week, playoff-field, division, team-name, or current-total change invalidates the entry; `last_refreshed_at` alone does not, and a second identical request does not run the simulator again. |
+| AC-PO-10 | For a fixture with a complete proof, every team with clinch `X`, `Y`, or `Z` has playoff probability 1.0000, every `E` team has 0.0000, and a `Y`/`Z` team has bye probability 1.0000 when the bracket awards byes. |
+| AC-PO-11 | The standings page renders a Playoff odds section below the overall table with team, division, playoff %, bye %, and the uncertainty range; playoff and bye headers sort on the client and the active header carries `aria-sort`; loading, unavailable (per reason), empty, error, low-confidence, and finished-season states are present; the table scrolls inside its region with a sticky team column and no page-body sideways scroll at 360px; and colour is never the only signal. |
+| AC-PO-12 | `domain/predictions.py` has 100% line and branch coverage; backend total stays at or above 85%; frontend coverage thresholds are unchanged; and `docs/openapi.json` plus generated frontend types include the endpoint. |
+
 ## 3. Data sync and storage
 
 | ID | Criterion |

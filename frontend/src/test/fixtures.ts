@@ -12,6 +12,7 @@ import type {
   LeagueSummary,
   MeResponse,
   OwnerSummary,
+  PlayoffOddsResponse,
   SeasonSettingsResponse,
   SignupLeague,
   StandingsResponse,
@@ -265,6 +266,90 @@ export const emptyStandingsResponse: StandingsResponse = {
 };
 
 export const emptyHistoryResponse: VpHistoryResponse = { weeks: [], teams: [] };
+
+export const playoffOddsResponse: PlayoffOddsResponse = {
+  league_id: 1,
+  season: 2026,
+  status: "ok",
+  reason: null,
+  iterations: 10000,
+  seed: 1837462,
+  input_version: "sha256:fixture",
+  model: {
+    version: "vp-mc-1",
+    shrink_games: 3,
+    residual_mix_games: 4,
+    score_precision: "0.01",
+    tiebreak_uses_points_for: true,
+  },
+  confidence: "low",
+  completed_weeks: 4,
+  remaining_weeks: [5, 6],
+  playoff_field: 4,
+  division_count: 2,
+  teams: [
+    {
+      team_id: 7,
+      team_name: "Alpha",
+      division: "East",
+      playoff: { probability: "1.0000", low: "0.9962", high: "1.0000" },
+      bye: { probability: "1.0000", low: "0.9962", high: "1.0000" },
+      division_title: { probability: "1.0000", low: "0.9962", high: "1.0000" },
+    },
+    {
+      team_id: 3,
+      team_name: "Bravo",
+      division: "East",
+      playoff: { probability: "0.8421", low: "0.8345", high: "0.8497" },
+      bye: { probability: "0.3120", low: "0.3011", high: "0.3231" },
+      division_title: { probability: "0.0000", low: "0.0000", high: "0.0038" },
+    },
+    {
+      team_id: 9,
+      team_name: "Charlie",
+      division: "East",
+      playoff: { probability: "0.0030", low: "0.0000", high: "0.0120" },
+      bye: { probability: "0.0000", low: "0.0000", high: "0.0038" },
+      division_title: { probability: "0.0000", low: "0.0000", high: "0.0038" },
+    },
+    {
+      team_id: 2,
+      team_name: "Delta",
+      division: "West",
+      playoff: { probability: "0.9949", low: "0.9880", high: "0.9980" },
+      bye: { probability: "0.6880", low: "0.6600", high: "0.7140" },
+      division_title: { probability: "1.0000", low: "0.9962", high: "1.0000" },
+    },
+    {
+      team_id: 5,
+      team_name: "Echo",
+      division: "West",
+      playoff: { probability: "0.5000", low: "0.4895", high: "0.5105" },
+      bye: { probability: "0.0000", low: "0.0000", high: "0.0038" },
+      division_title: { probability: "0.0000", low: "0.0000", high: "0.0038" },
+    },
+    {
+      team_id: 4,
+      team_name: "Foxtrot",
+      division: "West",
+      playoff: { probability: "0.6609", low: "0.6500", high: "0.6717" },
+      bye: { probability: "0.0000", low: "0.0000", high: "0.0038" },
+      division_title: { probability: "0.0000", low: "0.0000", high: "0.0038" },
+    },
+  ],
+};
+
+export const emptyPlayoffOddsResponse: PlayoffOddsResponse = {
+  ...playoffOddsResponse,
+  status: "unavailable",
+  reason: "no_completed_weeks",
+  iterations: 0,
+  seed: null,
+  confidence: null,
+  completed_weeks: 0,
+  remaining_weeks: [1, 2, 3, 4, 5, 6],
+  teams: [],
+};
 
 export const wapdateResponse: WapdateResponse = {
   league_id: 1,

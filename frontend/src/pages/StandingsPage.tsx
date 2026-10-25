@@ -12,6 +12,7 @@ import {
   seasonHasHeadToHeadTies,
   seriesIndexByTeamId,
 } from "../standings/model";
+import { PlayoffOddsSection } from "../standings/PlayoffOddsSection";
 import { useStandingsData } from "../standings/useStandingsData";
 import { WapdateSection } from "../standings/WapdateSection";
 
@@ -179,6 +180,12 @@ export function StandingsPage() {
           </>
         )}
       </section>
+
+      <PlayoffOddsSection
+        leagueId={selectedLeague.league_id}
+        season={season}
+        dataVersion={dataVersion}
+      />
 
       <section aria-labelledby="h-divisions" className="mt-7 md:mt-9">
         <h2 id="h-divisions" className="text-base font-bold">
