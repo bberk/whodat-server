@@ -18,6 +18,7 @@ from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.main import create_app
+from app.api.rate_limit import RateLimiter
 from app.api.routes_predictions import get_prediction_limiter
 from app.api.session import SESSION_COOKIE_NAME, set_session
 from app.db.auth_repositories import MembershipRepository, UserRepository
@@ -710,6 +711,9 @@ def test_AC_PO_07_rate_limited_after_thirty_requests(
     api = api_factory()
     league_id = _api_league(api)
     _login(api, _create_user(api, "member@example.com", league_id=league_id))
+    # A fixed clock keeps all 31 requests in one window regardless of when the suite runs.
+    fixed_limiter = RateLimiter(limit=30, window_seconds=60, clock=lambda: 1_000.0)
+    api.client.app.dependency_overrides[get_prediction_limiter] = lambda: fixed_limiter  # type: ignore[attr-defined]
 
     responses = [
         api.client.get(_prediction_path(league_id), params={"iterations": 1_000, "seed": 9})
