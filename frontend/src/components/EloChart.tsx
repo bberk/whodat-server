@@ -496,7 +496,7 @@ export function EloChart({
                 aria-label={`Highlight ${entry.name}`}
                 onClick={() => onSelectTeam(entry.teamKey)}
                 className={`flex items-center gap-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-ink ${
-                  shown ? "" : "line-through opacity-60"
+                  shown ? "" : "line-through"
                 }`}
               >
                 <span className={selected ? "font-semibold text-brand-ink" : ""}>{entry.name}</span>
