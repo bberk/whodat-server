@@ -1,11 +1,11 @@
 /**
  * Design tokens for the light and dark themes.
  *
- * Every surface, line, ink, and status colour resolves through a CSS variable defined in
- * `src/index.css` (light values on `:root`, the deliberate dark palette on `:root.dark`), so a
- * component never hard-codes a light-only colour. Chart colours are tokens too, including a
- * separate, higher-luminance series palette for dark backgrounds. `darkMode: "class"` matches the
- * class the pre-paint script in `index.html` and the theme provider put on `<html>`.
+ * Every surface, line, ink, accent, brand, and status colour resolves through a CSS variable
+ * defined in `src/index.css` (light values on `:root`, the deliberate dark palette on
+ * `:root.dark`), so a component never hard-codes a light-only colour. Chart colours are tokens too,
+ * including a separate, higher-luminance series palette for dark backgrounds. `darkMode: "class"`
+ * matches the class the pre-paint script in `index.html` and the theme provider put on `<html>`.
  */
 /** @type {import('tailwindcss').Config} */
 export default {
@@ -40,16 +40,17 @@ export default {
           disabled: "rgb(var(--color-ink-disabled) / <alpha-value>)",
         },
         brand: {
-          DEFAULT: "#0f766e",
-          foreground: "#f0fdfa",
-          hover: "#115e59",
+          DEFAULT: "rgb(var(--color-brand) / <alpha-value>)",
+          foreground: "rgb(var(--color-brand-foreground) / <alpha-value>)",
+          hover: "rgb(var(--color-brand-hover) / <alpha-value>)",
           ink: "rgb(var(--color-brand-ink) / <alpha-value>)",
           soft: "rgb(var(--color-brand-soft) / <alpha-value>)",
           "soft-line": "rgb(var(--color-brand-soft-line) / <alpha-value>)",
         },
         danger: {
-          DEFAULT: "#b91c1c",
-          hover: "#991b1b",
+          DEFAULT: "rgb(var(--color-danger) / <alpha-value>)",
+          foreground: "rgb(var(--color-danger-foreground) / <alpha-value>)",
+          hover: "rgb(var(--color-danger-hover) / <alpha-value>)",
           surface: "rgb(var(--color-danger-surface) / <alpha-value>)",
           line: "rgb(var(--color-danger-line) / <alpha-value>)",
           "line-strong": "rgb(var(--color-danger-line-strong) / <alpha-value>)",

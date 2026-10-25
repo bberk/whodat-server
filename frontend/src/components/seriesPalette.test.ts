@@ -19,6 +19,31 @@ function palette(block: string): string[] {
   });
 }
 
+/** Hue in degrees and HSL saturation for a `#rrggbb` color. */
+function hueAndSaturation(hex: string): { h: number; s: number } {
+  const value = Number.parseInt(hex.slice(1), 16);
+  const r = ((value >> 16) & 0xff) / 255;
+  const g = ((value >> 8) & 0xff) / 255;
+  const b = (value & 0xff) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  const lightness = (max + min) / 2;
+  if (delta === 0) {
+    return { h: 0, s: 0 };
+  }
+  const s = delta / (1 - Math.abs(2 * lightness - 1));
+  let h: number;
+  if (max === r) {
+    h = ((g - b) / delta) % 6;
+  } else if (max === g) {
+    h = (b - r) / delta + 2;
+  } else {
+    h = (r - g) / delta + 4;
+  }
+  return { h: (h * 60 + 360) % 360, s };
+}
+
 describe("chart series palette", () => {
   it("defines every series variable in both the light and the dark block", () => {
     expect(darkStart).toBeGreaterThan(0);
@@ -35,5 +60,21 @@ describe("chart series palette", () => {
     const dark = palette(darkBlock);
     expect(dark).not.toEqual(light);
     expect(new Set(dark).size).toBe(COUNT);
+  });
+
+  it("keeps the saturated dark series at least 15 degrees apart in hue", () => {
+    // A second yellow next to series 1 was only distinguishable by dash and marker; the dark
+    // palette needs a distinct hue, not just a different hex value.
+    const hues = palette(darkBlock)
+      .map(hueAndSaturation)
+      .filter(({ s }) => s >= 0.35)
+      .map(({ h }) => h)
+      .sort((left, right) => left - right);
+    expect(hues).toHaveLength(COUNT - 1); // only the low-saturation slate series is neutral
+    for (let index = 0; index < hues.length; index += 1) {
+      const next = hues[(index + 1) % hues.length];
+      const gap = index === hues.length - 1 ? next + 360 - hues[index] : next - hues[index];
+      expect(gap, `hue gap after ${hues[index].toFixed(1)} degrees`).toBeGreaterThanOrEqual(15);
+    }
   });
 });

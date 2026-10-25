@@ -35,6 +35,9 @@
     --color-brand-ink: 15 118 110;
     --color-brand-soft: 240 253 250;
     --color-brand-soft-line: 204 251 241;
+    --color-brand: 15 118 110;
+    --color-brand-foreground: 240 253 250;
+    --color-brand-hover: 17 94 89;
 
     --color-danger-surface: 254 242 242;
     --color-danger-line: 254 202 202;
@@ -42,6 +45,9 @@
     --color-danger-ink: 153 27 27;
     --color-danger-ink-strong: 127 29 29;
     --color-danger-ink-soft: 185 28 28;
+    --color-danger: 185 28 28;
+    --color-danger-foreground: 255 255 255;
+    --color-danger-hover: 153 27 27;
 
     --color-warning-surface: 255 251 235;
     --color-warning-line: 253 230 138;
@@ -116,6 +122,9 @@
     --color-brand-ink: 94 234 212;
     --color-brand-soft: 16 49 47;
     --color-brand-soft-line: 20 82 76;
+    --color-brand: 20 184 166;
+    --color-brand-foreground: 4 47 46;
+    --color-brand-hover: 45 212 191;
 
     --color-danger-surface: 43 17 22;
     --color-danger-line: 127 29 29;
@@ -123,6 +132,9 @@
     --color-danger-ink: 252 165 165;
     --color-danger-ink-strong: 254 202 202;
     --color-danger-ink-soft: 248 113 113;
+    --color-danger: 220 38 38;
+    --color-danger-foreground: 255 255 255;
+    --color-danger-hover: 185 28 28;
 
     --color-warning-surface: 42 32 8;
     --color-warning-line: 120 53 15;
@@ -152,7 +164,7 @@
     --series-4: #fb7185;
     --series-5: #94a3b8;
     --series-6: #67e8f9;
-    --series-7: #fde047;
+    --series-7: #4ade80;
     --series-8: #a5b4fc;
     --series-9: #f472b6;
     --series-10: #bef264;
