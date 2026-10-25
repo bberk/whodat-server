@@ -129,6 +129,13 @@ export function StandingsPage() {
     });
   };
 
+  // Double-clicking a legend chip hides every other series and keeps the clicked team visible.
+  const isolateSeries = (teamId: number) => {
+    setHiddenTeamIds(
+      new Set(series.filter((entry) => entry.teamId !== teamId).map((entry) => entry.teamId)),
+    );
+  };
+
   const meta =
     bundle === null
       ? `${season} season`
@@ -198,10 +205,10 @@ export function StandingsPage() {
                 <div key={`${division.name ?? "division"}-${index}`} className="min-w-0">
                   <h3 className="text-sm font-semibold text-gray-700">{name}</h3>
                   <StandingsTable
-                    caption={`${name} division standings, ${bundle.standings.season}. Ranks are overall league ranks.`}
+                    caption={`${name} division standings, ${bundle.standings.season}: rank, team, owner, season victory points, head-to-head record, and points for. Ranks are overall league ranks; weekly VP columns stay on the overall table.`}
                     ariaLabel={`${name} division standings, scrollable horizontally`}
                     rows={division.standings}
-                    weeks={weeks}
+                    weeks={[]}
                     showTies={showTies}
                     selectedTeamId={selectedTeamId}
                     onSelectTeam={selectTeam}
@@ -238,6 +245,7 @@ export function StandingsPage() {
             visibleTeamIds={visibleTeamIds}
             selectedTeamId={selectedTeamId}
             onToggleTeam={toggleSeries}
+            onIsolateTeam={isolateSeries}
             compact={compact}
           />
         )}

@@ -37,6 +37,74 @@ async function expectPageDoesNotScrollSideways(page: Page): Promise<void> {
   );
 }
 
+/** Header text without the aria-hidden sort arrow, lower-cased for stable comparisons. */
+function headerText(text: string): string {
+  return text.replace(/[↕▲▼]/g, "").trim().toLowerCase();
+}
+
+interface PinnedGeometry {
+  rankRight: number;
+  teamLeft: number;
+  gap: number;
+  insidePinned: boolean;
+  position: string;
+  opaque: boolean;
+  borderCollapse: string;
+}
+
+/**
+ * Scroll a pinned table to its far end and prove that the pinned cell paints above the content
+ * that slides underneath it. `pinned` is "two" for a rank + team pair and "one" for a team/season
+ * column pinned at the left edge.
+ */
+async function expectPinnedColumns(
+  region: Locator,
+  pinned: "two" | "one",
+): Promise<PinnedGeometry> {
+  const geometry = await region.evaluate((element, mode): PinnedGeometry => {
+    element.scrollLeft = element.scrollWidth;
+    const table = element.querySelector("table");
+    const row = element.querySelector("tbody tr");
+    if (table === null || row === null) {
+      throw new Error("pinned table geometry unavailable");
+    }
+    const cells = Array.from(row.children);
+    const first = cells[0] as HTMLElement | undefined;
+    const second = cells[1] as HTMLElement | undefined;
+    const teamCell = mode === "two" ? second : first;
+    const rankCell = first;
+    if (teamCell === undefined || rankCell === undefined) {
+      throw new Error("pinned table cells unavailable");
+    }
+    // The row may be above or below the current viewport on long pages; a hit test needs it visible.
+    teamCell.scrollIntoView({ block: "center", inline: "nearest" });
+    element.scrollLeft = element.scrollWidth;
+    const teamRect = teamCell.getBoundingClientRect();
+    const rankRect = rankCell.getBoundingClientRect();
+    const hit = document.elementFromPoint(
+      teamRect.left + Math.min(16, teamRect.width / 2),
+      teamRect.top + teamRect.height / 2,
+    );
+    const background = getComputedStyle(teamCell).backgroundColor;
+    return {
+      rankRight: rankRect.right,
+      teamLeft: teamRect.left,
+      gap: mode === "two" ? teamRect.left - rankRect.right : 0,
+      insidePinned: hit !== null && teamCell.contains(hit),
+      position: getComputedStyle(teamCell).position,
+      opaque: background !== "rgba(0, 0, 0, 0)" && background !== "transparent",
+      borderCollapse: getComputedStyle(table).borderCollapse,
+    };
+  }, pinned);
+
+  expect(geometry.position, "the pinned cell uses sticky positioning").toBe("sticky");
+  expect(geometry.opaque, "the pinned cell has an opaque background").toBe(true);
+  expect(geometry.gap, "the rank width matches the team's sticky offset").toBeLessThanOrEqual(1);
+  expect(geometry.insidePinned, "no scrolled cell paints above the pinned cell").toBe(true);
+  expect(geometry.borderCollapse).toBe("separate");
+  return geometry;
+}
+
 test("sign up with a member invite, set owner, and read the seeded standings", async ({
   page,
 }, testInfo) => {
@@ -76,10 +144,9 @@ test("sign up with a member invite, set owner, and read the seeded standings", a
     name: "Overall standings, scrollable horizontally",
   });
   await expect(overall).toBeVisible();
-  const headers = (await overall.getByRole("columnheader").allInnerTexts()).map((header) =>
-    header.trim().toLowerCase(),
-  );
+  const headers = (await overall.getByRole("columnheader").allInnerTexts()).map(headerText);
   expect(headers).toEqual(["#", "team", "owner", "season vp", "w-l", "points for", "w1", "w2"]);
+  await expect(page.getByText(/Table scrolls sideways/)).toHaveCount(0);
 
   const overallRows = overall.getByRole("row");
   await expect(overallRows).toHaveCount(fixture.expected.overall.length + 1);
@@ -90,6 +157,21 @@ test("sign up with a member invite, set owner, and read the seeded standings", a
     "X — clinched playoff berth",
   );
 
+  // AC-FE-01: numeric columns sort on the client, keeping the API rank value intact.
+  const seasonVpHeader = overall.getByRole("columnheader", { name: "Season VP" });
+  const sortBySeasonVp = overall.getByRole("button", { name: "Sort by Season VP" });
+  await sortBySeasonVp.click();
+  await expect(seasonVpHeader).toHaveAttribute("aria-sort", "descending");
+  await sortBySeasonVp.focus();
+  await page.keyboard.press("Enter");
+  await expect(seasonVpHeader).toHaveAttribute("aria-sort", "ascending");
+  const lowestVpRow = overall.getByRole("row").nth(1);
+  await expect(rowCells(lowestVpRow).nth(0)).toHaveText("4");
+  await expect(lowestVpRow.getByRole("button")).toHaveAccessibleName("Charlie");
+  await expect(overall.getByRole("columnheader", { name: "Owner" })).not.toHaveAttribute(
+    "aria-sort",
+  );
+
   // AC-FE-02: one table per division, each row showing the team's overall league rank.
   for (const division of fixture.expected.divisions) {
     await expect(page.getByRole("heading", { level: 3, name: division.name })).toBeVisible();
@@ -97,6 +179,9 @@ test("sign up with a member invite, set owner, and read the seeded standings", a
       name: `${division.name} division standings, scrollable horizontally`,
     });
     await expect(table).toBeVisible();
+    const divisionHeaders = (await table.getByRole("columnheader").allInnerTexts()).map(headerText);
+    expect(divisionHeaders).toEqual(["#", "team", "owner", "season vp", "w-l", "points for"]);
+    await expectPinnedColumns(table, "two");
     const rows = table.getByRole("row");
     await expect(rows).toHaveCount(division.teams.length + 1);
     for (const [index, expected] of division.teams.entries()) {
@@ -154,6 +239,19 @@ test("sign up with a member invite, set owner, and read the seeded standings", a
     await expect(rowCells(row).nth(3)).toHaveText(expected.pointsFor);
   }
   await expect(wapdate.getByTitle("cannot finish last")).toHaveCount(0);
+  await expect(page.getByText(/Table scrolls sideways/)).toHaveCount(0);
+  await expectPinnedColumns(wapdate, "one");
+
+  // WAPDate VP, wins, and points for sort on the client; the team column is not sortable.
+  const wapdateVpHeader = wapdate.getByRole("columnheader", { name: "VP" });
+  await wapdate.getByRole("button", { name: "Sort by VP" }).click();
+  await expect(wapdateVpHeader).toHaveAttribute("aria-sort", "ascending");
+  await wapdate.getByRole("button", { name: "Sort by VP" }).click();
+  await expect(wapdateVpHeader).toHaveAttribute("aria-sort", "descending");
+  await expect(wapdate.getByRole("row").nth(1)).toContainText("Alpha");
+  await expect(wapdate.getByRole("columnheader", { name: "Team" })).not.toHaveAttribute(
+    "aria-sort",
+  );
 
   // AC-FE-05: no page-body sideways scroll at 360/768/1280, wide tables scroll inside their own
   // region, and the team column is pinned at every width.
@@ -167,6 +265,11 @@ test("sign up with a member invite, set owner, and read the seeded standings", a
   }
   const teamHeader = overall.getByRole("columnheader", { name: "Team" });
   expect(await teamHeader.evaluate((element) => getComputedStyle(element).position)).toBe("sticky");
+  await expectPinnedColumns(overall, "two");
+  await testInfo.attach(`standings-scrolled-${testInfo.project.name}`, {
+    body: await overall.screenshot(),
+    contentType: "image/png",
+  });
   const wapdateWidth = await wapdate.evaluate((element) => ({
     scrollWidth: element.scrollWidth,
     clientWidth: element.clientWidth,
@@ -227,6 +330,16 @@ test("admin reads the league admin page without blocking accessibility issues", 
   // AC-FE-16: one seasons table with the season's cup week, last refresh, and row actions.
   await expect(page.getByRole("heading", { level: 2, name: "Seasons" })).toBeVisible();
   const season = fixture.league.season;
+  const seasonsRegion = page.getByRole("region", {
+    name: "Seasons, scrollable horizontally",
+  });
+  await expect(seasonsRegion).toBeVisible();
+  await expectPinnedColumns(seasonsRegion, "one");
+  const seasonHeader = seasonsRegion.getByRole("columnheader", { name: "Season" });
+  await seasonsRegion.getByRole("button", { name: "Sort by Season" }).click();
+  await expect(seasonHeader).toHaveAttribute("aria-sort", "ascending");
+  await seasonsRegion.getByRole("button", { name: "Sort by Season" }).click();
+  await expect(seasonHeader).toHaveAttribute("aria-sort", "descending");
   const seasonRow = page.getByRole("row", { name: new RegExp(`^${season}`) });
   await expect(seasonRow).toBeVisible();
   const select = page.getByLabel(`Cup week for ${season}`);
@@ -371,15 +484,33 @@ test("opens the History tab, switches modes and seasons, and passes axe", async 
     page.getByRole("img", { name: /Elo score history, Actual schedule/i }),
   ).toBeVisible();
 
-  // The season filter defaults to All history and can focus the stored season.
+  // The time window defaults to All history and can be narrowed to week granularity.
   await expect(page.getByRole("button", { name: "All history" })).toHaveAttribute(
     "aria-pressed",
     "true",
   );
-  await page.getByRole("button", { name: String(fixture.league.season) }).click();
-  await expect(page.getByRole("button", { name: String(fixture.league.season) })).toHaveAttribute(
+  const fromWeek = page.getByLabel("From week");
+  const toWeek = page.getByLabel("To week");
+  await fromWeek.selectOption({ label: `${fixture.league.season} W2` });
+  await expect(fromWeek).toHaveValue(`${fixture.league.season}-2`);
+  await expect(toWeek).toHaveValue(`${fixture.league.season}-2`);
+  await expect(
+    page.getByRole("img", { name: /Elo score history, Actual schedule/i }),
+  ).toHaveAttribute("aria-label", /1 chart weeks from 2026 week 2 to 2026 week 2/);
+  await page.getByRole("button", { name: "Current season" }).click();
+  await expect(page.getByRole("button", { name: "Current season" })).toHaveAttribute(
     "aria-pressed",
     "true",
+  );
+  await expect(fromWeek).toHaveValue(`${fixture.league.season}-1`);
+
+  // Double-clicking a legend chip isolates that franchise; the other chips report hidden.
+  const bravoToggle = page.getByRole("button", { name: "Show or hide Bravo series" });
+  await bravoToggle.dblclick();
+  await expect(bravoToggle).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "Show or hide Alpha series" })).toHaveAttribute(
+    "aria-pressed",
+    "false",
   );
 
   // The data-table alternative exposes the exact values and cup markers.
@@ -400,6 +531,7 @@ test("opens the History tab, switches modes and seasons, and passes axe", async 
   }
   const teamHeader = scores.getByRole("columnheader", { name: "Team" });
   expect(await teamHeader.evaluate((element) => getComputedStyle(element).position)).toBe("sticky");
+  await expectPinnedColumns(scores, "two");
 
   await expectNoBlockingAxeViolations(page, "history");
 

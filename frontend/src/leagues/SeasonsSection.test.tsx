@@ -89,6 +89,55 @@ describe("SeasonsSection", () => {
     expect(formatLastRefreshed("not-a-date")).toBe("Never");
   });
 
+  it("sorts by season, cup week, and last refreshed, never by action columns", async () => {
+    const user = userEvent.setup();
+    mockFetch((url) =>
+      requestPath(url) === "/api/v1/leagues/1/seasons/settings"
+        ? jsonResponse({
+            seasons: [
+              {
+                season: 2026,
+                cup_week: 1,
+                regular_season_length: 14,
+                last_refreshed_at: "2026-10-20T15:30:00+00:00",
+              },
+              {
+                season: 2025,
+                cup_week: null,
+                regular_season_length: 14,
+                last_refreshed_at: null,
+              },
+            ],
+          })
+        : errorResponse(404, { code: "not_found", message: requestPath(url) }),
+    );
+    renderSection();
+
+    const seasonHeader = await screen.findByRole("columnheader", { name: "Season" });
+    expect(seasonHeader).toHaveAttribute("aria-sort", "none");
+    expect(screen.getByRole("columnheader", { name: "Refresh" })).not.toHaveAttribute("aria-sort");
+    expect(screen.getByRole("columnheader", { name: "Delete" })).not.toHaveAttribute("aria-sort");
+
+    await user.click(screen.getByRole("button", { name: "Sort by Season" }));
+    expect(seasonHeader).toHaveAttribute("aria-sort", "ascending");
+    expect(screen.getAllByRole("rowheader")[0]).toHaveTextContent("2025");
+    await user.click(screen.getByRole("button", { name: "Sort by Season" }));
+    expect(seasonHeader).toHaveAttribute("aria-sort", "descending");
+    expect(screen.getAllByRole("rowheader")[0]).toHaveTextContent("2026");
+
+    await user.click(screen.getByRole("button", { name: "Sort by Cup week" }));
+    expect(screen.getByRole("columnheader", { name: "Cup week" })).toHaveAttribute(
+      "aria-sort",
+      "ascending",
+    );
+    // A season with no cup week sorts after one with a cup week, in both directions.
+    expect(screen.getAllByRole("rowheader")[0]).toHaveTextContent("2026");
+    await user.click(screen.getByRole("button", { name: "Sort by Last refreshed" }));
+    expect(screen.getAllByRole("rowheader")[0]).toHaveTextContent("2026");
+    await user.click(screen.getByRole("button", { name: "Sort by Last refreshed" }));
+    expect(screen.getAllByRole("rowheader")[0]).toHaveTextContent("2026");
+  });
+
   it("saves a cup-week change immediately and signals the standings to reload", async () => {
     const user = userEvent.setup();
     const value = leagueValue();

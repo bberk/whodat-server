@@ -17,6 +17,7 @@ function renderChart(overrides: Partial<VPChartProps> = {}) {
       visibleTeamIds={series.map((entry) => entry.teamId)}
       selectedTeamId={null}
       onToggleTeam={() => {}}
+      onIsolateTeam={() => {}}
       compact={false}
       {...overrides}
     />,
@@ -64,6 +65,21 @@ describe("VPChart", () => {
     renderChart({ onToggleTeam });
     await user.click(screen.getByRole("button", { name: "Bravo 8.83" }));
     expect(onToggleTeam).toHaveBeenCalledWith(3);
+  });
+
+  it("isolates one team on a double-click while a single click still toggles", async () => {
+    const onToggleTeam = vi.fn();
+    const onIsolateTeam = vi.fn();
+    const user = userEvent.setup();
+    renderChart({ onToggleTeam, onIsolateTeam });
+
+    const chip = screen.getByRole("button", { name: "Bravo 8.83" });
+    expect(chip.getAttribute("title")).toContain("Double-click to show only Bravo");
+    expect(screen.getByText(/Double-click a team to show only that team/)).toBeInTheDocument();
+
+    await user.dblClick(chip);
+    expect(onIsolateTeam).toHaveBeenCalledWith(3);
+    expect(onToggleTeam).toHaveBeenCalledTimes(2);
   });
 
   it("marks hidden series with aria-pressed=false and a non-color cue", () => {

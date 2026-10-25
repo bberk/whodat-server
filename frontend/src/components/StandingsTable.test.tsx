@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -37,6 +37,29 @@ describe("StandingsTable", () => {
     expect(screen.getByRole("rowheader", { name: "1" })).toBeInTheDocument();
     expect(screen.getByText("495.00")).toBeInTheDocument();
     expect(screen.getByText("10.83")).toBeInTheDocument();
+  });
+
+  it("omits every weekly column for a division table", () => {
+    renderTable({
+      weeks: [],
+      caption: "East division standings, 2026.",
+      ariaLabel: "East division standings, scrollable horizontally",
+    });
+    expect(screen.queryByRole("columnheader", { name: /Week \d+ VP/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: /^W\d+$/ })).not.toBeInTheDocument();
+    const headers = screen.getAllByRole("columnheader").map((header) => header.textContent);
+    expect(headers).toHaveLength(6);
+    expect(
+      screen.getByRole("region", {
+        name: "East division standings, scrollable horizontally",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("no longer prints a sideways-scroll hint under the table", () => {
+    renderTable();
+    expect(screen.queryByText(/Table scrolls sideways/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/stay pinned/i)).not.toBeInTheDocument();
   });
 
   it("scrolls inside its own labelled region so the page body does not scroll", () => {
@@ -123,4 +146,67 @@ describe("StandingsTable", () => {
     expect(container.querySelector("img")).toBeNull();
     expect(container.innerHTML).toContain("&lt;script&gt;");
   });
+
+  it("sorts by season VP while keeping every API rank value unchanged", async () => {
+    const user = userEvent.setup();
+    renderTable();
+    const vpHeader = screen.getByRole("columnheader", { name: "Season VP" });
+    expect(vpHeader).toHaveAttribute("aria-sort", "none");
+    expect(screen.getByRole("columnheader", { name: "Team" })).not.toHaveAttribute("aria-sort");
+    expect(screen.getByRole("columnheader", { name: "Owner" })).not.toHaveAttribute("aria-sort");
+
+    await user.click(screen.getByRole("button", { name: "Sort by Season VP" }));
+    expect(vpHeader).toHaveAttribute("aria-sort", "descending");
+    expect(dataRows()[0]).toHaveTextContent("Alpha");
+    expect(within(dataRows()[0]).getByRole("rowheader")).toHaveTextContent("1");
+
+    await user.click(screen.getByRole("button", { name: "Sort by Season VP" }));
+    expect(vpHeader).toHaveAttribute("aria-sort", "ascending");
+    // Foxtrot has the lowest VP (-3.5); its rank stays the API's overall rank of 6.
+    expect(dataRows()[0]).toHaveTextContent("Foxtrot");
+    expect(within(dataRows()[0]).getByRole("rowheader")).toHaveTextContent("6");
+  });
+
+  it("sorts by weekly VP and keeps ties in API order", async () => {
+    const user = userEvent.setup();
+    renderTable();
+    const weekHeader = screen.getByRole("columnheader", { name: "Week 1 VP" });
+    await user.click(screen.getByRole("button", { name: "Sort by week 1 VP" }));
+    expect(weekHeader).toHaveAttribute("aria-sort", "descending");
+    // Alpha and Bravo both scored 2.5; the API order (rank 1, then 2) decides the tie.
+    expect(
+      dataRows()
+        .slice(0, 2)
+        .map((row) => row.textContent),
+    ).toEqual([expect.stringContaining("Alpha"), expect.stringContaining("Bravo")]);
+    await user.click(screen.getByRole("button", { name: "Sort by week 1 VP" }));
+    expect(weekHeader).toHaveAttribute("aria-sort", "ascending");
+    expect(dataRows()[0]).toHaveTextContent("Foxtrot");
+  });
+
+  it("sorts by points for and the record", async () => {
+    const user = userEvent.setup();
+    renderTable();
+    await user.click(screen.getByRole("button", { name: "Sort by Points for" }));
+    expect(screen.getByRole("columnheader", { name: "Points for" })).toHaveAttribute(
+      "aria-sort",
+      "descending",
+    );
+    expect(dataRows()[0]).toHaveTextContent("Alpha");
+
+    await user.click(screen.getByRole("button", { name: "Sort by W-L" }));
+    expect(screen.getByRole("columnheader", { name: "W-L" })).toHaveAttribute(
+      "aria-sort",
+      "descending",
+    );
+    // Alpha and Bravo both went 4-0; their API rank order is preserved.
+    expect(dataRows()[0]).toHaveTextContent("Alpha");
+    expect(dataRows()[1]).toHaveTextContent("Bravo");
+  });
 });
+
+/** The body rows in render order, excluding the header row. */
+function dataRows(): HTMLElement[] {
+  const table = screen.getByRole("table");
+  return within(table).getAllByRole("row").slice(1);
+}

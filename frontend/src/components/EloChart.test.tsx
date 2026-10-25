@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type { EloWeek } from "../api/types";
@@ -47,6 +48,7 @@ function chartProps(overrides: Partial<EloChartProps> = {}): EloChartProps {
     visibleTeamKeys: ["a", "b", "c"],
     selectedTeamKey: null,
     onToggleTeam: vi.fn(),
+    onIsolateTeam: vi.fn(),
     onSelectTeam: vi.fn(),
     compact: false,
     ...overrides,
@@ -95,5 +97,26 @@ describe("EloChart", () => {
 
     const label = screen.getByRole("img", { name: /Round robin/i }).getAttribute("aria-label");
     expect(label).not.toContain("Cup weeks");
+  });
+
+  it("isolates one team when its legend chip is double-clicked", async () => {
+    const onToggleTeam = vi.fn();
+    const onIsolateTeam = vi.fn();
+    const user = userEvent.setup();
+    render(<EloChart {...chartProps({ onToggleTeam, onIsolateTeam })} />);
+
+    expect(screen.getByText(/Double-click a team to show only that team/)).toBeInTheDocument();
+    const chip = screen.getByRole("button", { name: "Show or hide Bravo series" });
+    expect(chip.closest("li")?.getAttribute("title")).toContain("Double-click to show only Bravo");
+
+    await user.dblClick(chip);
+    expect(onIsolateTeam).toHaveBeenCalledWith("b");
+    expect(onToggleTeam).toHaveBeenCalledTimes(2);
+
+    // A single keyboard-operable click still performs the plain toggle.
+    onToggleTeam.mockClear();
+    await user.click(chip);
+    expect(onToggleTeam).toHaveBeenCalledWith("b");
+    expect(onIsolateTeam).toHaveBeenCalledTimes(1);
   });
 });

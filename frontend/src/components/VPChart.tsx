@@ -17,6 +17,8 @@ export interface VPChartProps {
   visibleTeamIds: readonly number[];
   selectedTeamId: number | null;
   onToggleTeam: (teamId: number) => void;
+  /** Hide every series except this team (legend double-click). */
+  onIsolateTeam: (teamId: number) => void;
   /** Compact geometry (labels trimmed) for narrow viewports; the layout is chosen by the page. */
   compact: boolean;
 }
@@ -93,6 +95,7 @@ export function VPChart({
   visibleTeamIds,
   selectedTeamId,
   onToggleTeam,
+  onIsolateTeam,
   compact,
 }: VPChartProps) {
   const layout = compact ? LAYOUT.compact : LAYOUT.full;
@@ -238,7 +241,14 @@ export function VPChart({
         ))}
       </svg>
 
-      <ul className="mt-4 flex flex-wrap gap-2" aria-label="Chart series toggles">
+      <p id="vp-chart-legend-hint" className="mt-3 text-xs text-gray-500">
+        Click a team to hide or show it. Double-click a team to show only that team.
+      </p>
+      <ul
+        className="mt-2 flex flex-wrap gap-2"
+        aria-label="Chart series toggles"
+        aria-describedby="vp-chart-legend-hint"
+      >
         {series.map((entry) => {
           const style = seriesStyle(entry.styleIndex);
           const shown = visible.has(entry.teamId);
@@ -249,9 +259,11 @@ export function VPChart({
                 type="button"
                 aria-pressed={shown}
                 onClick={() => onToggleTeam(entry.teamId)}
+                onDoubleClick={() => onIsolateTeam(entry.teamId)}
+                title={`Show or hide ${entry.teamName}. Double-click to show only ${entry.teamName}.`}
                 className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[13px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
                   selected ? "border-brand bg-brand-foreground" : "border-gray-200 bg-white"
-                } ${shown ? "text-gray-700" : "text-gray-400 line-through"}`}
+                } ${shown ? "text-gray-700" : "text-gray-500 line-through"}`}
               >
                 <svg width={30} height={10} aria-hidden="true">
                   <line

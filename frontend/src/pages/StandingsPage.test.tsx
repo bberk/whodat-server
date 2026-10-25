@@ -87,6 +87,12 @@ describe("StandingsPage", () => {
         .getAllByRole("rowheader")
         .map((cell) => cell.textContent),
     ).toEqual(["4", "5", "6"]);
+    // Division tables keep the overall-only weekly VP detail off their columns.
+    expect(
+      within(east).queryByRole("columnheader", { name: /Week \d+ VP/ }),
+    ).not.toBeInTheDocument();
+    expect(within(east).getAllByRole("columnheader")).toHaveLength(6);
+    expect(within(west).queryByRole("columnheader", { name: /^W\d+$/ })).not.toBeInTheDocument();
     expect(screen.getByRole("img", { name: /cumulative victory points/i })).toBeInTheDocument();
     expect(screen.getByText(/4 completed weeks/i)).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Playoff designation legend" })).toBeInTheDocument();
@@ -169,6 +175,26 @@ describe("StandingsPage", () => {
     expect(container.querySelector('polyline[data-team-id="3"]')).not.toBeInTheDocument();
     await user.click(chip);
     expect(container.querySelector('polyline[data-team-id="3"]')).toBeInTheDocument();
+  });
+
+  it("shows only the double-clicked team in the chart and updates every chip", async () => {
+    readyFetch();
+    const user = userEvent.setup();
+    const { container } = renderPage();
+    await screen.findByRole("img", { name: /cumulative victory points/i });
+
+    const bravo = screen.getByRole("button", { name: "Bravo 8.83" });
+    await user.dblClick(bravo);
+
+    expect(bravo).toHaveAttribute("aria-pressed", "true");
+    expect(container.querySelector('polyline[data-team-id="3"]')).toBeInTheDocument();
+    for (const teamId of [7, 9, 2, 5, 4]) {
+      expect(container.querySelector(`polyline[data-team-id="${teamId}"]`)).not.toBeInTheDocument();
+    }
+    expect(screen.getByRole("button", { name: "Alpha 10.83" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
   });
 
   it("shows loading, empty, and error states for every data view", async () => {

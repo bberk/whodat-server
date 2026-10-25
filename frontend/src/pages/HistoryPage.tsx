@@ -6,17 +6,33 @@ import { EmptyState, ErrorState, LoadingState } from "../components/DataStates";
 import { EloChart } from "../components/EloChart";
 import { EloRatingsTable } from "../components/EloRatingsTable";
 import { InfoTooltip } from "../components/InfoTooltip";
+import { selectClass } from "../components/formStyles";
 import { useMediaQuery } from "../components/useMediaQuery";
 import { formatEloValue } from "../components/format";
 import {
+  ALL_ELO_WINDOW,
+  LAST_WEEKS_PRESET,
   MODE_DESCRIPTIONS,
   MODE_LABELS,
   buildEloSeries,
-  filterEloHistory,
+  currentSeasonWindow,
+  eloWeekKey,
+  filterEloHistoryWindow,
+  lastWeeksWindow,
+  normalizeEloRange,
+  resolveEloWindow,
   type EloMode,
+  type EloWindow,
 } from "../history/model";
 import { useEloHistory } from "../history/useEloHistory";
 import { useLeague } from "../leagues/LeagueContext";
+
+type WindowPreset = "all" | "season" | "recent" | "custom";
+
+interface WindowChoice {
+  preset: WindowPreset;
+  window: EloWindow;
+}
 
 const filterButtonClass = (active: boolean) =>
   `rounded-lg px-2.5 py-1 text-[12.5px] font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
@@ -39,7 +55,10 @@ export function HistoryPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [mode, setMode] = useState<EloMode>("round_robin");
-  const [season, setSeason] = useState<number | null>(null);
+  const [windowChoice, setWindowChoice] = useState<WindowChoice>({
+    preset: "all",
+    window: ALL_ELO_WINDOW,
+  });
   const [selectedTeamKey, setSelectedTeamKey] = useState<string | null>(null);
   const [hiddenTeamKeys, setHiddenTeamKeys] = useState<ReadonlySet<string>>(
     () => new Set<string>(),
@@ -53,12 +72,6 @@ export function HistoryPage() {
   }, [validId, leagueId, selectedLeague?.league_id, selectLeague]);
 
   const { state, reload } = useEloHistory(validId ? leagueId : null, mode, dataVersion);
-
-  useEffect(() => {
-    if (season !== null && state.status === "ready" && !state.history.seasons.includes(season)) {
-      setSeason(null);
-    }
-  }, [season, state]);
 
   if (!validId) {
     return <Navigate to="/" replace />;
@@ -94,6 +107,42 @@ export function HistoryPage() {
   };
 
   const ready = state.status === "ready" ? state.history : null;
+  const filtered = ready === null ? null : filterEloHistoryWindow(ready, windowChoice.window);
+  const resolved = ready === null ? null : resolveEloWindow(ready.weeks, windowChoice.window);
+  const windowStartKey = resolved?.startKey ?? "";
+  const windowEndKey = resolved?.endKey ?? "";
+
+  const choosePreset = (preset: Exclude<WindowPreset, "custom">) => {
+    if (ready === null) {
+      return;
+    }
+    const next =
+      preset === "all"
+        ? ALL_ELO_WINDOW
+        : preset === "season"
+          ? currentSeasonWindow(ready)
+          : lastWeeksWindow();
+    setWindowChoice({ preset, window: next });
+  };
+
+  const chooseRange = (startKey: string, endKey: string) => {
+    if (ready === null) {
+      return;
+    }
+    const normalized = normalizeEloRange(ready.weeks, startKey, endKey);
+    setWindowChoice({ preset: "custom", window: { kind: "range", ...normalized } });
+  };
+
+  // Double-clicking a legend chip shows only that franchise.
+  const isolateTeam = (teamKey: string) => {
+    if (ready === null) {
+      return;
+    }
+    setHiddenTeamKeys(
+      new Set(ready.teams.map((team) => team.team_key).filter((key) => key !== teamKey)),
+    );
+  };
+
   const meta =
     ready === null
       ? `${MODE_LABELS[mode]} · all stored history`
@@ -207,73 +256,131 @@ export function HistoryPage() {
       {ready === null ? null : (
         <>
           <section aria-labelledby="h-elo-chart" className="mt-7 md:mt-9">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div>
-                <h2 id="h-elo-chart" className="text-base font-bold">
-                  Elo score history
-                </h2>
-                <p className="mt-1 text-[13px] text-gray-500">
-                  {MODE_LABELS[mode]} · one line per franchise · dashed vertical rules mark season
-                  resets
-                </p>
-              </div>
-              <div
-                className="flex flex-wrap gap-1 rounded-xl border border-gray-200 bg-white p-1"
-                role="group"
-                aria-label="Season filter"
-              >
+            <h2 id="h-elo-chart" className="text-base font-bold">
+              Elo score history
+            </h2>
+            <p className="mt-1 text-[13px] text-gray-500">
+              {MODE_LABELS[mode]} · one line per franchise · dashed vertical rules mark season
+              resets
+              {filtered === null
+                ? ""
+                : ` · ${filtered.weeks.length} of ${ready.weeks.length} weeks shown`}
+            </p>
+
+            <div className="mt-3 rounded-xl border border-gray-200 bg-white p-3">
+              <div role="group" aria-label="Quick time range" className="flex flex-wrap gap-1">
                 <button
                   type="button"
-                  aria-pressed={season === null}
-                  onClick={() => setSeason(null)}
-                  className={filterButtonClass(season === null)}
+                  aria-pressed={windowChoice.preset === "all"}
+                  onClick={() => choosePreset("all")}
+                  className={filterButtonClass(windowChoice.preset === "all")}
                 >
                   All history
                 </button>
-                {ready.seasons.map((year) => (
-                  <button
-                    key={year}
-                    type="button"
-                    aria-pressed={season === year}
-                    onClick={() => setSeason(year)}
-                    className={filterButtonClass(season === year)}
-                  >
-                    {year}
-                  </button>
-                ))}
+                <button
+                  type="button"
+                  aria-pressed={windowChoice.preset === "season"}
+                  onClick={() => choosePreset("season")}
+                  className={filterButtonClass(windowChoice.preset === "season")}
+                >
+                  Current season
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={windowChoice.preset === "recent"}
+                  onClick={() => choosePreset("recent")}
+                  className={filterButtonClass(windowChoice.preset === "recent")}
+                >
+                  Last {LAST_WEEKS_PRESET} weeks
+                </button>
               </div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label
+                    htmlFor="elo-window-from"
+                    className="block text-[12.5px] font-semibold text-gray-700"
+                  >
+                    From week
+                  </label>
+                  <select
+                    id="elo-window-from"
+                    className={`${selectClass} mt-1 w-full`}
+                    value={windowStartKey}
+                    aria-describedby="elo-window-hint"
+                    onChange={(event) =>
+                      chooseRange(event.target.value, windowEndKey || event.target.value)
+                    }
+                  >
+                    {windowStartKey === "" ? <option value="">No weeks</option> : null}
+                    {ready.weeks.map((week) => (
+                      <option key={eloWeekKey(week)} value={eloWeekKey(week)}>
+                        {week.season} W{week.week}
+                        {week.is_cup_week ? " (cup)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label
+                    htmlFor="elo-window-to"
+                    className="block text-[12.5px] font-semibold text-gray-700"
+                  >
+                    To week
+                  </label>
+                  <select
+                    id="elo-window-to"
+                    className={`${selectClass} mt-1 w-full`}
+                    value={windowEndKey}
+                    aria-describedby="elo-window-hint"
+                    onChange={(event) =>
+                      chooseRange(windowStartKey || event.target.value, event.target.value)
+                    }
+                  >
+                    {windowEndKey === "" ? <option value="">No weeks</option> : null}
+                    {ready.weeks.map((week) => (
+                      <option key={eloWeekKey(week)} value={eloWeekKey(week)}>
+                        {week.season} W{week.week}
+                        {week.is_cup_week ? " (cup)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <p id="elo-window-hint" className="mt-2 text-[12.5px] text-gray-500">
+                {filtered === null || filtered.weeks.length === 0
+                  ? "No rated weeks in this range."
+                  : `Showing ${filtered.weeks[0].season} W${filtered.weeks[0].week} to ${
+                      filtered.weeks[filtered.weeks.length - 1].season
+                    } W${filtered.weeks[filtered.weeks.length - 1].week}.`}{" "}
+                The current scores table below always lists every team.
+              </p>
             </div>
 
-            {(() => {
-              const filtered = filterEloHistory(ready, season);
-              if (filtered.weeks.length === 0) {
-                return (
-                  <EmptyState
-                    title="No rated weeks in this season"
-                    detail="Choose All history or another season to see ratings."
-                  />
-                );
-              }
-              return (
-                <EloChart
-                  weeks={filtered.weeks}
-                  series={buildEloSeries({
-                    ...ready,
-                    teams: filtered.teams,
-                  })}
-                  boundaries={filtered.boundaries}
-                  mode={mode}
-                  startingRating={ready.config.starting_rating}
-                  visibleTeamKeys={filtered.teams
-                    .map((team) => team.team_key)
-                    .filter((key) => !hiddenTeamKeys.has(key))}
-                  selectedTeamKey={selectedTeamKey}
-                  onToggleTeam={toggleTeam}
-                  onSelectTeam={selectTeam}
-                  compact={compact}
-                />
-              );
-            })()}
+            {filtered === null ? null : filtered.weeks.length === 0 ? (
+              <EmptyState
+                title="No rated weeks in this range"
+                detail="Choose All history, another range, or a season with rated weeks."
+              />
+            ) : (
+              <EloChart
+                weeks={filtered.weeks}
+                series={buildEloSeries({
+                  ...ready,
+                  teams: filtered.teams,
+                })}
+                boundaries={filtered.boundaries}
+                mode={mode}
+                startingRating={ready.config.starting_rating}
+                visibleTeamKeys={filtered.teams
+                  .map((team) => team.team_key)
+                  .filter((key) => !hiddenTeamKeys.has(key))}
+                selectedTeamKey={selectedTeamKey}
+                onToggleTeam={toggleTeam}
+                onIsolateTeam={isolateTeam}
+                onSelectTeam={selectTeam}
+                compact={compact}
+              />
+            )}
           </section>
 
           <section aria-labelledby="h-elo-current" className="mt-7 md:mt-9">

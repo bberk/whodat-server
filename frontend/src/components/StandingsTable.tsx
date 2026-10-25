@@ -1,7 +1,17 @@
+import { useState } from "react";
+
 import type { StandingsRow } from "../api/types";
 import { ClinchBadge } from "./ClinchBadge";
 import { formatPoints, formatRecord, formatVP, vpTone, vpToneClass } from "./format";
 import { seriesStyle } from "./series";
+import { SortableHeader } from "./SortableHeader";
+import {
+  sortRows,
+  toggleSort,
+  type SortDirection,
+  type SortState,
+  type SortValue,
+} from "./sorting";
 
 export interface StandingsTableProps {
   /** Visually hidden description of the table (screen-reader caption). */
@@ -9,6 +19,7 @@ export interface StandingsTableProps {
   /** Accessible name for the horizontal scroll region. */
   ariaLabel: string;
   rows: StandingsRow[];
+  /** Weekly VP columns to render; empty for division tables, which keep the overall-only detail. */
   weeks: number[];
   showTies: boolean;
   selectedTeamId: number | null;
@@ -16,9 +27,45 @@ export interface StandingsTableProps {
   seriesIndexByTeamId: ReadonlyMap<number, number>;
 }
 
+/**
+ * The rank column is pinned at exactly 48px and the team column starts at the same 48px. The
+ * browser's table layout will grow other columns, but it may not shrink the rank column below its
+ * content width, so an exact `min`/`max` pair is what keeps the two offsets equal. When they drift
+ * apart, the columns behind the pinned pair show through the gap between them.
+ */
+const RANK_CELL = "sticky left-0 z-10 w-12 min-w-12 max-w-12";
+const RANK_HEAD = "sticky left-0 z-20 w-12 min-w-12 max-w-12";
+const TEAM_CELL = "sticky left-12 z-10 min-w-[176px]";
+const TEAM_HEAD = "sticky left-12 z-20 min-w-[176px]";
+const PINNED_SHADOW = "shadow-[6px_0_8px_-6px_rgba(17,24,39,0.18)]";
+const ROW_DIVIDER =
+  "[&>th]:border-b [&>td]:border-b [&>th]:border-gray-200 [&>td]:border-gray-200 last:[&>th]:border-b-0 last:[&>td]:border-b-0";
+const HEAD_DIVIDER = "[&>th]:border-b [&>th]:border-gray-300";
+
 const headCell =
   "whitespace-nowrap px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500";
 const numCell = "whitespace-nowrap px-3 py-2 text-right tabular-nums";
+
+/** Numeric value for a sortable column; `null` keeps missing values last in either direction. */
+function sortValueFor(row: StandingsRow, key: string, weeks: readonly number[]): SortValue {
+  switch (key) {
+    case "vp":
+      return Number(row.victory_points);
+    case "record":
+      return row.wins;
+    case "pf":
+      return Number(row.points_for);
+    default:
+      break;
+  }
+  if (key.startsWith("week:")) {
+    const week = Number(key.slice("week:".length));
+    const index = weeks.indexOf(week);
+    const value = index === -1 ? undefined : row.weekly_vp[index];
+    return value === undefined || value === null ? null : Number(value);
+  }
+  return null;
+}
 
 /**
  * The standings table, reused for the overall table and for each division. The rank cell renders
@@ -26,6 +73,10 @@ const numCell = "whitespace-nowrap px-3 py-2 text-right tabular-nums";
  * a division table that value is the team's overall league rank (a division only groups/filters
  * rows). Wide content scrolls inside its own region with the rank and team columns pinned; the
  * team cell is a button so selecting a team is keyboard operable.
+ *
+ * Season VP, the record, points for, and each weekly VP column are sortable. Team, owner, and rank
+ * are not: identity columns keep the API's rank order, and the rank value never changes when the
+ * client sorts. Division tables pass no `weeks`, so they never render weekly VP columns.
  */
 export function StandingsTable({
   caption,
@@ -37,6 +88,14 @@ export function StandingsTable({
   onSelectTeam,
   seriesIndexByTeamId,
 }: StandingsTableProps) {
+  const [sort, setSort] = useState<SortState | null>(null);
+
+  const handleSort = (key: string, initialDirection: SortDirection) => {
+    setSort((current) => toggleSort(current, key, initialDirection));
+  };
+
+  const orderedRows = sortRows(rows, sort, (row, key) => sortValueFor(row, key, weeks));
+
   return (
     <div className="relative mt-3">
       {/* `relative` keeps any absolutely positioned descendant (for example a visually hidden
@@ -48,66 +107,81 @@ export function StandingsTable({
         role="region"
         aria-label={ariaLabel}
       >
-        <table className="w-full min-w-[700px] border-collapse text-sm">
+        <table className="w-full min-w-[700px] border-separate border-spacing-0 text-sm">
           <caption className="sr-only">{caption}</caption>
           <thead>
-            <tr className="border-b border-gray-300">
-              <th scope="col" className={`${headCell} sticky left-0 z-20 w-[46px] bg-white`}>
+            <tr className={HEAD_DIVIDER}>
+              <th scope="col" className={`${headCell} ${RANK_HEAD} bg-white text-left`}>
                 #
               </th>
-              <th
-                scope="col"
-                className={`${headCell} sticky left-[46px] z-20 min-w-[148px] bg-white shadow-[6px_0_8px_-6px_rgba(17,24,39,0.18)]`}
-              >
+              <th scope="col" className={`${headCell} ${TEAM_HEAD} ${PINNED_SHADOW} bg-white`}>
                 Team
               </th>
               <th scope="col" className={headCell}>
                 Owner
               </th>
-              <th scope="col" className={`${headCell} text-right`}>
-                Season VP
-              </th>
-              <th scope="col" className={`${headCell} text-right`}>
-                {showTies ? "W-L-T" : "W-L"}
-              </th>
-              <th scope="col" className={`${headCell} text-right`}>
-                Points for
-              </th>
+              <SortableHeader
+                label="Season VP"
+                sortKey="vp"
+                state={sort}
+                onSort={handleSort}
+                initialDirection="desc"
+                className={headCell}
+              />
+              <SortableHeader
+                label={showTies ? "W-L-T" : "W-L"}
+                sortKey="record"
+                state={sort}
+                onSort={handleSort}
+                initialDirection="desc"
+                className={headCell}
+              />
+              <SortableHeader
+                label="Points for"
+                sortKey="pf"
+                state={sort}
+                onSort={handleSort}
+                initialDirection="desc"
+                className={headCell}
+              />
               {weeks.map((week) => (
-                <th
+                <SortableHeader
                   key={week}
-                  scope="col"
-                  aria-label={`Week ${week} VP`}
-                  className={`${headCell} text-right`}
-                >
-                  W{week}
-                </th>
+                  label={`W${week}`}
+                  headerLabel={`Week ${week} VP`}
+                  buttonLabel={`Sort by week ${week} VP`}
+                  sortKey={`week:${week}`}
+                  state={sort}
+                  onSort={handleSort}
+                  initialDirection="desc"
+                  className={headCell}
+                />
               ))}
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => {
+            {orderedRows.map((row) => {
               const selected = row.team_id === selectedTeamId;
-              const stickyBackground = selected ? "bg-brand-foreground" : "bg-white";
+              const pinnedBackground = selected
+                ? "bg-brand-foreground"
+                : "bg-white group-hover:bg-gray-50";
               const style = seriesStyle(seriesIndexByTeamId.get(row.team_id) ?? 0);
               return (
                 <tr
                   key={row.team_id}
-                  className={`border-b border-gray-200 last:border-b-0 ${
+                  className={`group ${ROW_DIVIDER} ${
                     selected ? "bg-brand-foreground" : "hover:bg-gray-50"
                   }`}
                 >
                   <th
                     scope="row"
-                    className={`${numCell} sticky left-0 z-10 w-[46px] text-left font-normal text-gray-600 ${stickyBackground} ${
+                    className={`${numCell} ${RANK_CELL} text-left font-normal text-gray-600 ${pinnedBackground} ${
                       selected ? "shadow-[inset_3px_0_0_0_#0f766e]" : ""
                     }`}
                   >
                     {row.rank}
                   </th>
-                  <td
-                    className={`sticky left-[46px] z-10 min-w-[168px] px-3 py-2 shadow-[6px_0_8px_-6px_rgba(17,24,39,0.18)] ${stickyBackground}`}
-                  >
+                  <td className={`${TEAM_CELL} ${PINNED_SHADOW} px-3 py-2 ${pinnedBackground}`}>
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
@@ -133,14 +207,19 @@ export function StandingsTable({
                   </td>
                   <td className={`${numCell} text-gray-600`}>{formatRecord(row, showTies)}</td>
                   <td className={`${numCell} text-gray-600`}>{formatPoints(row.points_for)}</td>
-                  {row.weekly_vp.map((vp, index) => (
-                    <td
-                      key={`week-${index}`}
-                      className={`${numCell} font-medium ${vpToneClass(vpTone(vp))}`}
-                    >
-                      {formatVP(vp)}
-                    </td>
-                  ))}
+                  {row.weekly_vp.map((vp, index) => {
+                    if (weeks[index] === undefined) {
+                      return null;
+                    }
+                    return (
+                      <td
+                        key={`week-${weeks[index]}`}
+                        className={`${numCell} font-medium ${vpToneClass(vpTone(vp))}`}
+                      >
+                        {formatVP(vp)}
+                      </td>
+                    );
+                  })}
                 </tr>
               );
             })}
@@ -149,11 +228,8 @@ export function StandingsTable({
       </div>
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-y-0 right-0 w-7 rounded-r-xl bg-gradient-to-l from-gray-900/5 to-transparent"
+        className="pointer-events-none absolute inset-y-0 right-0 z-30 w-7 rounded-r-xl bg-gradient-to-l from-gray-900/5 to-transparent"
       />
-      <p aria-hidden="true" className="mt-1.5 px-0.5 text-xs text-gray-500">
-        Table scrolls sideways — rank and team stay pinned.
-      </p>
     </div>
   );
 }

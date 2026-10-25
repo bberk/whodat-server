@@ -8,6 +8,25 @@ Follow the format used below. Newest entries at the top.
 
 ---
 
+## OQ-0016 — History uses a week-granularity time window instead of a season-only filter
+
+- **Found:** `ACCEPTANCE.md` AC-Elo-17 and `SPEC.md` describe the History chart's season filter as
+  a control that defaults to All history. The UI task requires a dynamic time window at week
+  granularity: From/To week selects labelled with season and week, plus All history, Current
+  season, and Last 12 weeks presets.
+- **Options:** (1) keep only the per-season buttons and add a separate From/To range; (2) replace
+  the season buttons with one window control whose presets include All history and Current season,
+  and let From/To cover any single-season view; (3) expose both a season control and a week range.
+- **Recommendation:** option 2. It satisfies week granularity without duplicating two competing
+  range controls, and All history remains the default.
+- **In the meantime:** `HistoryPage` renders the window control. A single-season view is still
+  reachable through Current season or by selecting that season's first and last weeks; the current
+  ratings table always shows every team and is never filtered. No API or response shape changed.
+- **Follow-up:** update AC-Elo-17/SPEC wording at the next governance edit to describe the window
+  control and its presets.
+
+---
+
 ## OQ-0015 — Clinch search is deliberately conservative at its score-ranking bounds
 
 - **Found:** Proving X/Y/Z/E exactly could require enumerating every remaining score ordering and
