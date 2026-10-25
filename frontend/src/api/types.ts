@@ -56,6 +56,13 @@ export type StandingsResponse = components["schemas"]["StandingsResponse"];
 export type TeamVpHistory = components["schemas"]["TeamVpHistory"];
 export type VpHistoryResponse = components["schemas"]["VpHistoryResponse"];
 
+/** A probability and its Wilson 95% interval, as fixed four-decimal strings. */
+export type ProbabilityInterval = components["schemas"]["ProbabilityInterval"];
+/** One team's playoff, bye, and division-title estimates. */
+export type TeamPlayoffOdds = components["schemas"]["TeamPlayoffOdds"];
+/** Per-team playoff odds plus iteration, seed, and model metadata. */
+export type PlayoffOddsResponse = components["schemas"]["PlayoffOddsResponse"];
+
 /** The worst-team-per-four-week-block view: fixed periods with lowest-first rows. */
 export type WapdateRow = components["schemas"]["WapdateRow"];
 export type WapdatePeriod = components["schemas"]["WapdatePeriod"];

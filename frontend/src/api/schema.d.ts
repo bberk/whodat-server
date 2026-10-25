@@ -372,6 +372,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/leagues/{league_id}/seasons/{season}/playoff-odds": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Get Playoff Odds
+     * @description Return per-team playoff, bye, and division-title probabilities for a league season.
+     */
+    get: operations["get_playoff_odds_api_v1_leagues__league_id__seasons__season__playoff_odds_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/leagues/{league_id}/seasons/{season}/refresh": {
     parameters: {
       query?: never;
@@ -995,6 +1015,77 @@ export interface components {
       owners: components["schemas"]["OwnerSummary"][];
     };
     /**
+     * PlayoffOddsModel
+     * @description Versioned model parameters, so a stored result can be reproduced and interpreted.
+     */
+    PlayoffOddsModel: {
+      /** Residual Mix Games */
+      residual_mix_games: number;
+      /** Score Precision */
+      score_precision: string;
+      /** Shrink Games */
+      shrink_games: number;
+      /** Tiebreak Uses Points For */
+      tiebreak_uses_points_for: boolean;
+      /** Version */
+      version: string;
+    };
+    /**
+     * PlayoffOddsResponse
+     * @description Per-team playoff odds plus the metadata needed to read them.
+     */
+    PlayoffOddsResponse: {
+      /** Completed Weeks */
+      completed_weeks: number;
+      /** Confidence */
+      confidence: ("low" | "normal") | null;
+      /** Division Count */
+      division_count: number;
+      /** Input Version */
+      input_version: string;
+      /** Iterations */
+      iterations: number;
+      /** League Id */
+      league_id: number;
+      model: components["schemas"]["PlayoffOddsModel"];
+      /** Playoff Field */
+      playoff_field: number | null;
+      /** Reason */
+      reason:
+        | (
+            | "no_completed_weeks"
+            | "missing_playoff_field"
+            | "incomplete_schedule"
+            | "unsupported_division_shape"
+          )
+        | null;
+      /** Remaining Weeks */
+      remaining_weeks: number[];
+      /** Season */
+      season: number;
+      /** Seed */
+      seed: number | null;
+      /**
+       * Status
+       * @enum {string}
+       */
+      status: "ok" | "unavailable";
+      /** Teams */
+      teams: components["schemas"]["TeamPlayoffOdds"][];
+    };
+    /**
+     * ProbabilityInterval
+     * @description A probability estimate and its Wilson 95% interval, as fixed four-decimal strings.
+     */
+    ProbabilityInterval: {
+      /** High */
+      high: string;
+      /** Low */
+      low: string;
+      /** Probability */
+      probability: string;
+    };
+    /**
      * PublicUser
      * @description The account fields safe to return to a browser.
      */
@@ -1168,6 +1259,21 @@ export interface components {
       weekly_vp: string[];
       /** Wins */
       wins: number;
+    };
+    /**
+     * TeamPlayoffOdds
+     * @description One team's playoff, bye, and division-title estimates.
+     */
+    TeamPlayoffOdds: {
+      bye: components["schemas"]["ProbabilityInterval"];
+      /** Division */
+      division: string;
+      division_title: components["schemas"]["ProbabilityInterval"];
+      playoff: components["schemas"]["ProbabilityInterval"];
+      /** Team Id */
+      team_id: number;
+      /** Team Name */
+      team_name: string;
     };
     /**
      * TeamVpHistory
@@ -1856,6 +1962,43 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["CupWeekResponse"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  get_playoff_odds_api_v1_leagues__league_id__seasons__season__playoff_odds_get: {
+    parameters: {
+      query?: {
+        /** @description Number of simulated seasons. */
+        iterations?: number;
+        /** @description Explicit seed; derived from the inputs when omitted. */
+        seed?: number | null;
+      };
+      header?: never;
+      path: {
+        league_id: number;
+        season: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["PlayoffOddsResponse"];
         };
       };
       /** @description Validation Error */

@@ -50,6 +50,7 @@ Key principle: **dependencies point inward**. The VP engine knows nothing about 
 │   │   │   ├── standings.py     # ranking + tiebreakers (pure)
 │   │   │   ├── wapdate.py       # fixed four-week periods + safe-from-last bounds (pure)
 │   │   │   ├── clinch.py         # conservative playoff designations (pure)
+│   │   │   ├── predictions.py    # Monte Carlo playoff odds: score model, ticks, seeding (pure)
 │   │   │   ├── elo.py           # Elo formula, modes, regression, franchise history (pure)
 │   │   │   └── types.py
 │   │   ├── providers/
@@ -58,7 +59,7 @@ Key principle: **dependencies point inward**. The VP engine knows nothing about 
 │   │   │   ├── fake.py
 │   │   │   └── espn/            # ONLY place that imports espn_api
 │   │   ├── db/                  # SQLAlchemy models, session, repositories
-│   │   ├── services/            # sync_service.py, standings_service.py, elo_service.py, auth_service.py
+│   │   ├── services/            # sync, standings, prediction, elo, and auth services
 │   │   ├── api/                 # FastAPI routers, schemas, dependencies
 │   │   ├── cli.py               # `sync`, `recompute`, `create-user` commands
 │   │   └── config.py            # env-driven settings
@@ -77,7 +78,7 @@ Key principle: **dependencies point inward**. The VP engine knows nothing about 
 
 | Module | Responsibility | May import | Must NOT import |
 |---|---|---|---|
-| `domain/` | VP computation, standings ranking, tie splitting, WAPDate bounds, conservative playoff designations, Elo formula and history | stdlib only (`decimal`, `fractions`, `dataclasses`) | db, api, providers, any I/O |
+| `domain/` | VP computation, standings ranking, tie splitting, WAPDate bounds, conservative playoff designations, playoff-odds simulation, Elo formula and history | stdlib only (`decimal`, `fractions`, `dataclasses`) | db, api, providers, any I/O |
 | `providers/base.py` | `LeagueProvider` protocol and normalized DTOs | stdlib, pydantic | db, api, domain internals |
 | `providers/espn/` | ESPN → DTO translation and credential decryption for provider calls | `espn_api`, `providers.base`, credential-encryption helper | db, api, domain |
 | `providers/fake.py` | In-memory provider for tests/dev | `providers.base` | everything else |
@@ -331,6 +332,62 @@ a deliberate relaxation: it can withhold a badge but cannot create one. A per-te
 an ambiguous search and returns no designation for that team. Ordinary elimination and runaway
 clinch cases resolve from the cheap bounds without deep enumeration.
 
+### 7.2 Playoff-odds contract
+
+```python
+# domain/predictions.py
+@dataclass(frozen=True)
+class TeamSeasonTotals:
+    team_id: int
+    team_name: str
+    division: str | None
+    vp: Fraction
+    wins: int
+    points_for: Decimal
+
+@dataclass(frozen=True)
+class CountedWeek:
+    week: int
+    scores: tuple[CountedScore, ...]
+
+@dataclass(frozen=True)
+class RemainingWeek:
+    week: int
+    matchups: tuple[RemainingMatchup, ...]
+    is_playoff: bool = False
+
+def simulate_season(
+    inputs: SeasonPredictionInputs,
+    *,
+    iterations: int,
+    draws: DrawSource | None = None,
+) -> SeasonSimulation | PredictionUnavailable: ...
+```
+
+The simulator is pure and deterministic for an injected `DrawSource`; `SeededDrawSource` is a
+SplitMix64 implementation rather than a dependency on CPython's `random` stream. Scores are integer
+cents and weekly VP uses integer ticks on `LCM(1..T, 2)`, with a property test proving parity with
+`compute_week_vp` for every component. Current totals are converted exactly from the standings
+aggregation; past weeks are never re-sampled.
+
+The score model shrinks a team mean toward the league mean with `kappa = 3`, mixes the team's own
+empirical residuals with the pooled residuals by `n / (n + 4)` (for `n >= 2`), and falls back to
+week-centred residuals with no team deviation below two counted weeks. An unavailable result uses
+one of `no_completed_weeks`, `missing_playoff_field`, `incomplete_schedule`, or
+`unsupported_division_shape`; it never fills a missing input with a guess.
+
+Seeding uses VP, H2H wins, points for, team name, and team id. Division winners occupy the leading
+seeds in that order, followed by the remaining teams. The bye count is
+`min(divisions, max(0, next_power_of_two(P) - P))` and only division winners can receive a bye, so
+exactly `P` teams qualify per simulated season.
+
+`StandingsService.get_prediction_snapshot` is the read-only bridge: it exposes current totals, counted
+raw scores, every remaining pairing, the regular-season length, cup week, and playoff field without a
+second definition of a completed week. `PredictionService` hashes those inputs (SHA-256 over canonical
+JSON, excluding `last_refreshed_at`), derives a stable seed when the caller omits one, and caches the
+domain result in a bounded in-process LRU keyed by league, season, digest, iterations, seed, and model
+version. The route is a sync handler so Starlette runs it in its threadpool.
+
 ## 8. API contract
 
 All endpoints are under `/api/v1`, JSON, cookie-session or bearer-token auth (backend implementer's choice; httpOnly cookie preferred). FastAPI publishes OpenAPI; the backend commits an exported `docs/openapi.json` on every API change, and the frontend generates TypeScript types from it (e.g. `openapi-typescript`).
@@ -355,6 +412,7 @@ All endpoints are under `/api/v1`, JSON, cookie-session or bearer-token auth (ba
 | `GET /leagues/{league_id}/seasons/{season}/standings` | member | Overall standings + divisions (shape below) |
 | `GET /leagues/{league_id}/seasons/{season}/vp-history` | member | Weekly and cumulative VP per team (for the chart) |
 | `GET /leagues/{league_id}/seasons/{season}/wapdate` | member | Offered WAPDate periods with status, counted weeks, and lowest-first rows |
+| `GET /leagues/{league_id}/seasons/{season}/playoff-odds?iterations=&seed=` | member | Monte Carlo playoff, bye, and division-title probabilities with 95% intervals |
 | `GET /leagues/{league_id}/elo-history?mode=actual_schedule\|round_robin` | member | Full running Elo series, weeks, boundaries, current/peak/low, unrated teams, and warnings |
 | `GET /leagues/{league_id}/elo-config` | admin member | Saved Elo settings, or the defaults |
 | `PUT /leagues/{league_id}/elo-config` | admin member | Validate and persist the five Elo settings; later history reads use them |
@@ -455,6 +513,43 @@ finish last in the current period.
 }
 ```
 
+### Playoff-odds response (shape)
+
+`iterations` is the requested sample count for a simulated season and `0` for a finished regular
+season or an unavailable result. `seed` is the explicit or derived seed, or `null` when no sampling
+ran. `model` is versioned metadata. Probabilities and both Wilson bounds are fixed four-decimal
+strings. An unavailable result has `teams=[]` and one of the documented `reason` values; missing or
+corrupt season settings still return the structured 400 used by standings.
+
+```json
+{
+  "league_id": 1,
+  "season": 2026,
+  "status": "ok",
+  "reason": null,
+  "iterations": 10000,
+  "seed": 1837462,
+  "input_version": "sha256:6f1c…",
+  "model": {
+    "version": "vp-mc-1", "shrink_games": 3, "residual_mix_games": 4,
+    "score_precision": "0.01", "tiebreak_uses_points_for": true
+  },
+  "confidence": "normal",
+  "completed_weeks": 8,
+  "remaining_weeks": [9, 10, 11, 12, 13, 14],
+  "playoff_field": 6,
+  "division_count": 2,
+  "teams": [
+    {
+      "team_id": 7, "team_name": "…", "division": "East",
+      "playoff": {"probability": "0.8421", "low": "0.8345", "high": "0.8497"},
+      "bye": {"probability": "0.3120", "low": "0.3011", "high": "0.3231"},
+      "division_title": {"probability": "0.4123", "low": "0.4002", "high": "0.4245"}
+    }
+  ]
+}
+```
+
 ### Elo history response (shape)
 
 `mode` is the requested model. `weeks` is the single x-axis: one entry per completed
@@ -536,7 +631,9 @@ structured 422s; a non-admin member gets 403; a non-member or unknown league get
   hover/focus explanations used by the Elo model and settings fields.
 - **State**: server state via TanStack Query; local UI state (selected team, hidden chart series) in component state or a small store. No global state library needed.
 - **Components**: `StandingsTable` (reused for overall and per-division, with `ClinchBadge` beside
-  the team and `ClinchLegend` above the overall table), `WapdateSection` (period
+  the team and `ClinchLegend` above the overall table), `PlayoffOddsSection` (a separately loaded
+  section below the overall table with `PlayoffOddsTable`, sortable playoff/bye columns, interval
+  text, and unavailable/error/loading states), `WapdateSection` (period
   toggle plus a lowest-first table below the chart), `WeeklyVPCells`, `VPChart`, `EloChart`,
   `EloRatingsTable`, `InfoTooltip`, `TeamSelector`/legend, `SeasonPicker`, `LeagueSwitcher`,
   `SeasonsSection`, `EloSettingsSection`, `MembersSection`, `InvitesSection`,
@@ -570,6 +667,11 @@ returned by the API. There is no environment `ESPN_S2`/`ESPN_SWID` credential pa
   direct remaining H2H outcomes, cup weeks, byes, cutoff, missing metadata, incomplete schedules,
   and node-cap fallback. `domain/clinch.py` is fully covered (100% lines and branches) in this
   feature; the permanent CI named-module gate remains AC-DX-03.
+- **Playoff odds**: a parity property test against `compute_week_vp`, hand-computed winning and
+  points-for scenarios, analytic two-path probabilities, seeded golden counts, probability
+  invariants, clinch cross-checks, digest/cache tests, an HTTP golden response, and frontend state,
+  sorting, edge-label, interval, and accessibility tests. `domain/predictions.py` is fully covered
+  (100% lines and branches); no statistical tolerance test uses a random seed.
 - **Database/services**: run against SQLite by default locally, where each worktree gets its own throwaway databases so concurrent agents stay isolated; CI and production use Postgres. `scripts/dev-postgres.sh` starts a worktree-local Postgres for debugging Postgres-specific behavior.
 - **API**: FastAPI `TestClient` tests including authorization matrices and golden JSON comparison.
 - **Frontend**: Vitest + Testing Library for components; Playwright for the end-to-end smoke test, responsive screenshots, and axe accessibility checks.

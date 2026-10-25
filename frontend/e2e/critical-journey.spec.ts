@@ -253,6 +253,22 @@ test("sign up with a member invite, set owner, and read the seeded standings", a
     "aria-sort",
   );
 
+  // AC-PO-11: the playoff-odds section sits below the overall table, loads independently, and
+  // reports the finished regular season as exact final seeding.
+  await expect(page.getByRole("heading", { level: 2, name: "Playoff odds" })).toBeVisible();
+  const odds = page.getByRole("region", {
+    name: "Playoff odds, scrollable horizontally",
+  });
+  await expect(odds).toBeVisible();
+  await expect(page.getByText(/Regular season complete · final seeding/i)).toBeVisible();
+  await expect(odds.getByRole("columnheader", { name: "Playoff %" })).toHaveAttribute(
+    "aria-sort",
+    "descending",
+  );
+  await expect(odds.getByRole("row")).toHaveCount(fixture.teams.length + 1);
+  await expect(odds.getByText("100%", { exact: true }).first()).toBeVisible();
+  await expectPinnedColumns(odds, "one");
+
   // AC-FE-05: no page-body sideways scroll at 360/768/1280, wide tables scroll inside their own
   // region, and the team column is pinned at every width.
   await expectPageDoesNotScrollSideways(page);
@@ -279,6 +295,17 @@ test("sign up with a member invite, set owner, and read the seeded standings", a
   }
   const wapdateTeamHeader = wapdate.getByRole("columnheader", { name: "Team" });
   expect(await wapdateTeamHeader.evaluate((element) => getComputedStyle(element).position)).toBe(
+    "sticky",
+  );
+  const oddsWidth = await odds.evaluate((element) => ({
+    scrollWidth: element.scrollWidth,
+    clientWidth: element.clientWidth,
+  }));
+  if (testInfo.project.name === "mobile-360") {
+    expect(oddsWidth.scrollWidth).toBeGreaterThan(oddsWidth.clientWidth);
+  }
+  const oddsTeamHeader = odds.getByRole("columnheader", { name: "Team" });
+  expect(await oddsTeamHeader.evaluate((element) => getComputedStyle(element).position)).toBe(
     "sticky",
   );
 

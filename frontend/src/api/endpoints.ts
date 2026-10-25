@@ -27,6 +27,7 @@ import type {
   OwnerUpdateRequest,
   OwnerUpdateResponse,
   OwnersResponse,
+  PlayoffOddsResponse,
   PublicUser,
   RedeemInviteRequest,
   RedeemInviteResponse,
@@ -138,6 +139,17 @@ export const api = {
     return apiRequest<WapdateResponse>(`/api/v1/leagues/${leagueId}/seasons/${season}/wapdate`, {
       signal,
     });
+  },
+
+  playoffOdds(
+    leagueId: number,
+    season: number,
+    signal?: AbortSignal,
+  ): Promise<PlayoffOddsResponse> {
+    return apiRequest<PlayoffOddsResponse>(
+      `/api/v1/leagues/${leagueId}/seasons/${season}/playoff-odds`,
+      { signal },
+    );
   },
 
   eloHistory(

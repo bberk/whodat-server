@@ -6,6 +6,7 @@ import type { LeagueContextValue } from "../leagues/LeagueContext";
 import { LeagueContext } from "../leagues/LeagueContext";
 import {
   emptyHistoryResponse,
+  emptyPlayoffOddsResponse,
   emptyStandingsResponse,
   emptyWapdateResponse,
   errorResponse,
@@ -13,6 +14,7 @@ import {
   jsonResponse,
   leagueAlpha,
   mockFetch,
+  playoffOddsResponse,
   requestPath,
   standingsResponse,
   wapdateResponse,
@@ -61,6 +63,9 @@ function readyFetch() {
     if (path.endsWith("/wapdate")) {
       return jsonResponse(wapdateResponse);
     }
+    if (path.endsWith("/playoff-odds")) {
+      return jsonResponse(playoffOddsResponse);
+    }
     return errorResponse(404, { code: "not_found", message: "Not found" });
   });
 }
@@ -94,7 +99,9 @@ describe("StandingsPage", () => {
     expect(within(east).getAllByRole("columnheader")).toHaveLength(6);
     expect(within(west).queryByRole("columnheader", { name: /^W\d+$/ })).not.toBeInTheDocument();
     expect(screen.getByRole("img", { name: /cumulative victory points/i })).toBeInTheDocument();
-    expect(screen.getByText(/4 completed weeks/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/2026 season · 6 teams · 2 divisions · 4 completed weeks/i),
+    ).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Playoff designation legend" })).toBeInTheDocument();
     expect(screen.getAllByRole("img", { name: "Z — top seed" })).toHaveLength(3);
     expect(screen.getAllByRole("img", { name: "Y — division winner" })).toHaveLength(3);
@@ -125,7 +132,9 @@ describe("StandingsPage", () => {
     expect(screen.getByRole("heading", { name: "Overall standings" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Division standings" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Cumulative VP by week" })).toBeInTheDocument();
-    expect(screen.getByText(/4 completed weeks/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/2026 season · 6 teams · 2 divisions · 4 completed weeks/i),
+    ).toBeInTheDocument();
   });
 
   it("shows W-L-T when a team recorded an H2H tie", async () => {
@@ -139,6 +148,9 @@ describe("StandingsPage", () => {
       const path = requestPath(url);
       if (path.endsWith("/standings")) {
         return jsonResponse(tied);
+      }
+      if (path.endsWith("/playoff-odds")) {
+        return jsonResponse(playoffOddsResponse);
       }
       return path.endsWith("/wapdate")
         ? jsonResponse(wapdateResponse)
@@ -200,7 +212,7 @@ describe("StandingsPage", () => {
   it("shows loading, empty, and error states for every data view", async () => {
     mockFetch(() => new Promise<Response>(() => {}));
     const loading = renderPage();
-    expect(screen.getAllByRole("status")).toHaveLength(4);
+    expect(screen.getAllByRole("status")).toHaveLength(5);
     loading.unmount();
 
     mockFetch((url) => {
@@ -208,20 +220,23 @@ describe("StandingsPage", () => {
       if (path.endsWith("/standings")) {
         return jsonResponse(emptyStandingsResponse);
       }
+      if (path.endsWith("/playoff-odds")) {
+        return jsonResponse(emptyPlayoffOddsResponse);
+      }
       return path.endsWith("/wapdate")
         ? jsonResponse(emptyWapdateResponse)
         : jsonResponse(emptyHistoryResponse);
     });
     const empty = renderPage();
     await screen.findByText("No chart yet");
-    expect(screen.getAllByText("No completed weeks yet")).toHaveLength(2);
+    expect(screen.getAllByText("No completed weeks yet")).toHaveLength(3);
     expect(screen.getByText("No WAPDate periods yet")).toBeInTheDocument();
     empty.unmount();
 
     mockFetch(() => errorResponse(500, { code: "boom", message: "The API is unavailable." }));
     renderPage();
     await waitFor(() => {
-      expect(screen.getAllByRole("alert")).toHaveLength(4);
+      expect(screen.getAllByRole("alert")).toHaveLength(5);
     });
     expect(screen.getAllByRole("alert")[0]).toHaveTextContent("The API is unavailable.");
   });
@@ -233,6 +248,9 @@ describe("StandingsPage", () => {
       if (path.endsWith("/wapdate")) {
         return jsonResponse(wapdateResponse);
       }
+      if (path.endsWith("/playoff-odds")) {
+        return errorResponse(500, { code: "boom", message: "Boom" });
+      }
       if (!path.endsWith("/standings")) {
         return jsonResponse(historyResponse);
       }
@@ -243,7 +261,9 @@ describe("StandingsPage", () => {
     });
     const user = userEvent.setup();
     renderPage();
-    expect(await screen.findAllByRole("alert")).toHaveLength(3);
+    await waitFor(() => {
+      expect(screen.getAllByRole("alert")).toHaveLength(4);
+    });
     await user.click(screen.getAllByRole("button", { name: "Retry" })[0]);
     await waitFor(() => {
       expect(screen.getByRole("table", { name: /overall 2026 standings/i })).toBeInTheDocument();
@@ -278,6 +298,9 @@ describe("StandingsPage", () => {
           divisions: [{ name: null, standings: standingsResponse.overall }],
         });
       }
+      if (path.endsWith("/playoff-odds")) {
+        return jsonResponse(playoffOddsResponse);
+      }
       return path.endsWith("/wapdate")
         ? jsonResponse(wapdateResponse)
         : jsonResponse(historyResponse);
@@ -291,6 +314,9 @@ describe("StandingsPage", () => {
       if (path.endsWith("/standings")) {
         return jsonResponse({ ...standingsResponse, divisions: [] });
       }
+      if (path.endsWith("/playoff-odds")) {
+        return jsonResponse(playoffOddsResponse);
+      }
       return path.endsWith("/wapdate")
         ? jsonResponse(wapdateResponse)
         : jsonResponse(historyResponse);
@@ -303,6 +329,9 @@ describe("StandingsPage", () => {
       const path = requestPath(url);
       if (path.endsWith("/standings")) {
         return jsonResponse(standingsResponse);
+      }
+      if (path.endsWith("/playoff-odds")) {
+        return jsonResponse(playoffOddsResponse);
       }
       return path.endsWith("/wapdate")
         ? jsonResponse(wapdateResponse)
