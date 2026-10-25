@@ -615,7 +615,9 @@ structured 422s; a non-admin member gets 403; a non-member or unknown league get
   sections: the member list (`MembersSection`: email, role, owner, credential status; confirmed
   removal with a last-admin guard and a credential warning), one seasons table (`SeasonsSection`:
   a row per stored season with its cup-week dropdown, last-refreshed time, per-season refresh, and
-  confirmed delete, plus a `+` action that adds a season), invite generation (`InvitesSection`:
+  confirmed delete, plus a `+` action that adds a season), an on-demand `PlayoffOddsAdminSection`
+  (season selector, iteration count, optional seed, and a run that never refreshes provider data),
+  invite generation (`InvitesSection`:
   member invite bound to the league or league-less admin invite, raw code shown once with a copy
   control), and a separated `DeleteLeagueSection` that requires the league name typed before the
   destructive action. It also hosts `EloSettingsSection`: the five per-league Elo fields with

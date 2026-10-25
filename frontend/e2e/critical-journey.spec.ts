@@ -342,6 +342,18 @@ test("admin reads the league admin page without blocking accessibility issues", 
   ).toBeVisible();
   await expect(page.getByRole("heading", { level: 2, name: "Members" })).toBeVisible();
 
+  // AC-PO-13: playoff odds run on demand from the admin page, separately from season refresh.
+  await expect(
+    page.getByRole("heading", { level: 2, name: "Playoff odds simulation" }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Simulations")).toHaveValue("10000");
+  await page.getByRole("button", { name: "Run simulations" }).click();
+  await expect(page.getByText(/Regular season complete · final seeding/i)).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Playoff odds, scrollable horizontally" }),
+  ).toBeVisible();
+  await expect(page.getByText(/does not contact ESPN or refresh stored data/i)).toBeVisible();
+
   // AC-Elo-*: the admin page hosts the per-league Elo settings with keyboard tooltips.
   await expect(page.getByRole("heading", { level: 2, name: "Elo settings" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Starting rating", exact: true })).toHaveValue(

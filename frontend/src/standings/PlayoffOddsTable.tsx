@@ -9,10 +9,10 @@ import {
 import { intervalLabel, percentLabel, probabilityDescription } from "./playoffOddsFormat";
 
 const headCell =
-  "whitespace-nowrap px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500";
+  "whitespace-nowrap px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-faint";
 const numCell = "whitespace-nowrap px-3 py-2 text-right tabular-nums";
 const ROW_DIVIDER =
-  "[&>th]:border-b [&>td]:border-b [&>th]:border-gray-200 [&>td]:border-gray-200 last:[&>th]:border-b-0 last:[&>td]:border-b-0";
+  "[&>th]:border-b [&>td]:border-b [&>th]:border-line [&>td]:border-line last:[&>th]:border-b-0 last:[&>td]:border-b-0";
 
 function barWidth(value: string): number {
   return Math.min(100, Math.max(0, Number(value) * 100));
@@ -43,14 +43,14 @@ function ProbabilityCell({
       </span>
       <span
         aria-hidden="true"
-        className="mt-1 block h-1.5 w-full min-w-[64px] overflow-hidden rounded-full bg-gray-200"
+        className="mt-1 block h-1.5 w-full min-w-[64px] overflow-hidden rounded-full bg-surface-emphasis"
       >
         <span
           className="block h-full rounded-full bg-brand"
           style={{ width: `${barWidth(probability.probability)}%` }}
         />
       </span>
-      <span aria-hidden="true" className="hidden text-[11px] text-gray-500 sm:block">
+      <span aria-hidden="true" className="hidden text-[11px] text-ink-faint sm:block">
         {intervalLabel(probability)}
       </span>
       <span className="sr-only">{probabilityDescription(label, probability)}</span>
@@ -79,7 +79,7 @@ export function PlayoffOddsTable({ rows, sort, onSort }: PlayoffOddsTableProps) 
   return (
     <div className="relative mt-3">
       <div
-        className="relative overflow-x-auto rounded-xl border border-gray-200 bg-white"
+        className="relative overflow-x-auto rounded-xl border border-line bg-surface"
         tabIndex={0}
         role="region"
         aria-label="Playoff odds, scrollable horizontally"
@@ -90,10 +90,10 @@ export function PlayoffOddsTable({ rows, sort, onSort }: PlayoffOddsTableProps) 
             the 95% interval for each estimate.
           </caption>
           <thead>
-            <tr className="[&>th]:border-b [&>th]:border-gray-300">
+            <tr className="[&>th]:border-b [&>th]:border-line-strong">
               <th
                 scope="col"
-                className={`${headCell} sticky left-0 z-20 min-w-[160px] bg-white shadow-[6px_0_8px_-6px_rgba(17,24,39,0.18)]`}
+                className={`${headCell} sticky left-0 z-20 min-w-[160px] bg-surface shadow-sticky`}
               >
                 Team
               </th>
@@ -120,17 +120,17 @@ export function PlayoffOddsTable({ rows, sort, onSort }: PlayoffOddsTableProps) 
           </thead>
           <tbody>
             {orderedRows.map((row) => (
-              <tr key={row.team_id} className={`group ${ROW_DIVIDER} hover:bg-gray-50`}>
+              <tr key={row.team_id} className={`group ${ROW_DIVIDER} hover:bg-surface-hover`}>
                 <th
                   scope="row"
-                  className="sticky left-0 z-10 min-w-[160px] bg-white px-3 py-2 text-left font-semibold shadow-[6px_0_8px_-6px_rgba(17,24,39,0.18)] group-hover:bg-gray-50"
+                  className="sticky left-0 z-10 min-w-[160px] bg-surface px-3 py-2 text-left font-semibold shadow-sticky group-hover:bg-surface-hover"
                 >
                   <span>{row.team_name}</span>
                   <span className="sr-only">
                     , {probabilityDescription("division title", row.division_title)}
                   </span>
                 </th>
-                <td className={`${numCell} text-left text-gray-600`}>{row.division}</td>
+                <td className={`${numCell} text-left text-ink-subtle`}>{row.division}</td>
                 <ProbabilityCell label="playoff" probability={row.playoff} />
                 <ProbabilityCell label="first-round bye" probability={row.bye} />
               </tr>
@@ -140,7 +140,7 @@ export function PlayoffOddsTable({ rows, sort, onSort }: PlayoffOddsTableProps) 
       </div>
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-y-0 right-0 z-30 w-7 rounded-r-xl bg-gradient-to-l from-gray-900/5 to-transparent"
+        className="pointer-events-none absolute inset-y-0 right-0 z-30 w-7 rounded-r-xl bg-gradient-to-l from-fade/5 to-transparent"
       />
     </div>
   );

@@ -328,7 +328,11 @@ Pages and views:
      season (two decimals with signs), peak, low, and owner, sorted by current rating. It scrolls
      inside its card with a sticky team column and no page-body sideways scroll at 360px.
    - Loading, empty (no rated weeks), and error states are present; colour is never the only signal.
-5. **League admin**: a page available only to signed-in admins for a selected league. It manages the
+5. **League admin**: a page available only to signed-in admins for a selected league. It also runs
+   an on-demand **Playoff odds simulation** for a stored season, with a season selector, a
+   simulations count (1,000-50,000, default 10,000), an optional seed, and a Run simulations
+   action. This is separate from the provider season refresh: it never contacts ESPN and never
+   changes stored data. It manages the
    league's membership (member list by email with role, owner association, and credential status, and
    confirmed removal with a last-admin guard and a credential warning), a single **seasons table**
    with one row per stored season (season year, cup-week dropdown, last refreshed time, a per-season

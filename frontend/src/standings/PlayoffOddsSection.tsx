@@ -2,30 +2,9 @@ import { useState } from "react";
 
 import { EmptyState, ErrorState, LoadingState } from "../components/DataStates";
 import { toggleSort, type SortDirection, type SortState } from "../components/sorting";
+import { PLAYOFF_ODDS_UNAVAILABLE_COPY } from "./playoffOddsCopy";
 import { PlayoffOddsTable } from "./PlayoffOddsTable";
-import { usePlayoffOdds, type PlayoffOddsUnavailableReason } from "./usePlayoffOdds";
-
-const UNAVAILABLE_COPY: Record<PlayoffOddsUnavailableReason, { title: string; detail: string }> = {
-  no_completed_weeks: {
-    title: "No completed weeks yet",
-    detail: "Playoff odds appear after the first completed week of the season.",
-  },
-  missing_playoff_field: {
-    title: "Playoff settings are incomplete",
-    detail:
-      "This season's stored playoff field size is missing or too small for its divisions. An admin can re-sync the season.",
-  },
-  incomplete_schedule: {
-    title: "Remaining schedule is incomplete",
-    detail:
-      "The rest of the season is not fully stored, so odds cannot be simulated. An admin can re-sync this season.",
-  },
-  unsupported_division_shape: {
-    title: "Division setup is not supported",
-    detail:
-      "Every team needs a stored division before playoff seeding can be estimated. An admin can re-sync this season.",
-  },
-};
+import { usePlayoffOdds } from "./usePlayoffOdds";
 
 function sortLabel(sort: SortState): string {
   const column = sort.key === "bye" ? "Bye %" : "Playoff %";
@@ -63,14 +42,14 @@ export function PlayoffOddsSection({ leagueId, season, dataVersion }: PlayoffOdd
 
       {state.status === "unavailable" ? (
         <EmptyState
-          title={UNAVAILABLE_COPY[state.reason].title}
-          detail={UNAVAILABLE_COPY[state.reason].detail}
+          title={PLAYOFF_ODDS_UNAVAILABLE_COPY[state.reason].title}
+          detail={PLAYOFF_ODDS_UNAVAILABLE_COPY[state.reason].detail}
         />
       ) : null}
 
       {state.status === "ready" ? (
         <>
-          <p className="mt-1 text-[13px] text-gray-500">
+          <p className="mt-1 text-[13px] text-ink-faint">
             {state.odds.iterations === 0
               ? "Regular season complete · final seeding"
               : `${state.odds.iterations.toLocaleString()} simulated seasons · 95% range shown · ${sortLabel(
@@ -78,7 +57,7 @@ export function PlayoffOddsSection({ leagueId, season, dataVersion }: PlayoffOdd
                 )}`}
           </p>
           {state.odds.confidence === "low" && state.odds.iterations > 0 ? (
-            <p className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[13px] text-amber-900">
+            <p className="mt-2 rounded-lg border border-warning-line bg-warning-surface px-3 py-2 text-[13px] text-warning-ink">
               Based on {state.odds.completed_weeks} completed{" "}
               {state.odds.completed_weeks === 1 ? "week" : "weeks"}; early-season estimates are
               wide.
@@ -92,7 +71,7 @@ export function PlayoffOddsSection({ leagueId, season, dataVersion }: PlayoffOdd
           ) : (
             <PlayoffOddsTable rows={state.odds.teams} sort={sort} onSort={handleSort} />
           )}
-          <details className="mt-3 rounded-lg border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-700">
+          <details className="mt-3 rounded-lg border border-line bg-surface px-3 py-2 text-[13px] text-ink-muted">
             <summary className="cursor-pointer font-semibold">How these are estimated</summary>
             <p className="mt-2">
               Each estimate simulates the remaining regular-season weeks with all four Victory
