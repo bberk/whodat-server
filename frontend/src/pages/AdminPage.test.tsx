@@ -111,6 +111,11 @@ describe("AdminPage", () => {
       screen.queryByRole("heading", { level: 2, name: "Add a season" }),
     ).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { level: 2, name: "Cup week" })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 2, name: "Playoff odds simulation" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Simulations")).toHaveValue(10000);
+    expect(screen.getByRole("button", { name: "Run simulations" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: "Elo settings" })).toBeInTheDocument();
     expect(await screen.findByLabelText("K factor")).toHaveValue("24");
     expect(screen.getByRole("heading", { level: 2, name: "Invites" })).toBeInTheDocument();

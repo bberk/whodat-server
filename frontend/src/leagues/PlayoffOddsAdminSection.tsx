@@ -1,0 +1,285 @@
+import { useEffect, useState, type FormEvent } from "react";
+
+import { api } from "../api/endpoints";
+import { toDisplayError, type DisplayError } from "../api/errors";
+import type { PlayoffOddsResponse } from "../api/types";
+import { ApiAlert } from "../components/ApiAlert";
+import { EmptyState, ErrorState, LoadingState } from "../components/DataStates";
+import { inputClass, labelClass, primaryButtonClass, selectClass } from "../components/formStyles";
+import { toggleSort, type SortDirection, type SortState } from "../components/sorting";
+import { useLeague } from "./LeagueContext";
+import { PLAYOFF_ODDS_UNAVAILABLE_COPY } from "../standings/playoffOddsCopy";
+import { PlayoffOddsTable } from "../standings/PlayoffOddsTable";
+
+const MIN_ITERATIONS = 1_000;
+const MAX_ITERATIONS = 50_000;
+const DEFAULT_ITERATIONS = 10_000;
+const MAX_SEED = 2_147_483_647;
+
+type SimulationState =
+  | { status: "idle" }
+  | { status: "loading"; iterations: number }
+  | { status: "error"; error: DisplayError }
+  | { status: "ready"; odds: PlayoffOddsResponse };
+
+function latestSeason(seasons: readonly number[]): number | null {
+  return seasons.length === 0 ? null : seasons[seasons.length - 1];
+}
+
+function simulationSummary(odds: PlayoffOddsResponse): string {
+  if (odds.iterations === 0) {
+    return `Regular season complete · final seeding · model ${odds.model.version}`;
+  }
+  return `${odds.iterations.toLocaleString()} simulated seasons · seed ${odds.seed ?? "derived"} · model ${odds.model.version}`;
+}
+
+/**
+ * Admin: run the playoff-odds simulation for one stored season.
+ *
+ * This section is deliberately separate from the seasons table: running it never contacts ESPN and
+ * never refreshes stored data. It reveals the iteration count and optional seed, runs the existing
+ * member-only odds endpoint, and shows the same table as the standings page. A missing playoff field
+ * or an incomplete schedule is reported with the documented unavailable copy, pointing the admin at
+ * the Seasons refresh.
+ */
+export function PlayoffOddsAdminSection({ leagueId }: { leagueId: number }) {
+  const { seasons, seasonsStatus, seasonsError, season, reloadSeasons } = useLeague();
+  const fallbackSeason =
+    season !== null && seasons.includes(season) ? season : latestSeason(seasons);
+  const [selectedSeason, setSelectedSeason] = useState<number | null>(fallbackSeason);
+  const [iterations, setIterations] = useState(String(DEFAULT_ITERATIONS));
+  const [seed, setSeed] = useState("");
+  const [formError, setFormError] = useState<string | null>(null);
+  const [state, setState] = useState<SimulationState>({ status: "idle" });
+  const [sort, setSort] = useState<SortState>({ key: "playoff", direction: "desc" });
+
+  useEffect(() => {
+    setSelectedSeason((current) =>
+      current !== null && seasons.includes(current) ? current : fallbackSeason,
+    );
+  }, [seasons, fallbackSeason]);
+
+  const handleSort = (key: string, initialDirection: SortDirection) => {
+    setSort((current) => toggleSort(current, key, initialDirection));
+  };
+
+  const run = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setFormError(null);
+    if (selectedSeason === null) {
+      setFormError("Choose a stored season first.");
+      return;
+    }
+    const iterationText = iterations.trim();
+    const parsedIterations = Number(iterationText);
+    if (
+      iterationText === "" ||
+      !Number.isInteger(parsedIterations) ||
+      parsedIterations < MIN_ITERATIONS ||
+      parsedIterations > MAX_ITERATIONS
+    ) {
+      setFormError(
+        `Enter a whole number of simulations from ${MIN_ITERATIONS.toLocaleString()} to ${MAX_ITERATIONS.toLocaleString()}.`,
+      );
+      return;
+    }
+    const seedText = seed.trim();
+    let parsedSeed: number | undefined;
+    if (seedText !== "") {
+      parsedSeed = Number(seedText);
+      if (!Number.isInteger(parsedSeed) || parsedSeed < 0 || parsedSeed > MAX_SEED) {
+        setFormError(
+          `Enter a whole seed from 0 to ${MAX_SEED.toLocaleString()}, or leave it blank.`,
+        );
+        return;
+      }
+    }
+
+    setState({ status: "loading", iterations: parsedIterations });
+    try {
+      const odds = await api.playoffOdds(leagueId, selectedSeason, {
+        iterations: parsedIterations,
+        ...(parsedSeed === undefined ? {} : { seed: parsedSeed }),
+      });
+      setState({ status: "ready", odds });
+      setSort({ key: "playoff", direction: "desc" });
+    } catch (failure) {
+      setState({ status: "error", error: toDisplayError(failure) });
+    }
+  };
+
+  return (
+    <section aria-labelledby="h-playoff-odds-admin" className="mt-7">
+      <h2 id="h-playoff-odds-admin" className="text-base font-bold">
+        Playoff odds simulation
+      </h2>
+      <p className="mt-1 text-[13px] text-ink-faint">
+        Run the remaining-season simulation for one stored season. This does not contact ESPN or
+        refresh stored data; use the Seasons table above when a season needs a provider re-sync.
+      </p>
+
+      {seasonsStatus === "loading" ? <LoadingState label="Loading seasons…" /> : null}
+
+      {seasonsStatus === "error" ? (
+        <ErrorState onRetry={reloadSeasons} message={seasonsError ?? undefined} />
+      ) : null}
+
+      {seasonsStatus === "ready" && seasons.length === 0 ? (
+        <EmptyState
+          title="No stored seasons"
+          detail="Add a season above before running the playoff simulation."
+        />
+      ) : null}
+
+      {seasonsStatus === "ready" && seasons.length > 0 ? (
+        <form
+          className="mt-3 rounded-xl border border-line bg-surface p-4"
+          onSubmit={run}
+          noValidate
+        >
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div>
+              <label htmlFor="playoff-odds-season" className={labelClass}>
+                Simulation season
+              </label>
+              <select
+                id="playoff-odds-season"
+                className={`${selectClass} w-full`}
+                value={selectedSeason ?? ""}
+                disabled={state.status === "loading"}
+                onChange={(event) => {
+                  setSelectedSeason(Number(event.target.value));
+                  setState({ status: "idle" });
+                  setFormError(null);
+                }}
+              >
+                {seasons.map((stored) => (
+                  <option key={stored} value={stored}>
+                    {stored}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="playoff-odds-iterations" className={labelClass}>
+                Simulations
+              </label>
+              <input
+                id="playoff-odds-iterations"
+                type="number"
+                inputMode="numeric"
+                min={MIN_ITERATIONS}
+                max={MAX_ITERATIONS}
+                step={1}
+                value={iterations}
+                disabled={state.status === "loading"}
+                onChange={(event) => setIterations(event.target.value)}
+                className={inputClass}
+                aria-describedby="playoff-odds-iterations-hint"
+              />
+            </div>
+            <div>
+              <label htmlFor="playoff-odds-seed" className={labelClass}>
+                Seed (optional)
+              </label>
+              <input
+                id="playoff-odds-seed"
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={MAX_SEED}
+                step={1}
+                value={seed}
+                placeholder="Derived from inputs"
+                disabled={state.status === "loading"}
+                onChange={(event) => setSeed(event.target.value)}
+                className={inputClass}
+              />
+            </div>
+          </div>
+
+          <p id="playoff-odds-iterations-hint" className="mt-2 text-[12px] text-ink-faint">
+            Use 1,000 to 50,000 simulations; 10,000 is the default. Leave the seed blank to derive a
+            stable one from the season data.
+          </p>
+
+          {formError === null ? null : (
+            <p role="alert" className="mt-2 text-[13px] font-semibold text-danger-ink">
+              {formError}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            className={`${primaryButtonClass} mt-3`}
+            disabled={state.status === "loading"}
+          >
+            {state.status === "loading"
+              ? `Running ${state.iterations.toLocaleString()} simulations…`
+              : "Run simulations"}
+          </button>
+        </form>
+      ) : null}
+
+      {state.status === "loading" ? (
+        <LoadingState label={`Running ${state.iterations.toLocaleString()} simulated seasons…`} />
+      ) : null}
+
+      {state.status === "error" ? <ApiAlert error={state.error} /> : null}
+
+      {state.status === "ready" ? (
+        <SimulationResult odds={state.odds} sort={sort} onSort={handleSort} />
+      ) : null}
+    </section>
+  );
+}
+
+function SimulationResult({
+  odds,
+  sort,
+  onSort,
+}: {
+  odds: PlayoffOddsResponse;
+  sort: SortState;
+  onSort: (key: string, initialDirection: SortDirection) => void;
+}) {
+  if (odds.status === "unavailable" && odds.reason !== null) {
+    const copy = PLAYOFF_ODDS_UNAVAILABLE_COPY[odds.reason];
+    return (
+      <div role="status" aria-live="polite" className="mt-3">
+        <EmptyState title={copy.title} detail={copy.detail} />
+      </div>
+    );
+  }
+
+  return (
+    <div role="status" aria-live="polite" className="mt-3">
+      <p className="text-[13px] font-semibold text-ink">{simulationSummary(odds)}</p>
+      <p className="mt-1 text-[13px] text-ink-faint">
+        {odds.completed_weeks} completed {odds.completed_weeks === 1 ? "week" : "weeks"} ·{" "}
+        {odds.remaining_weeks.length} remaining{" "}
+        {odds.remaining_weeks.length === 1 ? "week" : "weeks"} · playoff field{" "}
+        {odds.playoff_field ?? "unknown"} · {odds.division_count}{" "}
+        {odds.division_count === 1 ? "division" : "divisions"}
+      </p>
+      {odds.confidence === "low" && odds.iterations > 0 ? (
+        <p className="mt-2 rounded-lg border border-warning-line bg-warning-surface px-3 py-2 text-[13px] text-warning-ink">
+          Low confidence: the season has little completed history, so these estimates are wide.
+        </p>
+      ) : null}
+      {odds.teams.length === 0 ? (
+        <EmptyState
+          title="No team results"
+          detail="The simulation returned no team rows for this season."
+        />
+      ) : (
+        <PlayoffOddsTable rows={odds.teams} sort={sort} onSort={onSort} />
+      )}
+      <p className="mt-2 text-[12px] text-ink-faint">
+        Model {odds.model.version}: {odds.model.shrink_games} shrink games,{" "}
+        {odds.model.residual_mix_games} residual-mix games, scores to {odds.model.score_precision},
+        points for breaks ties. Intervals are 95% Monte Carlo uncertainty conditional on the model.
+      </p>
+    </div>
+  );
+}

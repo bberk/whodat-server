@@ -36,7 +36,7 @@ export function usePlayoffOdds(
     }
     const controller = new AbortController();
     setState({ status: "loading" });
-    api.playoffOdds(leagueId, season, controller.signal).then(
+    api.playoffOdds(leagueId, season, { signal: controller.signal }).then(
       (odds) => {
         if (controller.signal.aborted) {
           return;

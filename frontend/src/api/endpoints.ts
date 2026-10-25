@@ -144,11 +144,21 @@ export const api = {
   playoffOdds(
     leagueId: number,
     season: number,
-    signal?: AbortSignal,
+    options: { iterations?: number; seed?: number; signal?: AbortSignal } = {},
   ): Promise<PlayoffOddsResponse> {
+    const params = new URLSearchParams();
+    if (options.iterations !== undefined) {
+      params.set("iterations", String(options.iterations));
+    }
+    if (options.seed !== undefined) {
+      params.set("seed", String(options.seed));
+    }
+    const query = params.toString();
     return apiRequest<PlayoffOddsResponse>(
-      `/api/v1/leagues/${leagueId}/seasons/${season}/playoff-odds`,
-      { signal },
+      `/api/v1/leagues/${leagueId}/seasons/${season}/playoff-odds${
+        query === "" ? "" : `?${query}`
+      }`,
+      { signal: options.signal },
     );
   },
 
