@@ -184,6 +184,12 @@ describe("season presets", () => {
     expect(latestEloSeason({ ...eloHistoryResponse, seasons: [] })).toBe(2026);
   });
 
+  it("has no current season when the response has neither seasons nor weeks", () => {
+    const empty = { ...eloHistoryResponse, seasons: [], weeks: [] };
+    expect(latestEloSeason(empty)).toBeNull();
+    expect(currentSeasonWindow(empty)).toEqual(ALL_ELO_WINDOW);
+  });
+
   it("exposes the twelve-week preset", () => {
     expect(LAST_WEEKS_PRESET).toBe(12);
     expect(lastWeeksWindow()).toEqual({ kind: "lastWeeks", count: 12 });

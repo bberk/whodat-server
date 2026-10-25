@@ -337,6 +337,22 @@ describe("HistoryPage", () => {
     expect(toggle).toHaveAttribute("aria-pressed", "true");
   });
 
+  it("unhides a team when its row is selected while its series is hidden", async () => {
+    eloFetch();
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByRole("region", {
+      name: "Elo score history current scores, scrollable horizontally",
+    });
+    const toggle = screen.getByRole("button", { name: "Show or hide Alpha series" });
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+
+    await user.click(screen.getByRole("button", { name: "Alpha" }));
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("selects and toggles chart series", async () => {
     eloFetch();
     const user = userEvent.setup();
