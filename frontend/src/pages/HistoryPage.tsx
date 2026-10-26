@@ -315,7 +315,6 @@ export function HistoryPage() {
                     {ready.weeks.map((week) => (
                       <option key={eloWeekKey(week)} value={eloWeekKey(week)}>
                         {week.season} W{week.week}
-                        {week.is_cup_week ? " (cup)" : ""}
                       </option>
                     ))}
                   </select>
@@ -340,7 +339,6 @@ export function HistoryPage() {
                     {ready.weeks.map((week) => (
                       <option key={eloWeekKey(week)} value={eloWeekKey(week)}>
                         {week.season} W{week.week}
-                        {week.is_cup_week ? " (cup)" : ""}
                       </option>
                     ))}
                   </select>

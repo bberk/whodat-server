@@ -573,7 +573,7 @@ test("opens the History tab, switches modes and seasons, and passes axe", async 
     "false",
   );
 
-  // The data-table alternative exposes the exact values and cup markers.
+  // The data-table alternative exposes the exact values without cup annotations.
   await page.getByText("View chart data as a table").click();
   const data = page.getByRole("region", { name: "Elo score history data table" });
   await expect(data).toBeVisible();
