@@ -23,6 +23,8 @@ function sortValueFor(row: TeamPlayoffOdds, key: string): SortValue {
       return Number(row.playoff.probability);
     case "bye":
       return Number(row.bye.probability);
+    case "championship":
+      return Number(row.championship.probability);
     default:
       return null;
   }
@@ -64,10 +66,10 @@ export interface PlayoffOddsTableProps {
 }
 
 /**
- * The playoff-odds table: team (pinned), division, playoff %, and bye %. Numeric columns sort on
- * the client; the team column keeps a stable name order and is never sortable. Every probability
- * has visible text, a decorative bar, a visible interval on wider screens, and a complete
- * screen-reader description, so colour is never the only signal.
+ * The playoff-odds table: team (pinned), division, playoff %, bye %, and championship %. Numeric
+ * columns sort on the client; the team column keeps a stable name order and is never sortable.
+ * Every probability has visible text, a decorative bar, a visible interval on wider screens, and a
+ * complete screen-reader description, so colour is never the only signal.
  */
 export function PlayoffOddsTable({ rows, sort, onSort }: PlayoffOddsTableProps) {
   const nameOrdered = rows
@@ -83,10 +85,10 @@ export function PlayoffOddsTable({ rows, sort, onSort }: PlayoffOddsTableProps) 
         role="region"
         aria-label="Playoff odds, scrollable horizontally"
       >
-        <table className="w-full min-w-[520px] border-separate border-spacing-0 text-sm">
+        <table className="w-full min-w-[640px] border-separate border-spacing-0 text-sm">
           <caption className="sr-only">
-            Playoff odds: team, division, playoff probability, and first-round bye probability, with
-            the 95% interval for each estimate.
+            Playoff odds: team, division, playoff probability, first-round bye probability, and
+            championship probability, with the 95% interval for each estimate.
           </caption>
           <thead>
             <tr>
@@ -115,6 +117,14 @@ export function PlayoffOddsTable({ rows, sort, onSort }: PlayoffOddsTableProps) 
                 initialDirection="desc"
                 className={headCell}
               />
+              <SortableHeader
+                label="Championship %"
+                sortKey="championship"
+                state={sort}
+                onSort={onSort}
+                initialDirection="desc"
+                className={headCell}
+              />
             </tr>
           </thead>
           <tbody className={LAST_ROW_NO_DIVIDER}>
@@ -134,6 +144,7 @@ export function PlayoffOddsTable({ rows, sort, onSort }: PlayoffOddsTableProps) 
                 </td>
                 <ProbabilityCell label="playoff" probability={row.playoff} />
                 <ProbabilityCell label="first-round bye" probability={row.bye} />
+                <ProbabilityCell label="championship" probability={row.championship} />
               </tr>
             ))}
           </tbody>

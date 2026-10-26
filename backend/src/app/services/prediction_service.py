@@ -43,11 +43,17 @@ from app.services.standings_service import PredictionSnapshot, StandingsService
 #: Iterations a request uses when it does not ask for a count.
 DEFAULT_ITERATIONS = 10_000
 
-#: Smallest accepted request; below this the Monte Carlo error is too wide to present.
-MIN_ITERATIONS = 1_000
+#: Smallest accepted request; a single simulated season is still meaningful.
+MIN_ITERATIONS = 1
 
 #: Largest accepted request; protects the process from a CPU-exhaustion request.
-MAX_ITERATIONS = 50_000
+MAX_ITERATIONS = 100_000
+
+#: Largest iteration count a regular member may request.
+MEMBER_MAX_ITERATIONS = 10_000
+
+#: Largest iteration count an admin may request.
+ADMIN_MAX_ITERATIONS = MAX_ITERATIONS
 
 #: Largest accepted explicit seed (0 .. 2**31-1).
 MAX_SEED = (1 << 31) - 1
@@ -62,6 +68,18 @@ CACHE_MAX_ENTRIES = 64
 CACHE_CONTROL = "private, max-age=300"
 
 _Z_95 = Decimal("1.959963984540054")
+
+#: The account role that may request the larger iteration cap.
+_ADMIN_ROLE = "admin"
+
+
+def iterations_cap_for_role(role: str) -> int:
+    """Return the largest iteration count an authenticated account role may request.
+
+    Regular members are capped at :data:`MEMBER_MAX_ITERATIONS`; admins may use the full
+    :data:`MAX_ITERATIONS`. The route enforces the cap, and the frontend shows the same maximum.
+    """
+    return ADMIN_MAX_ITERATIONS if role == _ADMIN_ROLE else MEMBER_MAX_ITERATIONS
 
 
 @dataclass(frozen=True)
@@ -89,7 +107,7 @@ class Probability:
 
 @dataclass(frozen=True)
 class TeamOdds:
-    """One team's playoff, bye, and division-title estimates."""
+    """One team's playoff, bye, division-title, and championship estimates."""
 
     team_id: int
     team_name: str
@@ -97,14 +115,15 @@ class TeamOdds:
     playoff: Probability
     bye: Probability
     division_title: Probability
+    championship: Probability
 
 
 @dataclass(frozen=True)
 class PlayoffOdds:
     """The playoff-odds result for one league season.
 
-    ``status="unavailable"`` carries a ``reason`` and no teams; a finished regular season is
-    ``status="ok"`` with ``iterations=0`` and exact zero/one probabilities.
+    ``status="unavailable"`` carries a ``reason`` and no teams. A finished regular season still
+    projects its bracket from the final seeds, so ``iterations`` is the requested sample count.
     """
 
     league_id: int
@@ -253,10 +272,11 @@ class PredictionService:
         read, any cache entry is consulted, or any simulation runs. Unknown leagues and unstored
         seasons keep raising the standings-service not-found errors.
 
-        ``iterations`` must be within 1,000-50,000, ``seed`` must be 0..2**31-1 when supplied, and
-        ``strength_weight`` must be a finite decimal in 0..10. An omitted seed is derived from the
-        input digest, the iteration count, and the model version, so the same data and parameters
-        return the same numbers on every page load.
+        ``iterations`` must be within 1-100,000, ``seed`` must be 0..2**31-1 when supplied, and
+        ``strength_weight`` must be a finite decimal in 0..10. The route additionally caps
+        ``iterations`` by the authenticated role. An omitted seed is derived from the input digest,
+        the iteration count, and the model version, so the same data and parameters return the same
+        numbers on every page load.
         """
         if not MIN_ITERATIONS <= iterations <= MAX_ITERATIONS:
             raise ValueError(f"iterations must be between {MIN_ITERATIONS} and {MAX_ITERATIONS}")
@@ -353,6 +373,7 @@ def _result_odds(
             playoff=_probability(team.playoff_count, samples),
             bye=_probability(team.bye_count, samples),
             division_title=_probability(team.division_title_count, samples),
+            championship=_probability(team.championship_count, samples),
         )
         for team in simulation.teams
     )
@@ -362,7 +383,7 @@ def _result_odds(
         status="ok",
         reason=None,
         iterations=samples,
-        seed=None if samples == 0 else seed,
+        seed=seed,
         strength_weight=strength_weight,
         input_version=digest,
         confidence=simulation.confidence,
@@ -390,10 +411,9 @@ def _simulation_inputs(
 
 
 def _probability(count: int, samples: int) -> Probability:
-    """Return ``count / samples`` and its Wilson 95% interval, or an exact zero/one result."""
-    if samples == 0:
-        exact = Decimal(count)
-        return Probability(value=exact, low=exact, high=exact)
+    """Return ``count / samples`` and its Wilson 95% interval."""
+    if samples < 1:
+        raise ValueError("samples must be positive")
     value = Decimal(count) / Decimal(samples)
     low, high = wilson_interval(count, samples)
     return Probability(value=value, low=low, high=high)

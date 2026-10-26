@@ -23,6 +23,7 @@ from app.api.routes_predictions import get_prediction_limiter
 from app.api.session import SESSION_COOKIE_NAME, set_session
 from app.db.auth_repositories import MembershipRepository, UserRepository
 from app.db.base import Base
+from app.db.models import ROLE_ADMIN, ROLE_MEMBER
 from app.db.repositories import SyncRepository
 from app.db.session import get_session as db_get_session
 from app.providers.base import (
@@ -609,7 +610,54 @@ def test_unsupported_division_shape_is_unavailable(session: Session) -> None:
     assert (odds.status, odds.reason) == ("unavailable", "unsupported_division_shape")
 
 
-def test_finished_regular_season_reports_exact_probabilities(session: Session) -> None:
+def _six_team_single_division_weeks() -> dict[int, list[MatchupDTO]]:
+    """Three complete/future weeks covering six teams once each, for an invalid bracket."""
+    return {
+        1: [
+            _matchup(1, "team-1", "120.00", "team-6", "90.00"),
+            _matchup(1, "team-2", "110.00", "team-5", "100.00"),
+            _matchup(1, "team-3", "105.00", "team-4", "95.00"),
+        ],
+        2: [
+            _matchup(2, "team-1", "130.00", "team-5", "95.00"),
+            _matchup(2, "team-2", "105.00", "team-4", "115.00"),
+            _matchup(2, "team-3", "125.00", "team-6", "85.00"),
+        ],
+        3: [
+            _matchup(3, "team-1", None, "team-4", None, is_complete=False),
+            _matchup(3, "team-2", None, "team-6", None, is_complete=False),
+            _matchup(3, "team-3", None, "team-5", None, is_complete=False),
+        ],
+    }
+
+
+_SIX_TEAM_SPECS = (
+    ("team-1", "Alpha", "Only"),
+    ("team-2", "Bravo", "Only"),
+    ("team-3", "Charlie", "Only"),
+    ("team-4", "Delta", "Only"),
+    ("team-5", "Echo", "Only"),
+    ("team-6", "Foxtrot", "Only"),
+)
+
+
+def test_invalid_playoff_bracket_is_unavailable(session: Session) -> None:
+    league_id = _seed_league(
+        session,
+        weeks=_six_team_single_division_weeks(),
+        teams=_SIX_TEAM_SPECS,
+        playoff_team_count=6,
+    )
+
+    odds = PredictionService(session, cache=PredictionCache()).get_playoff_odds(
+        league_id, SEASON, iterations=1_000
+    )
+
+    assert (odds.status, odds.reason) == ("unavailable", "invalid_playoff_bracket")
+    assert odds.teams == ()
+
+
+def test_finished_regular_season_projects_the_bracket_from_final_seeds(session: Session) -> None:
     weeks = _completed_weeks()
     weeks[3] = [
         _matchup(3, "team-a", "100.00", "team-c", "90.00"),
@@ -618,15 +666,20 @@ def test_finished_regular_season_reports_exact_probabilities(session: Session) -
     league_id = _seed_league(session, weeks=weeks)
 
     odds = PredictionService(session, cache=PredictionCache()).get_playoff_odds(
-        league_id, SEASON, iterations=1_000
+        league_id, SEASON, iterations=1_000, seed=7
     )
 
     assert odds.status == "ok"
-    assert odds.iterations == 0
-    assert odds.seed is None
+    assert odds.iterations == 1_000
+    assert odds.seed == 7
     assert odds.remaining_weeks == ()
+    # Seeding is final, so qualification is exact; the champion still comes from the projected
+    # bracket and therefore sums to exactly one across the teams.
     assert {team.playoff.value for team in odds.teams} <= {Decimal(0), Decimal(1)}
-    assert all(team.playoff.low == team.playoff.high for team in odds.teams)
+    assert all(
+        Decimal(0) <= team.playoff.low <= team.playoff.high <= Decimal(1) for team in odds.teams
+    )
+    assert sum(team.championship.value for team in odds.teams) == Decimal(1)
 
 
 def test_invalid_cup_week_is_a_settings_error(session: Session) -> None:
@@ -641,13 +694,30 @@ def test_invalid_iterations_or_seed_is_rejected(session: Session) -> None:
     service = PredictionService(session, cache=PredictionCache())
 
     with pytest.raises(ValueError):
-        service.get_playoff_odds(league_id, SEASON, iterations=999)
+        service.get_playoff_odds(league_id, SEASON, iterations=0)
     with pytest.raises(ValueError):
-        service.get_playoff_odds(league_id, SEASON, iterations=50_001)
+        service.get_playoff_odds(league_id, SEASON, iterations=100_001)
     with pytest.raises(ValueError):
         service.get_playoff_odds(league_id, SEASON, iterations=1_000, seed=-1)
     with pytest.raises(ValueError):
         service.get_playoff_odds(league_id, SEASON, iterations=1_000, seed=(1 << 31))
+
+
+def test_service_accepts_one_and_the_global_iteration_cap(session: Session) -> None:
+    weeks = _completed_weeks()
+    weeks[3] = [
+        _matchup(3, "team-a", "100.00", "team-c", "90.00"),
+        _matchup(3, "team-b", "95.00", "team-d", "80.00"),
+    ]
+    league_id = _seed_league(session, weeks=weeks)
+    service = PredictionService(session, cache=PredictionCache())
+
+    one = service.get_playoff_odds(league_id, SEASON, iterations=1, seed=5)
+    cap = service.get_playoff_odds(league_id, SEASON, iterations=100_000, seed=5)
+
+    assert one.iterations == 1
+    assert cap.iterations == 100_000
+    assert sum(team.championship.value for team in cap.teams) == Decimal(1)
 
 
 # ---------------------------------------------------------------------------
@@ -688,15 +758,26 @@ def test_cache_validates_its_configuration() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _api_league(api: Api, **kwargs: object) -> int:
+def _api_league(
+    api: Api,
+    *,
+    weeks: Mapping[int, Sequence[MatchupDTO]] | None = None,
+    **kwargs: object,
+) -> int:
     """Seed a league in the API fixture's database and return its id."""
     with api.factory() as session:
-        return _seed_league(session, weeks=_standard_weeks(), **kwargs)  # type: ignore[arg-type]
+        return _seed_league(session, weeks=weeks or _standard_weeks(), **kwargs)  # type: ignore[arg-type]
 
 
-def _create_user(api: Api, email: str, *, league_id: int | None = None) -> int:
+def _create_user(
+    api: Api,
+    email: str,
+    *,
+    league_id: int | None = None,
+    role: str = ROLE_MEMBER,
+) -> int:
     with api.factory() as session:
-        user = UserRepository(session).create(email, "unused-password-hash")
+        user = UserRepository(session).create(email, "unused-password-hash", role)
         if league_id is not None:
             MembershipRepository(session).create(user.id, league_id)
         session.commit()
@@ -783,8 +864,8 @@ def test_AC_PO_14_prior_season_is_rejected_without_simulating(
 @pytest.mark.parametrize(
     "params",
     [
-        {"iterations": 999},
-        {"iterations": 50_001},
+        {"iterations": 0},
+        {"iterations": 100_001},
         {"seed": -1},
         {"seed": 1 << 31},
     ],
@@ -803,12 +884,54 @@ def test_AC_PO_07_invalid_query_values_get_structured_422(
     assert "input" not in response.json()["detail"][0]
 
 
+def test_AC_PO_18_member_iterations_are_capped_at_ten_thousand(
+    api_factory: Callable[[], Api],
+) -> None:
+    api = api_factory()
+    league_id = _api_league(api)
+    _login(api, _create_user(api, "member@example.com", league_id=league_id))
+
+    allowed = api.client.get(_prediction_path(league_id), params={"iterations": 10_000})
+    rejected = api.client.get(_prediction_path(league_id), params={"iterations": 10_001})
+
+    assert allowed.status_code == 200
+    assert allowed.json()["iterations"] == 10_000
+    assert rejected.status_code == 403
+    assert rejected.json()["detail"] == {
+        "code": "iterations_not_allowed",
+        "message": "This role may request at most 10,000 simulated seasons",
+    }
+
+
+def test_AC_PO_18_admin_may_request_up_to_the_global_iteration_cap(
+    api_factory: Callable[[], Api],
+) -> None:
+    api = api_factory()
+    league_id = _api_league(api)
+    _login(
+        api,
+        _create_user(api, "admin@example.com", league_id=league_id, role=ROLE_ADMIN),
+    )
+
+    member_cap = api.client.get(_prediction_path(league_id), params={"iterations": 10_001})
+    global_cap = api.client.get(_prediction_path(league_id), params={"iterations": 100_000})
+    too_many = api.client.get(_prediction_path(league_id), params={"iterations": 100_001})
+
+    assert member_cap.status_code == 200
+    assert member_cap.json()["iterations"] == 10_001
+    assert global_cap.status_code == 200
+    assert global_cap.json()["iterations"] == 100_000
+    assert too_many.status_code == 422
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
         ("0", "0"),
         ("0.1", "0.1"),
         ("0.50", "0.5"),
+        (".25", "0.25"),
+        ("1.", "1"),
         ("1", "1"),
         ("1e0", "1"),
         ("0.123456789012345678", "0.123456789012345678"),
@@ -830,7 +953,7 @@ def test_AC_PO_15_accepts_and_echoes_a_decimal_strength_weight(
     assert response.status_code == 200
     body = response.json()
     assert body["strength_weight"] == expected
-    assert body["model"]["version"] == "vp-mc-2"
+    assert body["model"]["version"] == "vp-mc-3"
     assert len(body["teams"]) == 4
 
 
@@ -883,7 +1006,7 @@ def test_AC_PO_07_response_has_string_probabilities_and_private_cache_header(
     assert body["seed"] == 123
     assert body["strength_weight"] == "1"
     assert body["model"] == {
-        "version": "vp-mc-2",
+        "version": "vp-mc-3",
         "shrink_games": 3,
         "residual_mix_games": 4,
         "score_precision": "0.01",
@@ -892,7 +1015,7 @@ def test_AC_PO_07_response_has_string_probabilities_and_private_cache_header(
     assert body["remaining_weeks"] == [3]
     assert len(body["teams"]) == 4
     for team in body["teams"]:
-        for key in ("playoff", "bye", "division_title"):
+        for key in ("playoff", "bye", "division_title", "championship"):
             for bound in ("probability", "low", "high"):
                 value = team[key][bound]
                 assert isinstance(value, str)
@@ -958,6 +1081,28 @@ def test_AC_PO_08_invalid_season_settings_are_a_structured_400(
     assert response.json()["detail"]["code"] == "standings_unavailable"
 
 
+def test_AC_PO_16_invalid_playoff_bracket_is_a_structured_reason(
+    api_factory: Callable[[], Api],
+) -> None:
+    api = api_factory()
+    league_id = _api_league(
+        api,
+        weeks=_six_team_single_division_weeks(),
+        teams=_SIX_TEAM_SPECS,
+        playoff_team_count=6,
+    )
+    _login(api, _create_user(api, "member@example.com", league_id=league_id))
+
+    response = api.client.get(_prediction_path(league_id))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "unavailable"
+    assert body["reason"] == "invalid_playoff_bracket"
+    assert body["iterations"] == 0
+    assert body["teams"] == []
+
+
 def test_AC_PO_07_response_contains_no_owner_or_credential_fields(
     api_factory: Callable[[], Api],
 ) -> None:
@@ -984,7 +1129,7 @@ GOLDEN_PREDICTION = {
     "strength_weight": "1",
     "input_version": "sha256:74b06f9601bc151cef285e6f2d290359b649afa6292f67f6acd2f8b99d10ab6e",
     "model": {
-        "version": "vp-mc-2",
+        "version": "vp-mc-3",
         "shrink_games": 3,
         "residual_mix_games": 4,
         "score_precision": "0.01",
@@ -1003,30 +1148,34 @@ GOLDEN_PREDICTION = {
             "playoff": {"probability": "1.0000", "low": "0.9962", "high": "1.0000"},
             "bye": {"probability": "1.0000", "low": "0.9962", "high": "1.0000"},
             "division_title": {"probability": "1.0000", "low": "0.9962", "high": "1.0000"},
+            "championship": {"probability": "0.7670", "low": "0.7398", "high": "0.7921"},
         },
         {
             "team_id": 2,
             "team_name": "Bravo",
             "division": "East",
-            "playoff": {"probability": "0.9820", "low": "0.9717", "high": "0.9886"},
+            "playoff": {"probability": "0.9900", "low": "0.9817", "high": "0.9946"},
             "bye": {"probability": "0.0000", "low": "0.0000", "high": "0.0038"},
             "division_title": {"probability": "0.0000", "low": "0.0000", "high": "0.0038"},
+            "championship": {"probability": "0.1430", "low": "0.1227", "high": "0.1661"},
         },
         {
             "team_id": 3,
             "team_name": "Charlie",
             "division": "West",
-            "playoff": {"probability": "0.0840", "low": "0.0684", "high": "0.1028"},
+            "playoff": {"probability": "0.0750", "low": "0.0603", "high": "0.0930"},
             "bye": {"probability": "0.0000", "low": "0.0000", "high": "0.0038"},
-            "division_title": {"probability": "0.0660", "low": "0.0522", "high": "0.0831"},
+            "division_title": {"probability": "0.0650", "low": "0.0513", "high": "0.0820"},
+            "championship": {"probability": "0.0020", "low": "0.0005", "high": "0.0073"},
         },
         {
             "team_id": 4,
             "team_name": "Delta",
             "division": "West",
-            "playoff": {"probability": "0.9340", "low": "0.9169", "high": "0.9478"},
+            "playoff": {"probability": "0.9350", "low": "0.9180", "high": "0.9487"},
             "bye": {"probability": "0.0000", "low": "0.0000", "high": "0.0038"},
-            "division_title": {"probability": "0.9340", "low": "0.9169", "high": "0.9478"},
+            "division_title": {"probability": "0.9350", "low": "0.9180", "high": "0.9487"},
+            "championship": {"probability": "0.0880", "low": "0.0720", "high": "0.1072"},
         },
     ],
 }

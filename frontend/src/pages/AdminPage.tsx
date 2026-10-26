@@ -6,7 +6,6 @@ import { EloSettingsSection } from "../leagues/EloSettingsSection";
 import { InvitesSection } from "../leagues/InvitesSection";
 import { useLeague } from "../leagues/LeagueContext";
 import { MembersSection } from "../leagues/MembersSection";
-import { PlayoffOddsAdminSection } from "../leagues/PlayoffOddsAdminSection";
 import { SeasonsSection } from "../leagues/SeasonsSection";
 
 /**
@@ -14,9 +13,10 @@ import { SeasonsSection } from "../leagues/SeasonsSection";
  *
  * The route is wrapped in the admin guard, so non-admins are redirected before this page renders.
  * The page hosts member management, the single seasons table (add, cup week, refresh, and delete
- * per season), an on-demand playoff-odds simulation, invite generation, and league deletion. The
- * shell hides its season picker on this route; the seasons table is the only refresh mechanism in
- * the UI. Each section owns its forms, validation, loading/error/success states, and confirmations.
+ * per season), invite generation, and league deletion. Simulation controls live on the standings
+ * page. The shell hides its season picker on this route; the seasons table is the only refresh
+ * mechanism in the UI. Each section owns its forms, validation, loading/error/success states, and
+ * confirmations.
  */
 export function AdminPage() {
   const params = useParams();
@@ -53,8 +53,6 @@ export function AdminPage() {
       <MembersSection leagueId={leagueId} onSelfRemoved={leaveAfterRemoval} />
 
       <SeasonsSection leagueId={leagueId} />
-
-      <PlayoffOddsAdminSection leagueId={leagueId} />
 
       <EloSettingsSection leagueId={leagueId} />
 

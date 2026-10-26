@@ -318,3 +318,20 @@ Follow the format used below. Newest entries at the top.
     (`pnpm install`) before CI (`pnpm install --frozen-lockfile`) can pass.
 - **Recommendation:** proceed with M1 after M0's end-to-end PR is verified (AC-WF-21).
 - **In the meantime:** implemented as above.
+
+## OQ-0003 — Projected playoff bracket: validity rule and finished-season iterations
+
+- **Found:** the task requires reseeding after every round, byes only in the first round, and a
+  structured unavailable reason when the field and byes cannot form a valid bracket, but it does
+  not spell out the exact validity test. The earlier design also reported a finished regular
+  season as `iterations = 0`, which cannot produce a championship probability.
+- **Decision taken:** with `P` qualifiers and `B = min(divisions, max(0, next_power_of_two(P) - P))`
+  byes, a field is valid when `P = 1`, or when `P + B` is even and `(P + B) / 2` is a power of two.
+  This is exactly the shape where the first round leaves a power-of-two field, so no round after
+  the first needs an invented bye; other shapes return `invalid_playoff_bracket`. A finished
+  regular season now runs the requested number of bracket projections from its final seeds, so
+  `iterations` stays the requested count and a champion is always tallied.
+- **Recommendation:** keep this rule; it is the only one that satisfies "byes only in the first
+  round" without guessing. A one-team field is treated as its own champion.
+- **In the meantime:** implemented as above, with `MODEL_VERSION = "vp-mc-3"` and the
+  SPEC/ACCEPTANCE/ARCHITECTURE text updated.

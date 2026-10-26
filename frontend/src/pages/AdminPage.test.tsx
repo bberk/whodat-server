@@ -112,12 +112,11 @@ describe("AdminPage", () => {
     ).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { level: 2, name: "Cup week" })).not.toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { level: 2, name: "Playoff odds simulation" }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("2026 — current season")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Simulation season")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Simulations")).toHaveValue(10000);
-    expect(screen.getByRole("button", { name: "Run simulations" })).toBeInTheDocument();
+      screen.queryByRole("heading", { level: 2, name: "Playoff odds simulation" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Simulations")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Team strength weight")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Run simulations" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: "Elo settings" })).toBeInTheDocument();
     expect(await screen.findByLabelText("K factor")).toHaveValue("24");
     expect(screen.getByRole("heading", { level: 2, name: "Invites" })).toBeInTheDocument();

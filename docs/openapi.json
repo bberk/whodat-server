@@ -1157,7 +1157,8 @@
                   "no_completed_weeks",
                   "missing_playoff_field",
                   "incomplete_schedule",
-                  "unsupported_division_shape"
+                  "unsupported_division_shape",
+                  "invalid_playoff_bracket"
                 ],
                 "type": "string"
               },
@@ -1682,9 +1683,12 @@
         "type": "object"
       },
       "TeamPlayoffOdds": {
-        "description": "One team's playoff, bye, and division-title estimates.",
+        "description": "One team's playoff, bye, division-title, and championship estimates.",
         "properties": {
           "bye": {
+            "$ref": "#/components/schemas/ProbabilityInterval"
+          },
+          "championship": {
             "$ref": "#/components/schemas/ProbabilityInterval"
           },
           "division": {
@@ -1712,7 +1716,8 @@
           "division",
           "playoff",
           "bye",
-          "division_title"
+          "division_title",
+          "championship"
         ],
         "title": "TeamPlayoffOdds",
         "type": "object"
@@ -2834,7 +2839,7 @@
     },
     "/api/v1/leagues/{league_id}/seasons/{season}/playoff-odds": {
       "get": {
-        "description": "Return per-team playoff, bye, and division-title probabilities for a league season.\n\nOnly the league's latest stored season is simulated. An older stored season returns a\nstructured 409 ``season_not_current`` without reading simulation inputs or touching the cache;\nan unknown league or unstored season keeps the standings-style 404. ``strength_weight`` scales\nteam strength in future weeks only; it never changes stored data, the provider, or current\ntotals.",
+        "description": "Return per-team playoff, bye, division-title, and championship probabilities.\n\nOnly the league's latest stored season is simulated. An older stored season returns a\nstructured 409 ``season_not_current`` without reading simulation inputs or touching the cache;\nan unknown league or unstored season keeps the standings-style 404. ``strength_weight`` scales\nteam strength in future weeks only; it never changes stored data, the provider, or current\ntotals. Regular members may request at most 10,000 iterations; admins may request up to 100,000.\nA larger request returns a structured 403 before any simulation runs.",
         "operationId": "get_playoff_odds_api_v1_leagues__league_id__seasons__season__playoff_odds_get",
         "parameters": [
           {
@@ -2866,8 +2871,8 @@
             "schema": {
               "default": 10000,
               "description": "Number of simulated seasons.",
-              "maximum": 50000,
-              "minimum": 1000,
+              "maximum": 100000,
+              "minimum": 1,
               "title": "Iterations",
               "type": "integer"
             }
@@ -2924,6 +2929,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "403": {
+            "description": "The iteration count is above the authenticated role's cap."
           },
           "409": {
             "description": "The season is stored but is not the league's current season."

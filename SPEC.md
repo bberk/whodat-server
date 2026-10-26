@@ -141,9 +141,10 @@ field size stored from the provider's season settings.
 ### 3.7 Playoff odds
 
 The standings page also shows an **estimate** of each team's chance of making the playoffs, earning
-a first-round bye, and winning its division. Odds are derived by simulating the remaining
-regular-season weeks with the full Victory Points system; they are not a new scoring rule and never
-change standings, clinch designations, Elo, or stored data.
+a first-round bye, winning its division, and winning the championship. Odds are derived by
+simulating the remaining regular-season weeks with the full Victory Points system and then
+projecting the playoff bracket; they are not a new scoring rule and never change standings, clinch
+designations, Elo, or stored data.
 
 - **Simulation.** Each simulated season starts from the exact current totals (season VP, H2H wins,
   and points for) and draws a score for every team in every remaining regular-season week. Weekly VP
@@ -168,20 +169,27 @@ change standings, clinch designations, Elo, or stored data.
 - **Byes.** The bracket's next power of two above the playoff field determines the bye count:
   `max(0, next_power_of_two(P) - P)`, capped at the number of divisions. Byes go only to division
   winners, in seed order. With more divisions than byes, the remaining division winners are seeded
-  normally and receive no bye.
+  normally and receive no bye. A field and bye count that cannot form a complete bracket, such as an
+  odd number of non-bye teams, is unavailable instead of inventing a bye.
+- **Playoff projection.** After each simulated regular season the qualifiers are seeded and a
+  single-elimination bracket is played with reseeding after every round: the highest remaining seed
+  plays the lowest, byes apply only in the first round, each round draws fresh scores from the same
+  team-strength and residual model, the higher score wins, and an exact tie goes to the higher seed.
+  The simulation continues until one champion. Real stored playoff matchups are excluded: the
+  bracket is a projection, not a replay.
 - **Divisions.** At least one stored division is required. Every team must have a non-empty
   division. The simulation does not guess a division or a playoff field.
 - **Unavailable.** No completed week, a missing or unusable playoff field, an incomplete or
-  inconsistent remaining schedule (including a playoff game inside the regular season), and an
-  unsupported division shape produce an explicit unavailable result. Corrupt season settings still
-  produce the standings-style structured error.
+  inconsistent remaining schedule (including a playoff game inside the regular season), an
+  unsupported division shape, and an unformable playoff bracket produce an explicit unavailable
+  result. Corrupt season settings still produce the standings-style structured error.
 - **Current season only.** Playoff odds describe the season in progress, so they are available only
   for the league's current season: the latest stored season (the maximum stored season for the
-  league). A prior stored season is rejected by the API and shows no section or admin form, because
-  its schedule is finished rather than remaining.
+  league). A prior stored season is rejected by the API and shows no section, because its schedule
+  is finished rather than remaining.
 - **Presentation.** Probabilities are estimates with a 95% interval for Monte Carlo uncertainty; the
-  interval is not a statement of model certainty. A finished regular season is reported as exact
-  final seeding with no simulation.
+  interval is not a statement of model certainty. A finished regular season still projects its
+  playoff bracket from the final seeds rather than reporting a deterministic champion.
 
 ## 4. Functional requirements
 
@@ -317,10 +325,13 @@ Pages and views:
    - **Overall standings table**: rank, team, owner, season VP, H2H record (W-L-T), points for, and one column per week showing that week's VP. A proven playoff designation appears beside the team: **Z** top seed, **Y** division winner, **X** clinched playoff berth, or **E** eliminated. A text legend near the table explains all four; status is never conveyed by colour alone.
    - **Division standings**: one table per division; the division only filters and groups the rows, and the rank displayed for each team is its overall league rank. Division rows carry the same designation as the overall table.
    - **Playoff odds**: below the WAPDate standings, a separately loaded section estimates each team's
-     playoff berth, first-round bye, and division-title probability from a Monte Carlo simulation of
-     the remaining season (section 3.7). It shows Team, Division, Playoff %, Bye %, and the
-     uncertainty range; numeric columns sort on the client, and the team column is pinned at narrow
-     widths. Loading, unavailable, empty, and error states are present, and the copy says these are
+     playoff berth, first-round bye, division title, and championship from a Monte Carlo simulation
+     of the remaining season and a projected, reseeded bracket (section 3.7). It shows Team,
+     Division, Playoff %, Bye %, and Championship %, with the uncertainty range; numeric columns sort
+     on the client, and the team column is pinned at narrow widths. The section owns the simulation
+     controls: iteration count (1-10,000 for members, 1-100,000 for admins, default 10,000), a
+     team-strength weight (0-10, any castable decimal form, default 1), an optional seed, and a Run
+     action. Loading, unavailable, empty, and error states are present, and the copy says these are
      estimates.
    - **WAPDate standings**: below the cumulative VP chart, a toggle for the offered four-week
      periods (weeks 1-4, 5-8, 9-12) labelled with the week range and complete/in-progress state,
@@ -341,15 +352,9 @@ Pages and views:
      season (two decimals with signs), peak, low, and owner, sorted by current rating. It scrolls
      inside its card with a sticky team column and no page-body sideways scroll at 360px.
    - Loading, empty (no rated weeks), and error states are present; colour is never the only signal.
-5. **League admin**: a page available only to signed-in admins for a selected league. It also runs
-   an on-demand **Playoff odds simulation** for the current season only (the league's latest stored
-   season, stated explicitly with no season selector), with a simulations count (1,000-50,000,
-   default 10,000), a team-strength weight (0-10, decimals, default 1, with help text explaining
-   that 0 makes remaining matchups even, 1 is the current model, and values above 1 overweight
-   stronger teams), an optional seed, and a Run simulations action. This is separate from the
-   provider season refresh: it never contacts ESPN and never
-   changes stored data. It manages the
-   league's membership (member list by email with role, owner association, and credential status, and
+5. **League admin**: a page available only to signed-in admins for a selected league. Simulation
+   adjustment controls live on the standings Playoff odds section, not here. It manages the league's
+   membership (member list by email with role, owner association, and credential status, and
    confirmed removal with a last-admin guard and a credential warning), a single **seasons table**
    with one row per stored season (season year, cup-week dropdown, last refreshed time, a per-season
    refresh action, and a confirmed per-season delete action) plus a "+" action that adds a season,

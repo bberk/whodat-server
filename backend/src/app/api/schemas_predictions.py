@@ -33,7 +33,7 @@ class ProbabilityInterval(BaseModel):
 
 
 class TeamPlayoffOdds(BaseModel):
-    """One team's playoff, bye, and division-title estimates."""
+    """One team's playoff, bye, division-title, and championship estimates."""
 
     team_id: int
     team_name: str
@@ -41,6 +41,7 @@ class TeamPlayoffOdds(BaseModel):
     playoff: ProbabilityInterval
     bye: ProbabilityInterval
     division_title: ProbabilityInterval
+    championship: ProbabilityInterval
 
 
 class PlayoffOddsModel(BaseModel):
@@ -65,6 +66,7 @@ class PlayoffOddsResponse(BaseModel):
             "missing_playoff_field",
             "incomplete_schedule",
             "unsupported_division_shape",
+            "invalid_playoff_bracket",
         ]
         | None
     )
@@ -126,6 +128,7 @@ def to_playoff_odds_response(odds: ServicePlayoffOdds) -> PlayoffOddsResponse:
                 playoff=_interval(team.playoff),
                 bye=_interval(team.bye),
                 division_title=_interval(team.division_title),
+                championship=_interval(team.championship),
             )
             for team in odds.teams
         ],

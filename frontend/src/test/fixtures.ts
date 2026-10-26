@@ -277,7 +277,7 @@ export const playoffOddsResponse: PlayoffOddsResponse = {
   strength_weight: "1",
   input_version: "sha256:fixture",
   model: {
-    version: "vp-mc-2",
+    version: "vp-mc-3",
     shrink_games: 3,
     residual_mix_games: 4,
     score_precision: "0.01",
@@ -296,6 +296,7 @@ export const playoffOddsResponse: PlayoffOddsResponse = {
       playoff: { probability: "1.0000", low: "0.9962", high: "1.0000" },
       bye: { probability: "1.0000", low: "0.9962", high: "1.0000" },
       division_title: { probability: "1.0000", low: "0.9962", high: "1.0000" },
+      championship: { probability: "0.6000", low: "0.5900", high: "0.6100" },
     },
     {
       team_id: 3,
@@ -304,6 +305,7 @@ export const playoffOddsResponse: PlayoffOddsResponse = {
       playoff: { probability: "0.8421", low: "0.8345", high: "0.8497" },
       bye: { probability: "0.3120", low: "0.3011", high: "0.3231" },
       division_title: { probability: "0.0000", low: "0.0000", high: "0.0038" },
+      championship: { probability: "0.2000", low: "0.1900", high: "0.2100" },
     },
     {
       team_id: 9,
@@ -312,6 +314,7 @@ export const playoffOddsResponse: PlayoffOddsResponse = {
       playoff: { probability: "0.0030", low: "0.0000", high: "0.0120" },
       bye: { probability: "0.0000", low: "0.0000", high: "0.0038" },
       division_title: { probability: "0.0000", low: "0.0000", high: "0.0038" },
+      championship: { probability: "0.0100", low: "0.0050", high: "0.0200" },
     },
     {
       team_id: 2,
@@ -320,6 +323,7 @@ export const playoffOddsResponse: PlayoffOddsResponse = {
       playoff: { probability: "0.9949", low: "0.9880", high: "0.9980" },
       bye: { probability: "0.6880", low: "0.6600", high: "0.7140" },
       division_title: { probability: "1.0000", low: "0.9962", high: "1.0000" },
+      championship: { probability: "0.1500", low: "0.1400", high: "0.1600" },
     },
     {
       team_id: 5,
@@ -328,6 +332,7 @@ export const playoffOddsResponse: PlayoffOddsResponse = {
       playoff: { probability: "0.5000", low: "0.4895", high: "0.5105" },
       bye: { probability: "0.0000", low: "0.0000", high: "0.0038" },
       division_title: { probability: "0.0000", low: "0.0000", high: "0.0038" },
+      championship: { probability: "0.0300", low: "0.0250", high: "0.0400" },
     },
     {
       team_id: 4,
@@ -336,6 +341,7 @@ export const playoffOddsResponse: PlayoffOddsResponse = {
       playoff: { probability: "0.6609", low: "0.6500", high: "0.6717" },
       bye: { probability: "0.0000", low: "0.0000", high: "0.0038" },
       division_title: { probability: "0.0000", low: "0.0000", high: "0.0038" },
+      championship: { probability: "0.0100", low: "0.0050", high: "0.0200" },
     },
   ],
 };

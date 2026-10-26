@@ -381,13 +381,14 @@ export interface paths {
     };
     /**
      * Get Playoff Odds
-     * @description Return per-team playoff, bye, and division-title probabilities for a league season.
+     * @description Return per-team playoff, bye, division-title, and championship probabilities.
      *
      *     Only the league's latest stored season is simulated. An older stored season returns a
      *     structured 409 ``season_not_current`` without reading simulation inputs or touching the cache;
      *     an unknown league or unstored season keeps the standings-style 404. ``strength_weight`` scales
      *     team strength in future weeks only; it never changes stored data, the provider, or current
-     *     totals.
+     *     totals. Regular members may request at most 10,000 iterations; admins may request up to 100,000.
+     *     A larger request returns a structured 403 before any simulation runs.
      */
     get: operations["get_playoff_odds_api_v1_leagues__league_id__seasons__season__playoff_odds_get"];
     put?: never;
@@ -1063,6 +1064,7 @@ export interface components {
             | "missing_playoff_field"
             | "incomplete_schedule"
             | "unsupported_division_shape"
+            | "invalid_playoff_bracket"
           )
         | null;
       /** Remaining Weeks */
@@ -1270,10 +1272,11 @@ export interface components {
     };
     /**
      * TeamPlayoffOdds
-     * @description One team's playoff, bye, and division-title estimates.
+     * @description One team's playoff, bye, division-title, and championship estimates.
      */
     TeamPlayoffOdds: {
       bye: components["schemas"]["ProbabilityInterval"];
+      championship: components["schemas"]["ProbabilityInterval"];
       /** Division */
       division: string;
       division_title: components["schemas"]["ProbabilityInterval"];
@@ -2010,6 +2013,13 @@ export interface operations {
         content: {
           "application/json": components["schemas"]["PlayoffOddsResponse"];
         };
+      };
+      /** @description The iteration count is above the authenticated role's cap. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
       };
       /** @description The season is stored but is not the league's current season. */
       409: {

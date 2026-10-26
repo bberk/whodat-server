@@ -1,6 +1,6 @@
 import type { PlayoffOddsUnavailableReason } from "./usePlayoffOdds";
 
-/** Reason-specific copy shared by the standings section and the admin simulation runner. */
+/** Reason-specific copy for the standings playoff-odds section. */
 export const PLAYOFF_ODDS_UNAVAILABLE_COPY: Record<
   PlayoffOddsUnavailableReason,
   { title: string; detail: string }
@@ -23,5 +23,10 @@ export const PLAYOFF_ODDS_UNAVAILABLE_COPY: Record<
     title: "Division setup is not supported",
     detail:
       "Every team needs a stored division before playoff seeding can be estimated. An admin can re-sync this season.",
+  },
+  invalid_playoff_bracket: {
+    title: "This playoff field cannot form a bracket",
+    detail:
+      "The stored playoff field and its division winners cannot form a complete bracket without inventing a bye. An admin can re-sync the season or fix its playoff settings.",
   },
 };

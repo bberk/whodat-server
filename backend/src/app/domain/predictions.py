@@ -20,10 +20,19 @@ The score model is a shrunk team strength plus an empirical residual bootstrap:
 At ``w = 0`` every team draws from the same distribution (the grand mean plus the pooled
 residuals), so team strength creates no edge while the exact current totals still decide seeding.
 
+After each simulated regular season the qualifiers are seeded and a single-elimination bracket is
+played. The bracket reseeds after every round (the highest remaining seed plays the lowest), byes
+apply only in the first round to the top ``bye_count`` seeds, every round draws fresh scores from
+the same model, the higher score wins, and an exact tie goes to the higher seed. Real stored
+playoff matchups are never read or replayed; the bracket is a projection. A field and bye count
+that cannot form a valid bracket are reported as ``invalid_playoff_bracket`` instead of inventing
+a bye.
+
 All scores are integer cents and all VP is integer ticks; no ``float`` appears in this module. A
 draw source is injected so the function never imports or seeds a random-number generator itself.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from fractions import Fraction
@@ -33,7 +42,7 @@ from typing import Literal, Protocol
 from app.domain.vp_engine import week_h2h_ticks, week_rank_component_ticks
 
 #: Model version. Any change to sampling, parameters, or draw order must bump this value.
-MODEL_VERSION = "vp-mc-2"
+MODEL_VERSION = "vp-mc-3"
 
 #: Pseudo-games of shrinkage applied to a team's raw deviation from the league mean.
 SHRINK_GAMES = 3
@@ -66,6 +75,7 @@ type PredictionReason = Literal[
     "missing_playoff_field",
     "incomplete_schedule",
     "unsupported_division_shape",
+    "invalid_playoff_bracket",
 ]
 type Confidence = Literal["low", "normal"]
 
@@ -143,14 +153,15 @@ class TeamPredictionCounts:
     playoff_count: int
     bye_count: int
     division_title_count: int
+    championship_count: int
 
 
 @dataclass(frozen=True)
 class SeasonSimulation:
     """A completed simulation: per-team counts plus the metadata needed to present them.
 
-    ``iterations`` is zero for a finished regular season, where the current table is the final
-    answer and each count is exactly zero or one.
+    ``iterations`` is the number of simulated regular seasons (and projected brackets). A finished
+    regular season still runs the requested number of bracket projections from its final seeds.
     """
 
     iterations: int
@@ -184,6 +195,16 @@ class DrawSource(Protocol):
     def next_below(self, upper: int) -> int:
         """Return an integer in ``0..upper-1``; ``upper`` is always positive."""
         ...
+
+
+def playoff_round_pairs[T](slots: Sequence[T]) -> tuple[tuple[T, T], ...]:
+    """Pair one reseeded round's slots: highest with lowest, second-highest with second-lowest.
+
+    ``slots`` must already be in seed order. The caller removes first-round bye slots before
+    calling this function, so byes never appear in a pairing. Returns ``len(slots) // 2`` pairs in
+    bracket order; a valid bracket always passes an even number of slots.
+    """
+    return tuple((slots[index], slots[-1 - index]) for index in range(len(slots) // 2))
 
 
 class SeededDrawSource:
@@ -298,22 +319,20 @@ def simulate_season(
 ) -> PredictionOutcome:
     """Simulate ``iterations`` completions of the stored season and return per-team counts.
 
-    A finished regular season (no remaining weeks) is evaluated once from the current totals and
-    reports ``iterations=0``. Otherwise ``iterations`` must be positive; ``draws`` defaults to
-    :class:`DeterministicDrawSource`, so a caller that wants seeded randomness passes a
+    Every iteration simulates the remaining regular-season weeks (if any), seeds the qualifiers,
+    and projects one reseeded playoff bracket. ``iterations`` must be positive; ``draws`` defaults
+    to :class:`DeterministicDrawSource`, so a caller that wants seeded randomness passes a
     :class:`SeededDrawSource`. ``inputs.strength_weight`` must be a finite decimal in ``0..10``;
     ``0`` makes every remaining matchup even, ``1`` is the default model, and a value outside that
-    range raises ``ValueError``. Missing or inconsistent inputs return an explicit
-    :class:`PredictionUnavailable` instead of a guessed result. This function is pure and performs
-    no I/O.
+    range raises ``ValueError``. Missing or inconsistent inputs, including a field and bye count
+    that cannot form a valid bracket, return an explicit :class:`PredictionUnavailable` instead of
+    a guessed result. This function is pure and performs no I/O.
     """
+    if iterations < 1:
+        raise ValueError("iterations must be at least 1")
     prepared = _prepare(inputs)
     if isinstance(prepared, PredictionUnavailable):
         return prepared
-    if not prepared.weeks:
-        return _finished_simulation(prepared)
-    if iterations < 1:
-        raise ValueError("iterations must be at least 1 while weeks remain")
     return _simulate(prepared, iterations, draws or DeterministicDrawSource())
 
 
@@ -345,6 +364,10 @@ def _prepare(inputs: SeasonPredictionInputs) -> _Prepared | PredictionUnavailabl
         or playoff_field > len(team_ids)
     ):
         return PredictionUnavailable("missing_playoff_field")
+
+    bye_count = _bye_count(playoff_field, division_count)
+    if not _valid_bracket(playoff_field, bye_count):
+        return PredictionUnavailable("invalid_playoff_bracket")
 
     if not _valid_week_coverage(inputs):
         return PredictionUnavailable("incomplete_schedule")
@@ -390,7 +413,7 @@ def _prepare(inputs: SeasonPredictionInputs) -> _Prepared | PredictionUnavailabl
         draw_spans=model.draw_spans,
         weeks=weeks,
         playoff_field=playoff_field,
-        bye_count=_bye_count(playoff_field, division_count),
+        bye_count=bye_count,
         division_count=division_count,
         scale=scale,
         confidence=confidence,
@@ -582,7 +605,7 @@ def _estimate_model(
 def _simulate(prepared: _Prepared, iterations: int, draws: DrawSource) -> SeasonSimulation:
     """Run the integer hot loop ``iterations`` times and tally each outcome."""
     team_count = len(prepared.team_ids)
-    counts = [[0, 0, 0] for _ in range(team_count)]
+    counts = [[0, 0, 0, 0] for _ in range(team_count)]
     start_vp = prepared.start_vp_ticks
     start_wins = prepared.wins
     start_points = prepared.points_for_cents
@@ -609,49 +632,40 @@ def _simulate(prepared: _Prepared, iterations: int, draws: DrawSource) -> Season
                         wins[opponent] += 1
             for index in range(team_count):
                 points_for[index] += scores[index]
-        _tally(prepared, vp, wins, points_for, counts)
+        _tally(prepared, vp, wins, points_for, counts, draws)
     return _result(prepared, counts, iterations=iterations)
 
 
-def _finished_simulation(prepared: _Prepared) -> SeasonSimulation:
-    """Return the exact final seeding of a finished regular season as zero/one counts."""
-    counts = [[0, 0, 0] for _ in prepared.team_ids]
-    _tally(
-        prepared,
-        list(prepared.start_vp_ticks),
-        list(prepared.wins),
-        list(prepared.points_for_cents),
-        counts,
-    )
-    return _result(prepared, counts, iterations=0)
-
-
 def _draw_week(prepared: _Prepared, draws: DrawSource) -> list[int]:
-    """Draw one future score in integer cents for every team, including bye and cup-week teams.
+    """Draw one future regular-season score in integer cents for every team.
+
+    Bye and cup-week teams still draw a score; only their H2H component is absent.
+    """
+    return [_draw_score(prepared, draws, index) for index in range(len(prepared.team_ids))]
+
+
+def _draw_score(prepared: _Prepared, draws: DrawSource, index: int) -> int:
+    """Draw one future score in integer cents for one team from the estimated model.
 
     For a team with at least two observations, one draw selects both the own-versus-pooled mixture
     and the residual. The exact own probability ``min(1, w) * n / (n + 4)`` is the unreduced
     fraction ``own_span / span``, so the own side is split evenly across the team's own residuals
-    and the pooled side evenly across the pooled entries. At ``w = 1`` this consumes exactly the
-    same draws as the unweighted model.
+    and the pooled side evenly across the pooled entries.
     """
-    scores: list[int] = []
     pooled = prepared.pooled_residuals
     pooled_size = len(pooled)
-    next_below = draws.next_below
-    for index, count in enumerate(prepared.observation_counts):
-        if count >= 2:
-            own = prepared.own_residuals[index]
-            span, own_span, pooled_divisor = prepared.draw_spans[index]
-            draw = next_below(span * pooled_size)
-            if draw < own_span * pooled_size:
-                residual = own[draw // (own_span // count * pooled_size)]
-            else:
-                residual = pooled[(draw - own_span * pooled_size) // pooled_divisor]
+    count = prepared.observation_counts[index]
+    if count >= 2:
+        own = prepared.own_residuals[index]
+        span, own_span, pooled_divisor = prepared.draw_spans[index]
+        draw = draws.next_below(span * pooled_size)
+        if draw < own_span * pooled_size:
+            residual = own[draw // (own_span // count * pooled_size)]
         else:
-            residual = pooled[next_below(pooled_size)]
-        scores.append(max(0, prepared.base_cents[index] + residual))
-    return scores
+            residual = pooled[(draw - own_span * pooled_size) // pooled_divisor]
+    else:
+        residual = pooled[draws.next_below(pooled_size)]
+    return max(0, prepared.base_cents[index] + residual)
 
 
 def _tally(
@@ -660,13 +674,15 @@ def _tally(
     wins: list[int],
     points_for: list[int],
     counts: list[list[int]],
+    draws: DrawSource,
 ) -> None:
-    """Rank one simulated season, build the seeded field, and increment the team counters.
+    """Rank one simulated season, seed the field, project the bracket, and tally the counters.
 
     Division winners are seeds 1..D in the normal VP/wins/points-for order, followed by the
     remaining teams in that same order. The top ``bye_count`` seeds (always division winners) get a
-    bye, and the top ``playoff_field`` seeds qualify. Team name and then team id break a full
-    numeric tie so seeds stay distinct; ``rank_teams`` shares a rank in that case.
+    bye, the top ``playoff_field`` seeds qualify, and one champion is decided by
+    :func:`_simulate_bracket`. Team name and then team id break a full numeric tie so seeds stay
+    distinct; ``rank_teams`` shares a rank in that case.
     """
     order = sorted(
         range(len(prepared.team_ids)),
@@ -688,20 +704,68 @@ def _tally(
         winners.append(index)
 
     winner_set = set(winners)
-    for position, index in enumerate(winners):
+    seed_order = winners + [index for index in order if index not in winner_set]
+    field = seed_order[: prepared.playoff_field]
+    for position, index in enumerate(field):
         counts[index][0] += 1
-        counts[index][2] += 1
         if position < prepared.bye_count:
             counts[index][1] += 1
+    for index in winners:
+        counts[index][2] += 1
 
-    remaining_slots = prepared.playoff_field - len(winners)
-    for index in order:
-        if remaining_slots == 0:
-            break
-        if index in winner_set:
-            continue
-        counts[index][0] += 1
-        remaining_slots -= 1
+    champion = _simulate_bracket(prepared, list(enumerate(field, start=1)), draws)
+    counts[champion][3] += 1
+
+
+def _simulate_bracket(
+    prepared: _Prepared,
+    seeds: list[tuple[int, int]],
+    draws: DrawSource,
+) -> int:
+    """Play one projected bracket and return the champion's team index.
+
+    ``seeds`` is the qualifying field as ``(seed, team_index)`` pairs in ascending seed order. The
+    top ``bye_count`` seeds skip the first round; every later round reseeds the survivors, so the
+    highest remaining seed always plays the lowest. Every match draws fresh scores, the higher score
+    wins, and an exact tie goes to the higher seed. The field shape is validated before the
+    simulation, so each round has an even number of teams until one champion remains.
+    """
+    if len(seeds) == 1:
+        return seeds[0][1]
+    byes = seeds[: prepared.bye_count]
+    playing = seeds[prepared.bye_count :]
+    winners = list(byes)
+    winners.extend(
+        _play_game(prepared, higher, lower, draws) for higher, lower in playoff_round_pairs(playing)
+    )
+    winners.sort(key=lambda slot: slot[0])
+    while len(winners) > 1:
+        winners = [
+            _play_game(prepared, higher, lower, draws)
+            for higher, lower in playoff_round_pairs(winners)
+        ]
+        winners.sort(key=lambda slot: slot[0])
+    return winners[0][1]
+
+
+def _play_game(
+    prepared: _Prepared,
+    higher_seed: tuple[int, int],
+    lower_seed: tuple[int, int],
+    draws: DrawSource,
+) -> tuple[int, int]:
+    """Play one projected game and return the winning ``(seed, team_index)`` pair.
+
+    The higher seed wins an exact tie, matching a bracket where the better seed advances on equal
+    scores.
+    """
+    higher_score = _draw_score(prepared, draws, higher_seed[1])
+    lower_score = _draw_score(prepared, draws, lower_seed[1])
+    if higher_score > lower_score:
+        return higher_seed
+    if lower_score > higher_score:
+        return lower_seed
+    return higher_seed
 
 
 def _result(prepared: _Prepared, counts: list[list[int]], *, iterations: int) -> SeasonSimulation:
@@ -716,12 +780,13 @@ def _result(prepared: _Prepared, counts: list[list[int]], *, iterations: int) ->
                 playoff_count=playoff_count,
                 bye_count=bye_count,
                 division_title_count=division_title_count,
+                championship_count=championship_count,
             )
             for (
                 team_id,
                 team_name,
                 division,
-                (playoff_count, bye_count, division_title_count),
+                (playoff_count, bye_count, division_title_count, championship_count),
             ) in zip(
                 prepared.team_ids,
                 prepared.team_names,
@@ -752,6 +817,20 @@ def _bye_count(playoff_field: int, division_count: int) -> int:
     """
     bracket_size = 1 << (playoff_field - 1).bit_length()
     return min(division_count, max(0, bracket_size - playoff_field))
+
+
+def _valid_bracket(playoff_field: int, bye_count: int) -> bool:
+    """Return whether the field and its byes form a complete single-elimination bracket.
+
+    A one-team field is its own champion. Every larger field must have an even number of teams
+    after the byes and halve to a power of two, so no round after the first needs an invented bye.
+    """
+    if playoff_field == 1:
+        return bye_count == 0
+    if (playoff_field + bye_count) % 2 != 0:
+        return False
+    after_first_round = (playoff_field + bye_count) // 2
+    return after_first_round >= 1 and (after_first_round & (after_first_round - 1)) == 0
 
 
 def _tick_scale(team_ids: tuple[int, ...], teams: tuple[TeamSeasonTotals, ...]) -> int:
