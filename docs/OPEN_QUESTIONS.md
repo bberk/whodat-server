@@ -8,6 +8,20 @@ Follow the format used below. Newest entries at the top.
 
 ---
 
+## OQ-0017 — Two latest releases cannot be adopted without breaking the toolchain
+
+- **Found:** The 2026-10-25 dependency audit (`docs/DEPENDENCY_AUDIT.md`) found two latest stable
+  releases that the current graph cannot use: TypeScript 7.0.2 (`typescript-eslint@8.72.0` requires
+  `typescript <6.1.0`) and `idna` 3.20 (`espn-api==1.0.1` requires `idna>=3.15,<3.16`).
+- **Options:** (1) force the newer packages and lose lint or dependency resolution; (2) keep the
+  newest compatible versions and revisit when the upstream constraints widen.
+- **Recommendation:** option 2. Neither current version has an open advisory, and the upgrades in
+  this change already close every known application vulnerability.
+- **In the meantime:** TypeScript stays at 5.9.3, `idna` at 3.15, and Postgres at 18 (19 is still an
+  RC). `docs/DEPENDENCY_AUDIT.md` records the exact blockers and follow-ups.
+
+---
+
 ## OQ-0016 — History uses a week-granularity time window instead of a season-only filter
 
 - **Found:** `ACCEPTANCE.md` AC-Elo-17 and `SPEC.md` describe the History chart's season filter as
