@@ -200,10 +200,11 @@ Debian-only OS findings disappeared by moving to Alpine; no advisory was suppres
 ## Verification performed
 
 - Backend: `ruff check`, `ruff format --check`, `mypy src`, and the full `pytest` suite against
-  Postgres 18 (1042 passed; 99.23% coverage; `alembic upgrade head` and `alembic check` clean).
-- Frontend: `eslint`, `tsc --noEmit` (app and e2e configs), `vitest run --coverage` (333 passed;
-  96.2% statements, 91.67% branches, 98.17% functions, 96.11% lines — unchanged from baseline),
-  and `vite build`.
+  Postgres 18 (1079 passed after rebasing on main; 99.23% coverage; `alembic upgrade head` and
+  `alembic check` clean).
+- Frontend: `eslint`, `tsc --noEmit` (app and e2e configs), `vitest run --coverage` (345 passed
+  after rebasing on main; 96.25% statements, 91.66% branches, 98.17% functions, 96.16% lines —
+  above the pre-change baseline), and `vite build`.
 - Playwright: 18 tests passed across 360/768/1280 px in light and dark themes, including axe.
 - Docker: backend, frontend, and Caddy images all build; backend container applies migrations and
   answers `/health`; both Compose files pass `docker compose config`.
