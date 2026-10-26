@@ -21,6 +21,8 @@ export const MAX_SEED = 2_147_483_647;
 export const MIN_STRENGTH_WEIGHT = 0;
 /** Largest accepted team-strength weight. */
 export const MAX_STRENGTH_WEIGHT = 10;
+/** Decimal places accepted for a team-strength weight, matching the backend's exact Decimal bound. */
+export const MAX_WEIGHT_DECIMALS = 18;
 /** Default team-strength weight, the shrunk model. */
 export const DEFAULT_STRENGTH_WEIGHT = "1";
 
@@ -28,6 +30,22 @@ export interface ControlText {
   iterations: string;
   strengthWeight: string;
   seed: string;
+}
+
+/** Count decimal places after normalizing trailing zeros, as `Decimal.normalize()` does. */
+function normalizedDecimalPlaces(text: string): number {
+  const match = /^[+-]?(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/.exec(text);
+  if (match === null) {
+    return 0;
+  }
+  const digits = `${match[1] ?? ""}${match[2] ?? ""}`.replace(/^0+/, "");
+  if (digits === "") {
+    return 0;
+  }
+  const trimmed = digits.replace(/0+$/, "");
+  const trailingZeros = digits.length - trimmed.length;
+  const exponent = Number(match[3] ?? "0") - (match[2] ?? "").length + trailingZeros;
+  return Math.max(0, -exponent);
 }
 
 export interface PlayoffOddsRequest {
@@ -86,6 +104,12 @@ export function parseControls(text: ControlText, maxIterations: number): ParsedC
     return {
       ok: false,
       message: `Enter a team strength weight from ${MIN_STRENGTH_WEIGHT} to ${MAX_STRENGTH_WEIGHT}, for example .25 or 1.`,
+    };
+  }
+  if (normalizedDecimalPlaces(weightText) > MAX_WEIGHT_DECIMALS) {
+    return {
+      ok: false,
+      message: `Enter a team strength weight with at most ${MAX_WEIGHT_DECIMALS} decimal places.`,
     };
   }
 

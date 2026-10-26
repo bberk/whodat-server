@@ -395,8 +395,11 @@ bracket reseeds after every round (highest remaining seed versus lowest), byes a
 first round to the top `bye_count` seeds, every round draws fresh scores from the same model, the
 higher score wins, and an exact tie goes to the higher seed. Real stored playoff matchups are never
 read or replayed. The champion is tallied separately, so each run has exactly one champion per
-iteration. A finished regular season still projects the requested number of brackets from its final
-seeds; `iterations` is never reported as zero for a successful result.
+iteration. `PredictionService` derives a separate bracket seed from the regular-season seed, so a
+team-strength weight of `1` reproduces the previous model's regular-season draw order and
+playoff/bye/division counts exactly; only the new bracket consumes the second stream. A finished
+regular season still projects the requested number of brackets from its final seeds; `iterations` is
+never reported as zero for a successful result.
 
 `StandingsService.get_prediction_snapshot` is the read-only bridge: it exposes current totals, counted
 raw scores, every remaining pairing, the regular-season length, cup week, and playoff field without a

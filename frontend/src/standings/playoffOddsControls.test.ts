@@ -63,6 +63,22 @@ describe("playoffOddsControls", () => {
     }
   });
 
+  it("matches the backend's 18-decimal weight bound", () => {
+    expect(
+      parseControls(controls({ strengthWeight: "0.123456789012345678" }), MEMBER_MAX_ITERATIONS).ok,
+    ).toBe(true);
+    // Trailing zeros normalize away, so they do not consume the bound.
+    expect(
+      parseControls(controls({ strengthWeight: "1.0000000000000000000" }), MEMBER_MAX_ITERATIONS)
+        .ok,
+    ).toBe(true);
+    for (const weight of ["0.1234567890123456789", "1e-19", ".0000000000000000001"]) {
+      expect(parseControls(controls({ strengthWeight: weight }), MEMBER_MAX_ITERATIONS).ok).toBe(
+        false,
+      );
+    }
+  });
+
   it("rejects iterations outside the role cap", () => {
     for (const iterations of ["0", "10001", "abc", "1.5", ""]) {
       const parsed = parseControls(controls({ iterations }), MEMBER_MAX_ITERATIONS);

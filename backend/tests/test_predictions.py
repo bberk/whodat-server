@@ -764,6 +764,30 @@ def test_AC_PO_16_an_unformable_bracket_is_unavailable() -> None:
     assert _unavailable(inputs) == "invalid_playoff_bracket"
 
 
+def test_AC_PO_08_no_completed_weeks_precedes_an_invalid_bracket() -> None:
+    """The missing history is the actionable reason even when the field is also unformable."""
+    inputs = replace(
+        _bracket_inputs(
+            playoff_team_count=6,
+            divisions=("Only", "Only", "Only", "Only", "Only", "Only"),
+            scores=("100", "200", "300", "400", "500", "600"),
+        ),
+        counted_weeks=(),
+        remaining_weeks=(
+            RemainingWeek(
+                1,
+                (
+                    RemainingMatchup(1, 2),
+                    RemainingMatchup(3, 4),
+                    RemainingMatchup(5, 6),
+                ),
+            ),
+        ),
+    )
+
+    assert _unavailable(inputs) == "no_completed_weeks"
+
+
 def test_AC_PO_03_normal_confidence_needs_four_weeks_and_three_observations() -> None:
     teams = (
         _team(1, "A", "Only", 0, 0, "0"),
@@ -912,8 +936,42 @@ def test_predictions_cup_week_adds_no_head_to_head_win() -> None:
     assert cup_counts == {"A": 0, "B": 1, "C": 0}
 
 
+#: Regular-season counts the prior `vp-mc-2` model produced for the fixed 2,000-iteration fixture.
+#: AC-PO-15 requires weight 1 to preserve these exactly; only the new bracket draws are additive.
+PRIOR_VP_MC_2_REGULAR_SEASON_COUNTS = (
+    ("Alpha", 2000, 0, 1659),
+    ("Bravo", 1945, 0, 341),
+    ("Charlie", 759, 0, 0),
+    ("Delta", 1974, 0, 1849),
+    ("Echo", 1255, 0, 148),
+    ("Foxtrot", 67, 0, 3),
+)
+
+
+def test_AC_PO_15_weight_one_regular_season_matches_the_prior_model() -> None:
+    """The isolated bracket stream leaves the weight-1 regular-season counts unchanged."""
+    outcome = simulate_season(
+        _six_team_inputs(),
+        iterations=2_000,
+        draws=SeededDrawSource(1234),
+        bracket_draws=SeededDrawSource(2026),
+    )
+    assert isinstance(outcome, SeasonSimulation)
+
+    assert [
+        (team.team_name, team.playoff_count, team.bye_count, team.division_title_count)
+        for team in outcome.teams
+    ] == list(PRIOR_VP_MC_2_REGULAR_SEASON_COUNTS)
+    assert sum(team.championship_count for team in outcome.teams) == 2_000
+
+
 def test_predictions_golden_seeded_counts() -> None:
-    outcome = simulate_season(_six_team_inputs(), iterations=2_000, draws=SeededDrawSource(1234))
+    outcome = simulate_season(
+        _six_team_inputs(),
+        iterations=2_000,
+        draws=SeededDrawSource(1234),
+        bracket_draws=SeededDrawSource(2026),
+    )
     assert isinstance(outcome, SeasonSimulation)
 
     assert [
@@ -926,12 +984,12 @@ def test_predictions_golden_seeded_counts() -> None:
         )
         for team in outcome.teams
     ] == [
-        ("Alpha", 2000, 0, 1649, 848),
-        ("Bravo", 1929, 0, 350, 507),
-        ("Charlie", 769, 0, 1, 132),
-        ("Delta", 1973, 0, 1851, 349),
-        ("Echo", 1250, 0, 147, 161),
-        ("Foxtrot", 79, 0, 2, 3),
+        ("Alpha", 2000, 0, 1659, 856),
+        ("Bravo", 1945, 0, 341, 500),
+        ("Charlie", 759, 0, 0, 105),
+        ("Delta", 1974, 0, 1849, 362),
+        ("Echo", 1255, 0, 148, 174),
+        ("Foxtrot", 67, 0, 3, 3),
     ]
 
 

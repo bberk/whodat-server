@@ -316,24 +316,34 @@ def simulate_season(
     *,
     iterations: int,
     draws: DrawSource | None = None,
+    bracket_draws: DrawSource | None = None,
 ) -> PredictionOutcome:
     """Simulate ``iterations`` completions of the stored season and return per-team counts.
 
     Every iteration simulates the remaining regular-season weeks (if any), seeds the qualifiers,
     and projects one reseeded playoff bracket. ``iterations`` must be positive; ``draws`` defaults
     to :class:`DeterministicDrawSource`, so a caller that wants seeded randomness passes a
-    :class:`SeededDrawSource`. ``inputs.strength_weight`` must be a finite decimal in ``0..10``;
-    ``0`` makes every remaining matchup even, ``1`` is the default model, and a value outside that
-    range raises ``ValueError``. Missing or inconsistent inputs, including a field and bye count
-    that cannot form a valid bracket, return an explicit :class:`PredictionUnavailable` instead of
-    a guessed result. This function is pure and performs no I/O.
+    :class:`SeededDrawSource`. ``bracket_draws`` is a separate source for the projected bracket;
+    when omitted it reuses ``draws``, while the service passes an independently derived stream so
+    the regular-season draw order (and a weight of ``1``) is unchanged from the previous model.
+    ``inputs.strength_weight`` must be a finite decimal in ``0..10``; ``0`` makes every remaining
+    matchup even, ``1`` is the default model, and a value outside that range raises
+    ``ValueError``. Missing or inconsistent inputs, including a field and bye count that cannot
+    form a valid bracket, return an explicit :class:`PredictionUnavailable` instead of a guessed
+    result. This function is pure and performs no I/O.
     """
     if iterations < 1:
         raise ValueError("iterations must be at least 1")
     prepared = _prepare(inputs)
     if isinstance(prepared, PredictionUnavailable):
         return prepared
-    return _simulate(prepared, iterations, draws or DeterministicDrawSource())
+    regular_draws = draws or DeterministicDrawSource()
+    return _simulate(
+        prepared,
+        iterations,
+        regular_draws,
+        bracket_draws or regular_draws,
+    )
 
 
 def _prepare(inputs: SeasonPredictionInputs) -> _Prepared | PredictionUnavailable:
@@ -356,6 +366,11 @@ def _prepare(inputs: SeasonPredictionInputs) -> _Prepared | PredictionUnavailabl
     division_names = tuple(dict.fromkeys(divisions))
     division_count = len(division_names)
 
+    # A season with no completed week has nothing to project; report that before a field or
+    # bracket shape that may also be invalid, so the user gets the most actionable reason.
+    if not inputs.counted_weeks:
+        return PredictionUnavailable("no_completed_weeks")
+
     playoff_field = inputs.playoff_team_count
     if (
         not isinstance(playoff_field, int)
@@ -376,8 +391,6 @@ def _prepare(inputs: SeasonPredictionInputs) -> _Prepared | PredictionUnavailabl
         or not 1 <= inputs.cup_week <= inputs.regular_season_length
     ):
         return PredictionUnavailable("incomplete_schedule")
-    if not inputs.counted_weeks:
-        return PredictionUnavailable("no_completed_weeks")
 
     index_by_id = {team_id: index for index, team_id in enumerate(team_ids)}
     for week in inputs.counted_weeks:
@@ -602,7 +615,12 @@ def _estimate_model(
     )
 
 
-def _simulate(prepared: _Prepared, iterations: int, draws: DrawSource) -> SeasonSimulation:
+def _simulate(
+    prepared: _Prepared,
+    iterations: int,
+    draws: DrawSource,
+    bracket_draws: DrawSource,
+) -> SeasonSimulation:
     """Run the integer hot loop ``iterations`` times and tally each outcome."""
     team_count = len(prepared.team_ids)
     counts = [[0, 0, 0, 0] for _ in range(team_count)]
@@ -632,7 +650,7 @@ def _simulate(prepared: _Prepared, iterations: int, draws: DrawSource) -> Season
                         wins[opponent] += 1
             for index in range(team_count):
                 points_for[index] += scores[index]
-        _tally(prepared, vp, wins, points_for, counts, draws)
+        _tally(prepared, vp, wins, points_for, counts, bracket_draws)
     return _result(prepared, counts, iterations=iterations)
 
 
