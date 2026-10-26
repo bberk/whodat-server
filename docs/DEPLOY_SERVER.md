@@ -331,7 +331,14 @@ ENV=production
 ```
 
 The frontend build argument is also `https://${DOMAIN}`. Changing the domain later requires a
-rebuild so the SPA gets the new API origin. Keep `POSTGRES_USER` and `POSTGRES_DB` stable after the
+rebuild so the SPA gets the new API origin.
+
+Refresh limits are optional. The league-wide refresh defaults to one per league every five minutes
+and three per user per hour (`REFRESH_LEAGUE_INTERVAL_SECONDS`, `REFRESH_USER_LIMIT`,
+`REFRESH_USER_WINDOW_SECONDS`). Admin per-season refresh has its own bucket, defaulting to no
+per-league interval and 60 per user per hour (`SEASON_REFRESH_LEAGUE_INTERVAL_SECONDS`,
+`SEASON_REFRESH_USER_LIMIT`, `SEASON_REFRESH_USER_WINDOW_SECONDS`), so an admin can refresh several
+stored seasons in a row. Override them in `deploy/server/.env` and restart the backend container. Keep `POSTGRES_USER` and `POSTGRES_DB` stable after the
 first initialization. Changing `POSTGRES_PASSWORD` in `.env` does not change the role password in
 an existing volume.
 
