@@ -1,6 +1,7 @@
 import { niceScale, positionFor, spreadLabelPositions } from "./chartGeometry";
 import { formatVP, toNumber } from "./format";
 import { seriesStyle } from "./series";
+import { BODY_CELL_DIVIDER, LAST_ROW_NO_DIVIDER } from "./tableStyles";
 
 export interface ChartSeries {
   teamId: number;
@@ -311,10 +312,10 @@ export function VPChart({
               Cumulative victory points per team, weeks {weeks[0]} to {weeks[weeks.length - 1]}.
             </caption>
             <thead>
-              <tr className="border-b border-line-strong">
+              <tr>
                 <th
                   scope="col"
-                  className="whitespace-nowrap px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-faint"
+                  className="whitespace-nowrap border-b border-line-strong px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-faint"
                 >
                   Team
                 </th>
@@ -322,23 +323,26 @@ export function VPChart({
                   <th
                     key={week}
                     scope="col"
-                    className="whitespace-nowrap px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-ink-faint"
+                    className="whitespace-nowrap border-b border-line-strong px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-ink-faint"
                   >
                     W{week}
                   </th>
                 ))}
               </tr>
             </thead>
-            <tbody>
+            <tbody className={LAST_ROW_NO_DIVIDER}>
               {series.map((entry) => (
-                <tr key={entry.teamId} className="border-b border-line last:border-b-0">
-                  <th scope="row" className="whitespace-nowrap px-3 py-2 text-left font-semibold">
+                <tr key={entry.teamId}>
+                  <th
+                    scope="row"
+                    className={`${BODY_CELL_DIVIDER} whitespace-nowrap px-3 py-2 text-left font-semibold`}
+                  >
                     {entry.teamName}
                   </th>
                   {entry.cumulative.map((value, index) => (
                     <td
                       key={`${entry.teamId}-${index}`}
-                      className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-subtle"
+                      className={`${BODY_CELL_DIVIDER} whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-subtle`}
                     >
                       {formatVP(value)}
                     </td>

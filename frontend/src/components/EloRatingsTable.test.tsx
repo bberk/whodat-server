@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { eloHistoryResponse } from "../test/fixtures";
+import { expectRowDividersAcrossEveryCell } from "../test/tableDividers";
 import { EloRatingsTable, type EloRatingsTableProps } from "./EloRatingsTable";
 
 function renderTable(overrides: Partial<EloRatingsTableProps> = {}) {
@@ -29,6 +30,11 @@ describe("EloRatingsTable", () => {
     expect(within(rows()[0]).getByRole("button", { name: "Alpha" })).toBeInTheDocument();
     expect(within(rows()[1]).getByRole("button", { name: "Charlie" })).toBeInTheDocument();
     expect(within(rows()[2]).getByRole("button", { name: "Bravo" })).toBeInTheDocument();
+  });
+
+  it("paints the row divider across the final column", () => {
+    renderTable();
+    expectRowDividersAcrossEveryCell(screen.getByRole("table"));
   });
 
   it("sorts numeric columns ascending and descending and never text columns", async () => {

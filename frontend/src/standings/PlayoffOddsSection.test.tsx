@@ -11,6 +11,7 @@ import {
   playoffOddsResponse,
   requestPath,
 } from "../test/fixtures";
+import { expectRowDividersAcrossEveryCell } from "../test/tableDividers";
 import { PlayoffOddsSection } from "./PlayoffOddsSection";
 
 const REASONS = [
@@ -94,6 +95,14 @@ describe("PlayoffOddsSection (AC-PO-11)", () => {
     expect(within(bravo).getByText("84%")).toBeInTheDocument();
     expect(within(bravo).getAllByText("84%")[0]).toBeVisible();
     expect(within(bravo).queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  it("paints the row divider across the final column", async () => {
+    sectionFetch(playoffOddsResponse);
+    renderSection();
+
+    await screen.findByRole("region", { name: "Playoff odds, scrollable horizontally" });
+    expectRowDividersAcrossEveryCell(within(table()).getByRole("table"));
   });
 
   it("sorts by playoff and bye probability but never by team", async () => {

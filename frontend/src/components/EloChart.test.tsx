@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type { EloWeek } from "../api/types";
+import { expectRowDividersAcrossEveryCell } from "../test/tableDividers";
 import { EloChart, type EloChartProps, type EloChartSeries } from "./EloChart";
 
 const WEEKS: EloWeek[] = [
@@ -97,6 +98,13 @@ describe("EloChart", () => {
 
     const label = screen.getByRole("img", { name: /Round robin/i }).getAttribute("aria-label");
     expect(label).not.toContain("Cup weeks");
+  });
+
+  it("paints the data table's row divider across the final column", () => {
+    const { container } = render(<EloChart {...chartProps()} />);
+    const table = container.querySelector("table");
+    expect(table).not.toBeNull();
+    expectRowDividersAcrossEveryCell(table as HTMLElement);
   });
 
   it("isolates one team when its legend chip is double-clicked", async () => {

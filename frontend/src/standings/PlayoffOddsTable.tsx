@@ -6,13 +6,12 @@ import {
   type SortState,
   type SortValue,
 } from "../components/sorting";
+import { BODY_CELL_DIVIDER, LAST_ROW_NO_DIVIDER } from "../components/tableStyles";
 import { intervalLabel, percentLabel, probabilityDescription } from "./playoffOddsFormat";
 
 const headCell =
-  "whitespace-nowrap px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-faint";
+  "whitespace-nowrap border-b border-line-strong px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-faint";
 const numCell = "whitespace-nowrap px-3 py-2 text-right tabular-nums";
-const ROW_DIVIDER =
-  "[&>th]:border-b [&>td]:border-b [&>th]:border-line [&>td]:border-line last:[&>th]:border-b-0 last:[&>td]:border-b-0";
 
 function barWidth(value: string): number {
   return Math.min(100, Math.max(0, Number(value) * 100));
@@ -37,7 +36,7 @@ function ProbabilityCell({
   probability: ProbabilityInterval;
 }) {
   return (
-    <td className={`${numCell} align-top`}>
+    <td className={`${numCell} ${BODY_CELL_DIVIDER} align-top`}>
       <span aria-hidden="true" className="font-semibold text-ink">
         {percentLabel(probability.probability)}
       </span>
@@ -90,7 +89,7 @@ export function PlayoffOddsTable({ rows, sort, onSort }: PlayoffOddsTableProps) 
             the 95% interval for each estimate.
           </caption>
           <thead>
-            <tr className="[&>th]:border-b [&>th]:border-line-strong">
+            <tr>
               <th
                 scope="col"
                 className={`${headCell} sticky left-0 z-20 min-w-[160px] bg-surface shadow-sticky`}
@@ -118,19 +117,21 @@ export function PlayoffOddsTable({ rows, sort, onSort }: PlayoffOddsTableProps) 
               />
             </tr>
           </thead>
-          <tbody>
+          <tbody className={LAST_ROW_NO_DIVIDER}>
             {orderedRows.map((row) => (
-              <tr key={row.team_id} className={`group ${ROW_DIVIDER} hover:bg-surface-hover`}>
+              <tr key={row.team_id} className="group hover:bg-surface-hover">
                 <th
                   scope="row"
-                  className="sticky left-0 z-10 min-w-[160px] bg-surface px-3 py-2 text-left font-semibold text-ink shadow-sticky group-hover:bg-surface-hover"
+                  className={`${BODY_CELL_DIVIDER} sticky left-0 z-10 min-w-[160px] bg-surface px-3 py-2 text-left font-semibold text-ink shadow-sticky group-hover:bg-surface-hover`}
                 >
                   <span>{row.team_name}</span>
                   <span className="sr-only">
                     , {probabilityDescription("division title", row.division_title)}
                   </span>
                 </th>
-                <td className={`${numCell} text-left text-ink-subtle`}>{row.division}</td>
+                <td className={`${numCell} ${BODY_CELL_DIVIDER} text-left text-ink-subtle`}>
+                  {row.division}
+                </td>
                 <ProbabilityCell label="playoff" probability={row.playoff} />
                 <ProbabilityCell label="first-round bye" probability={row.bye} />
               </tr>

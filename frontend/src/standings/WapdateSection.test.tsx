@@ -11,6 +11,7 @@ import {
   requestPath,
   wapdateResponse,
 } from "../test/fixtures";
+import { expectRowDividersAcrossEveryCell } from "../test/tableDividers";
 import { WapdateSection } from "./WapdateSection";
 
 function wapdateFetch(body: WapdateResponse) {
@@ -102,6 +103,16 @@ describe("WapdateSection (AC-WD-08)", () => {
     expect(rows[3]).toHaveTextContent("Alpha");
     // A completed period shows the actual result with no greying.
     expect(screen.queryByTitle("cannot finish last")).not.toBeInTheDocument();
+  });
+
+  it("paints the row divider across the final column", async () => {
+    wapdateFetch(wapdateResponse);
+    renderSection();
+
+    const region = await screen.findByRole("region", {
+      name: "WAPDate standings, scrollable horizontally",
+    });
+    expectRowDividersAcrossEveryCell(within(region).getByRole("table"));
   });
 
   it("falls back to the latest complete period when no period is current", async () => {

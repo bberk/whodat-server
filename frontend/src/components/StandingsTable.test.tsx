@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { seriesIndexByTeamId } from "../standings/model";
 import { historyResponse, standingsResponse } from "../test/fixtures";
+import { expectRowDividersAcrossEveryCell } from "../test/tableDividers";
 import { StandingsTable } from "./StandingsTable";
 
 const rows = standingsResponse.overall;
@@ -54,6 +55,11 @@ describe("StandingsTable", () => {
         name: "East division standings, scrollable horizontally",
       }),
     ).toBeInTheDocument();
+  });
+
+  it("paints the row divider across the final column", () => {
+    renderTable();
+    expectRowDividersAcrossEveryCell(screen.getByRole("table"));
   });
 
   it("no longer prints a sideways-scroll hint under the table", () => {
