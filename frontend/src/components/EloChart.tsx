@@ -2,6 +2,7 @@ import type { EloWeek } from "../api/types";
 import { niceValueScale, positionFor, spreadLabelPositions } from "./chartGeometry";
 import { formatEloValue } from "./format";
 import { seriesStyle } from "./series";
+import { BODY_CELL_DIVIDER, LAST_ROW_NO_DIVIDER } from "./tableStyles";
 
 export interface EloChartSeries {
   teamKey: string;
@@ -542,22 +543,19 @@ export function EloChart({
                 ))}
               </tr>
             </thead>
-            <tbody>
+            <tbody className={LAST_ROW_NO_DIVIDER}>
               {series.map((entry) => (
-                <tr
-                  key={entry.teamKey}
-                  className="[&>th]:border-b [&>td]:border-b [&>th]:border-line [&>td]:border-line last:[&>th]:border-b-0 last:[&>td]:border-b-0"
-                >
+                <tr key={entry.teamKey}>
                   <th
                     scope="row"
-                    className="sticky left-0 z-10 whitespace-nowrap bg-surface px-3 py-2 text-left font-semibold"
+                    className={`${BODY_CELL_DIVIDER} sticky left-0 z-10 whitespace-nowrap bg-surface px-3 py-2 text-left font-semibold`}
                   >
                     {entry.name}
                   </th>
                   {entry.values.map((value, index) => (
                     <td
                       key={`${entry.teamKey}-${index}`}
-                      className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-subtle"
+                      className={`${BODY_CELL_DIVIDER} whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-subtle`}
                     >
                       {value === null ? "—" : formatEloValue(value)}
                     </td>

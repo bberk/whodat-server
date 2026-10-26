@@ -13,6 +13,7 @@ import {
   mockFetch,
   requestPath,
 } from "../test/fixtures";
+import { expectRowDividersAcrossEveryCell } from "../test/tableDividers";
 import { MembersSection } from "./MembersSection";
 
 function authValue(overrides: Partial<AuthContextValue> = {}): AuthContextValue {
@@ -94,6 +95,14 @@ describe("MembersSection", () => {
     const memberRow = screen.getByRole("row", { name: /member@example.com/ });
     expect(within(memberRow).getByText("Member")).toBeInTheDocument();
     expect(within(memberRow).getByText("None")).toBeInTheDocument();
+  });
+
+  it("paints the row divider across the final column", async () => {
+    mockFetch(() => jsonResponse({ members: leagueMembers }));
+    renderSection();
+
+    expect(await screen.findByText("admin@example.com")).toBeInTheDocument();
+    expectRowDividersAcrossEveryCell(screen.getByRole("table"));
   });
 
   it("confirms a removal by naming the member and removes only their membership", async () => {

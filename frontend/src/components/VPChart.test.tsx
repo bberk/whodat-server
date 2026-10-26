@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { buildHistorySeries } from "../standings/model";
 import { historyResponse } from "../test/fixtures";
+import { expectRowDividersAcrossEveryCell } from "../test/tableDividers";
 import { VPChart, type ChartSeries, type VPChartProps } from "./VPChart";
 
 const weeks = historyResponse.weeks;
@@ -96,6 +97,11 @@ describe("VPChart", () => {
       screen.getByRole("table", { name: /cumulative victory points per team, weeks 1 to 4/i }),
     ).toBeInTheDocument();
     expect(screen.getByText("View chart data as a table")).toBeInTheDocument();
+  });
+
+  it("paints the data table's row divider across the final column", () => {
+    renderChart();
+    expectRowDividersAcrossEveryCell(screen.getByRole("table"));
   });
 
   it("reports when there is no chart data", () => {

@@ -11,13 +11,12 @@ import {
   type SortState,
   type SortValue,
 } from "../components/sorting";
+import { BODY_CELL_DIVIDER, LAST_ROW_NO_DIVIDER } from "../components/tableStyles";
 import { useWapdateData } from "./useWapdateData";
 
 const headCell =
-  "whitespace-nowrap px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-faint";
+  "whitespace-nowrap border-b border-line-strong px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-faint";
 const numCell = "whitespace-nowrap px-3 py-2 text-right tabular-nums";
-const ROW_DIVIDER =
-  "[&>th]:border-b [&>td]:border-b [&>th]:border-line [&>td]:border-line last:[&>th]:border-b-0 last:[&>td]:border-b-0";
 
 /** Numeric value for a sortable WAPDate column. */
 function sortValueFor(row: WapdateRow, key: string): SortValue {
@@ -145,7 +144,7 @@ export function WapdateSection({ leagueId, season, dataVersion }: WapdateSection
                   wins, and points for, lowest first.
                 </caption>
                 <thead>
-                  <tr className="[&>th]:border-b [&>th]:border-line-strong">
+                  <tr>
                     <th
                       scope="col"
                       className={`${headCell} sticky left-0 z-20 min-w-[176px] bg-surface shadow-sticky`}
@@ -178,7 +177,7 @@ export function WapdateSection({ leagueId, season, dataVersion }: WapdateSection
                     />
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className={LAST_ROW_NO_DIVIDER}>
                   {orderedRows.map((row) => {
                     const stickyBackground = row.eliminated
                       ? "bg-surface-muted"
@@ -186,7 +185,7 @@ export function WapdateSection({ leagueId, season, dataVersion }: WapdateSection
                     return (
                       <tr
                         key={row.team_id}
-                        className={`group ${ROW_DIVIDER} ${
+                        className={`group ${
                           row.eliminated
                             ? "bg-surface-muted text-ink-faint"
                             : "hover:bg-surface-hover"
@@ -194,7 +193,7 @@ export function WapdateSection({ leagueId, season, dataVersion }: WapdateSection
                       >
                         <th
                           scope="row"
-                          className={`sticky left-0 z-10 min-w-[176px] px-3 py-2 text-left font-semibold shadow-sticky ${stickyBackground}`}
+                          className={`${BODY_CELL_DIVIDER} sticky left-0 z-10 min-w-[176px] px-3 py-2 text-left font-semibold shadow-sticky ${stickyBackground}`}
                         >
                           <span className="inline-flex flex-wrap items-center gap-2">
                             <span>{row.team_name}</span>
@@ -208,9 +207,13 @@ export function WapdateSection({ leagueId, season, dataVersion }: WapdateSection
                             ) : null}
                           </span>
                         </th>
-                        <td className={`${numCell} font-bold`}>{formatVP(row.victory_points)}</td>
-                        <td className={`${numCell} text-ink-subtle`}>{row.wins}</td>
-                        <td className={`${numCell} text-ink-subtle`}>
+                        <td className={`${numCell} ${BODY_CELL_DIVIDER} font-bold`}>
+                          {formatVP(row.victory_points)}
+                        </td>
+                        <td className={`${numCell} ${BODY_CELL_DIVIDER} text-ink-subtle`}>
+                          {row.wins}
+                        </td>
+                        <td className={`${numCell} ${BODY_CELL_DIVIDER} text-ink-subtle`}>
                           {formatPoints(row.points_for)}
                         </td>
                       </tr>

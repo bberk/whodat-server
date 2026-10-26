@@ -11,6 +11,7 @@ import {
   type SortState,
   type SortValue,
 } from "./sorting";
+import { BODY_CELL_DIVIDER_SUBTLE, LAST_ROW_NO_DIVIDER } from "./tableStyles";
 
 export interface EloRatingsTableProps {
   teams: readonly EloTeam[];
@@ -28,8 +29,6 @@ const RANK_HEAD = "sticky left-0 z-20 w-11 min-w-11 max-w-11";
 const TEAM_CELL = "sticky left-11 z-10 min-w-[168px]";
 const TEAM_HEAD = "sticky left-11 z-20 min-w-[168px]";
 const PINNED_SHADOW = "shadow-sticky";
-const ROW_DIVIDER =
-  "[&>th]:border-b [&>td]:border-b [&>th]:border-line-subtle [&>td]:border-line-subtle last:[&>th]:border-b-0 last:[&>td]:border-b-0";
 
 /** Format a peak/low reference as a short "season Wweek" label, or "start". */
 function referenceLabel(reference: { season: number; week: number } | null): string {
@@ -143,7 +142,7 @@ export function EloRatingsTable({ teams, selectedTeamKey, onSelectTeam }: EloRat
             </th>
           </tr>
         </thead>
-        <tbody>
+        <tbody className={LAST_ROW_NO_DIVIDER}>
           {ordered.map((team) => {
             const selected = team.team_key === selectedTeamKey;
             const name = teamDisplayName(team, teams);
@@ -156,15 +155,17 @@ export function EloRatingsTable({ teams, selectedTeamKey, onSelectTeam }: EloRat
             return (
               <tr
                 key={team.team_key}
-                className={`group ${ROW_DIVIDER} ${selected ? "bg-brand-soft" : "hover:bg-surface-hover"}`}
+                className={`group ${selected ? "bg-brand-soft" : "hover:bg-surface-hover"}`}
               >
                 <th
                   scope="row"
-                  className={`${RANK_CELL} ${pinnedBackground} px-3 py-2 text-right font-semibold tabular-nums text-ink-faint`}
+                  className={`${BODY_CELL_DIVIDER_SUBTLE} ${RANK_CELL} ${pinnedBackground} px-3 py-2 text-right font-semibold tabular-nums text-ink-faint`}
                 >
                   {rankByKey.get(team.team_key)}
                 </th>
-                <td className={`${TEAM_CELL} ${PINNED_SHADOW} px-3 py-2 ${pinnedBackground}`}>
+                <td
+                  className={`${BODY_CELL_DIVIDER_SUBTLE} ${TEAM_CELL} ${PINNED_SHADOW} px-3 py-2 ${pinnedBackground}`}
+                >
                   <button
                     type="button"
                     onClick={() => onSelectTeam(team.team_key)}
@@ -179,28 +180,40 @@ export function EloRatingsTable({ teams, selectedTeamKey, onSelectTeam }: EloRat
                     <span className="ml-1 text-[11px] text-brand-ink">selected</span>
                   ) : null}
                 </td>
-                <td className="whitespace-nowrap px-3 py-2 text-right text-[15px] font-bold tabular-nums">
+                <td
+                  className={`${BODY_CELL_DIVIDER_SUBTLE} whitespace-nowrap px-3 py-2 text-right text-[15px] font-bold tabular-nums`}
+                >
                   {formatEloWhole(team.current)}
                 </td>
-                <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-muted">
+                <td
+                  className={`${BODY_CELL_DIVIDER_SUBTLE} whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-muted`}
+                >
                   {formatEloChange(team.last_change)}
                 </td>
-                <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-muted">
+                <td
+                  className={`${BODY_CELL_DIVIDER_SUBTLE} whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-muted`}
+                >
                   {formatEloChange(team.season_change)}
                 </td>
-                <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-muted">
+                <td
+                  className={`${BODY_CELL_DIVIDER_SUBTLE} whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-muted`}
+                >
                   {formatEloValue(team.peak)}
                   <span className="ml-1 text-[11px] text-ink-faint">
                     {referenceLabel(team.peak_at)}
                   </span>
                 </td>
-                <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-muted">
+                <td
+                  className={`${BODY_CELL_DIVIDER_SUBTLE} whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-muted`}
+                >
                   {formatEloValue(team.low)}
                   <span className="ml-1 text-[11px] text-ink-faint">
                     {referenceLabel(team.low_at)}
                   </span>
                 </td>
-                <td className="whitespace-nowrap px-3 py-2 text-ink-muted">
+                <td
+                  className={`${BODY_CELL_DIVIDER_SUBTLE} whitespace-nowrap px-3 py-2 text-ink-muted`}
+                >
                   {team.owner_name ?? "—"}
                 </td>
               </tr>

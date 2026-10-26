@@ -7,6 +7,7 @@ import { useAuth } from "../auth/AuthContext";
 import { ApiAlert } from "../components/ApiAlert";
 import { EmptyState, ErrorState, LoadingState } from "../components/DataStates";
 import { dangerSecondaryButtonClass, secondaryButtonClass } from "../components/formStyles";
+import { BODY_CELL_DIVIDER_SUBTLE, LAST_ROW_NO_DIVIDER } from "../components/tableStyles";
 
 type MembersState =
   | { status: "loading" }
@@ -158,31 +159,34 @@ export function MembersSection({ leagueId, onSelfRemoved }: MembersSectionProps)
               hold stored credentials.
             </caption>
             <thead>
-              <tr className="border-b border-line bg-surface-muted text-ink-muted">
-                <th scope="col" className="px-3 py-2 font-semibold">
+              <tr className="bg-surface-muted text-ink-muted">
+                <th scope="col" className="border-b border-line px-3 py-2 font-semibold">
                   Email
                 </th>
-                <th scope="col" className="px-3 py-2 font-semibold">
+                <th scope="col" className="border-b border-line px-3 py-2 font-semibold">
                   Role
                 </th>
-                <th scope="col" className="px-3 py-2 font-semibold">
+                <th scope="col" className="border-b border-line px-3 py-2 font-semibold">
                   Owner
                 </th>
-                <th scope="col" className="px-3 py-2 font-semibold">
+                <th scope="col" className="border-b border-line px-3 py-2 font-semibold">
                   Credentials
                 </th>
-                <th scope="col" className="px-3 py-2 font-semibold">
+                <th scope="col" className="border-b border-line px-3 py-2 font-semibold">
                   Actions
                 </th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className={LAST_ROW_NO_DIVIDER}>
               {state.members.map((member) => {
                 const isSelf = member.user_id === user?.id;
                 const isLastAdmin = member.role === "admin" && adminCount === 1;
                 return (
-                  <tr key={member.user_id} className="border-b border-line-subtle last:border-0">
-                    <th scope="row" className="max-w-[220px] px-3 py-2 font-medium text-ink">
+                  <tr key={member.user_id}>
+                    <th
+                      scope="row"
+                      className={`${BODY_CELL_DIVIDER_SUBTLE} max-w-[220px] px-3 py-2 font-medium text-ink`}
+                    >
                       <span className="break-all">{member.email}</span>
                       {isSelf ? (
                         <span className="ml-2 rounded bg-surface-strong px-1.5 py-0.5 text-[11px] font-semibold text-ink-muted">
@@ -190,12 +194,16 @@ export function MembersSection({ leagueId, onSelfRemoved }: MembersSectionProps)
                         </span>
                       ) : null}
                     </th>
-                    <td className="px-3 py-2 text-ink-muted">{roleLabel(member.role)}</td>
-                    <td className="px-3 py-2 text-ink-muted">{member.owner_name ?? "—"}</td>
-                    <td className="px-3 py-2 text-ink-muted">
+                    <td className={`${BODY_CELL_DIVIDER_SUBTLE} px-3 py-2 text-ink-muted`}>
+                      {roleLabel(member.role)}
+                    </td>
+                    <td className={`${BODY_CELL_DIVIDER_SUBTLE} px-3 py-2 text-ink-muted`}>
+                      {member.owner_name ?? "—"}
+                    </td>
+                    <td className={`${BODY_CELL_DIVIDER_SUBTLE} px-3 py-2 text-ink-muted`}>
                       {member.has_credentials ? "Stored" : "None"}
                     </td>
-                    <td className="px-3 py-2">
+                    <td className={`${BODY_CELL_DIVIDER_SUBTLE} px-3 py-2`}>
                       <button
                         type="button"
                         onClick={() => openConfirmation(member)}

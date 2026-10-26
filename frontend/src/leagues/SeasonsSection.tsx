@@ -13,6 +13,7 @@ import {
   type SortState,
   type SortValue,
 } from "../components/sorting";
+import { BODY_CELL_DIVIDER_SUBTLE, LAST_ROW_NO_DIVIDER } from "../components/tableStyles";
 import {
   dangerSecondaryButtonClass,
   inputClass,
@@ -29,11 +30,9 @@ const MAX_SEASON = 2100;
 
 const headCell =
   "whitespace-nowrap border-b border-line bg-surface-muted px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-faint";
-const bodyCell = "px-3 py-2 align-middle";
+const bodyCell = `${BODY_CELL_DIVIDER_SUBTLE} px-3 py-2 align-middle`;
 const stickyHead = "sticky left-0 z-20 min-w-[88px] bg-surface-muted shadow-sticky";
 const stickyBody = "sticky left-0 z-10 min-w-[88px] bg-surface shadow-sticky";
-const ROW_DIVIDER =
-  "[&>th]:border-b [&>td]:border-b [&>th]:border-line-subtle [&>td]:border-line-subtle last:[&>th]:border-b-0 last:[&>td]:border-b-0";
 
 type SeasonsState =
   | { status: "loading" }
@@ -387,13 +386,13 @@ export function SeasonsSection({ leagueId }: { leagueId: number }) {
                 </th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className={LAST_ROW_NO_DIVIDER}>
               {orderedSeasons.map((row) => {
                 const rowBusy = busy[row.season];
                 const rowError = errors[row.season];
                 const rowNotice = notices[row.season];
                 return [
-                  <tr key={row.season} className={ROW_DIVIDER}>
+                  <tr key={row.season}>
                     <th scope="row" className={`${bodyCell} font-semibold ${stickyBody}`}>
                       {row.season}
                     </th>
@@ -461,8 +460,8 @@ export function SeasonsSection({ leagueId }: { leagueId: number }) {
                     </td>
                   </tr>,
                   rowError !== undefined || rowNotice !== undefined ? (
-                    <tr key={`${row.season}-message`} className={ROW_DIVIDER}>
-                      <td colSpan={5} className="px-3 py-2">
+                    <tr key={`${row.season}-message`}>
+                      <td colSpan={5} className={BODY_CELL_DIVIDER_SUBTLE + " px-3 py-2"}>
                         {rowError !== undefined ? (
                           <p role="alert" className="text-[12.5px] text-danger-ink">
                             {rowError}

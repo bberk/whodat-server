@@ -13,6 +13,7 @@ import {
   requestPath,
   seasonSettingsResponse,
 } from "../test/fixtures";
+import { expectRowDividersAcrossEveryCell } from "../test/tableDividers";
 import { formatLastRefreshed } from "./formatSeason";
 import { SeasonsSection } from "./SeasonsSection";
 
@@ -82,6 +83,18 @@ describe("SeasonsSection", () => {
     expect(screen.getByRole("button", { name: "Delete season 2025" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add a season" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /save cup week/i })).not.toBeInTheDocument();
+  });
+
+  it("paints the row divider across the final column", async () => {
+    mockFetch((url) =>
+      requestPath(url) === "/api/v1/leagues/1/seasons/settings"
+        ? jsonResponse(seasonSettingsResponse)
+        : errorResponse(404, { code: "not_found", message: requestPath(url) }),
+    );
+    renderSection();
+
+    await screen.findByRole("rowheader", { name: "2025" });
+    expectRowDividersAcrossEveryCell(screen.getByRole("table"));
   });
 
   it("formats a missing timestamp as Never", () => {

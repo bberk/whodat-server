@@ -12,6 +12,7 @@ import {
   type SortState,
   type SortValue,
 } from "./sorting";
+import { BODY_CELL_DIVIDER, LAST_ROW_NO_DIVIDER } from "./tableStyles";
 
 export interface StandingsTableProps {
   /** Visually hidden description of the table (screen-reader caption). */
@@ -38,12 +39,8 @@ const RANK_HEAD = "sticky left-0 z-20 w-12 min-w-12 max-w-12";
 const TEAM_CELL = "sticky left-12 z-10 min-w-[176px]";
 const TEAM_HEAD = "sticky left-12 z-20 min-w-[176px]";
 const PINNED_SHADOW = "shadow-sticky";
-const ROW_DIVIDER =
-  "[&>th]:border-b [&>td]:border-b [&>th]:border-line [&>td]:border-line last:[&>th]:border-b-0 last:[&>td]:border-b-0";
-const HEAD_DIVIDER = "[&>th]:border-b [&>th]:border-line-strong";
-
 const headCell =
-  "whitespace-nowrap px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-faint";
+  "whitespace-nowrap border-b border-line-strong px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-faint";
 const numCell = "whitespace-nowrap px-3 py-2 text-right tabular-nums";
 
 /** Numeric value for a sortable column; `null` keeps missing values last in either direction. */
@@ -113,7 +110,7 @@ export function StandingsTable({
         <table className="w-full min-w-[700px] border-separate border-spacing-0 text-sm">
           <caption className="sr-only">{caption}</caption>
           <thead>
-            <tr className={HEAD_DIVIDER}>
+            <tr>
               <th scope="col" className={`${headCell} ${RANK_HEAD} bg-surface text-left`}>
                 #
               </th>
@@ -162,7 +159,7 @@ export function StandingsTable({
               ))}
             </tr>
           </thead>
-          <tbody>
+          <tbody className={LAST_ROW_NO_DIVIDER}>
             {orderedRows.map((row) => {
               const selected = row.team_id === selectedTeamId;
               const stickyBackground = selected
@@ -172,19 +169,19 @@ export function StandingsTable({
               return (
                 <tr
                   key={row.team_id}
-                  className={`group ${ROW_DIVIDER} ${
-                    selected ? "bg-brand-soft" : "hover:bg-surface-hover"
-                  }`}
+                  className={`group ${selected ? "bg-brand-soft" : "hover:bg-surface-hover"}`}
                 >
                   <th
                     scope="row"
-                    className={`${numCell} ${RANK_CELL} text-left font-normal text-ink-subtle ${stickyBackground} ${
+                    className={`${numCell} ${BODY_CELL_DIVIDER} ${RANK_CELL} text-left font-normal text-ink-subtle ${stickyBackground} ${
                       selected ? "shadow-[inset_3px_0_0_0_rgb(var(--color-brand-ink))]" : ""
                     }`}
                   >
                     {row.rank}
                   </th>
-                  <td className={`${TEAM_CELL} ${PINNED_SHADOW} px-3 py-2 ${stickyBackground}`}>
+                  <td
+                    className={`${BODY_CELL_DIVIDER} ${TEAM_CELL} ${PINNED_SHADOW} px-3 py-2 ${stickyBackground}`}
+                  >
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
@@ -204,14 +201,22 @@ export function StandingsTable({
                       <ClinchBadge status={row.clinch} />
                     </div>
                   </td>
-                  <td className={`${numCell} text-left text-ink-subtle`}>
+                  <td className={`${numCell} ${BODY_CELL_DIVIDER} text-left text-ink-subtle`}>
                     {row.owner_name ?? "—"}
                   </td>
-                  <td className={`${numCell} font-bold ${vpToneClass(vpTone(row.victory_points))}`}>
+                  <td
+                    className={`${numCell} ${BODY_CELL_DIVIDER} font-bold ${vpToneClass(
+                      vpTone(row.victory_points),
+                    )}`}
+                  >
                     {formatVP(row.victory_points)}
                   </td>
-                  <td className={`${numCell} text-ink-subtle`}>{formatRecord(row, showTies)}</td>
-                  <td className={`${numCell} text-ink-subtle`}>{formatPoints(row.points_for)}</td>
+                  <td className={`${numCell} ${BODY_CELL_DIVIDER} text-ink-subtle`}>
+                    {formatRecord(row, showTies)}
+                  </td>
+                  <td className={`${numCell} ${BODY_CELL_DIVIDER} text-ink-subtle`}>
+                    {formatPoints(row.points_for)}
+                  </td>
                   {row.weekly_vp.map((vp, index) => {
                     if (weeks[index] === undefined) {
                       return null;
@@ -219,7 +224,9 @@ export function StandingsTable({
                     return (
                       <td
                         key={`week-${weeks[index]}`}
-                        className={`${numCell} font-medium ${vpToneClass(vpTone(vp))}`}
+                        className={`${numCell} ${BODY_CELL_DIVIDER} font-medium ${vpToneClass(
+                          vpTone(vp),
+                        )}`}
                       >
                         {formatVP(vp)}
                       </td>
