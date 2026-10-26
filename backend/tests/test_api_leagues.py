@@ -225,6 +225,7 @@ def api_factory(tmp_path: Path) -> Iterator[Callable[..., Api]]:
         *,
         seed: dict[tuple[str, int], FakeSeed] | None = None,
         provider_factory: RecordingFactory | None = None,
+        season_user_limit: int = 60,
     ) -> Api:
         engine = create_engine(f"sqlite:///{tmp_path / f'leagues-{len(engines)}.db'}")
         Base.metadata.create_all(engine)
@@ -233,6 +234,12 @@ def api_factory(tmp_path: Path) -> Iterator[Callable[..., Api]]:
         recording = provider_factory or RecordingFactory(seed if seed is not None else _seed())
         clock = FakeClock()
         limiter = RefreshRateLimiter(clock=clock)
+        season_limiter = RefreshRateLimiter(
+            clock=clock,
+            league_interval_seconds=0.0,
+            user_limit=season_user_limit,
+            user_window_seconds=3600.0,
+        )
         app = create_app()
 
         def override_session() -> Iterator[Session]:
@@ -246,6 +253,7 @@ def api_factory(tmp_path: Path) -> Iterator[Callable[..., Api]]:
                     recording,
                     provider_id="fake",
                     refresh_limiter=limiter,
+                    season_refresh_limiter=season_limiter,
                     clock=lambda: datetime(SEASON, 1, 1, tzinfo=UTC),
                 )
 
@@ -1535,7 +1543,9 @@ def test_AC_AU_24_admin_refreshes_one_season_and_records_the_timestamp(
     )
 
 
-def test_AC_AU_24_refresh_season_is_rate_limited(api_factory: Callable[..., Api]) -> None:
+def test_AC_AU_24_refresh_season_allows_consecutive_admin_refreshes(
+    api_factory: Callable[..., Api],
+) -> None:
     api = api_factory()
     admin_id = _create_user(api, "admin@example.com", role="admin")
     league_id = _seed_league(api)
@@ -1546,12 +1556,29 @@ def test_AC_AU_24_refresh_season_is_rate_limited(api_factory: Callable[..., Api]
     second = api.client.post(_refresh_season_path(league_id))
 
     assert first.status_code == 200
+    assert second.status_code == 200
+    assert len(api.provider_factory.calls) == 2
+
+
+def test_AC_AU_24_refresh_season_uses_its_own_user_limit(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory(season_user_limit=1)
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=admin_id, league_id=league_id, credentials=True)
+    _login(api, admin_id)
+
+    first = api.client.post(_refresh_season_path(league_id))
+    second = api.client.post(_refresh_season_path(league_id))
+
+    assert first.status_code == 200
     assert second.status_code == 429
-    assert second.headers["Retry-After"] == "300"
+    assert second.headers["Retry-After"] == "3600"
     assert second.json()["detail"]["code"] == "rate_limited"
     assert len(api.provider_factory.calls) == 1
 
-    api.clock.advance(300)
+    api.clock.advance(3600)
     assert api.client.post(_refresh_season_path(league_id)).status_code == 200
 
 

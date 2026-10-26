@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.api.params import LeagueIdPath, MemberUserIdPath, SeasonPath
-from app.api.refresh_limit import get_refresh_limiter
+from app.api.refresh_limit import get_refresh_limiter, get_season_refresh_limiter
 from app.api.schemas_auth import PublicUser, error_detail
 from app.api.schemas_leagues import (
     AddLeagueRequest,
@@ -85,6 +85,7 @@ def get_league_service(
         session,
         create_espn_provider,
         refresh_limiter=get_refresh_limiter(),
+        season_refresh_limiter=get_season_refresh_limiter(),
     )
 
 

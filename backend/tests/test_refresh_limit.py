@@ -7,6 +7,7 @@ import pytest
 from app.api.refresh_limit import (
     RefreshRateLimiter,
     get_refresh_limiter,
+    get_season_refresh_limiter,
 )
 from app.services.league_service import RefreshRateLimitDecision
 
@@ -128,3 +129,8 @@ def test_invalid_configuration_is_rejected(kwargs: dict[str, float], message: st
 
 def test_application_limiter_is_a_process_singleton() -> None:
     assert get_refresh_limiter() is get_refresh_limiter()
+
+
+def test_application_season_limiter_is_a_separate_process_singleton() -> None:
+    assert get_season_refresh_limiter() is get_season_refresh_limiter()
+    assert get_season_refresh_limiter() is not get_refresh_limiter()

@@ -649,7 +649,10 @@ structured 422s; a non-admin member gets 403; a non-member or unknown league get
 All via environment variables, documented in `.env.example`:
 
 `DATABASE_URL` (default `sqlite:///./dev.db`), `SECRET_KEY`, `LEAGUE_CREDENTIALS_KEY` (32-byte key
-for AES-256-GCM), `CORS_ORIGINS`, `ENV`.
+for AES-256-GCM), `CORS_ORIGINS`, `ENV`, and the optional refresh limits
+`REFRESH_LEAGUE_INTERVAL_SECONDS`, `REFRESH_USER_LIMIT`, `REFRESH_USER_WINDOW_SECONDS`,
+`SEASON_REFRESH_LEAGUE_INTERVAL_SECONDS`, `SEASON_REFRESH_USER_LIMIT`, and
+`SEASON_REFRESH_USER_WINDOW_SECONDS`. League-wide and per-season refreshes use independent limiters.
 
 League credentials live only on memberships. They are stored encrypted at rest with AES-256-GCM
 under `LEAGUE_CREDENTIALS_KEY`, decrypted only on the provider call path, never logged, and never
