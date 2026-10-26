@@ -2,7 +2,7 @@
 
 Probabilities and their Wilson intervals cross the wire as fixed four-decimal strings. The
 frontend parses them to numbers only for bar geometry and sorting; the visible value comes from
-the string.
+the string. ``strength_weight`` echoes the exact team-strength weight the simulation used.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from app.services.prediction_service import (
     MODEL,
     Probability,
+    format_strength_weight,
 )
 from app.services.prediction_service import (
     PlayoffOdds as ServicePlayoffOdds,
@@ -69,6 +70,7 @@ class PlayoffOddsResponse(BaseModel):
     )
     iterations: int
     seed: int | None
+    strength_weight: str
     input_version: str
     model: PlayoffOddsModel
     confidence: Literal["low", "normal"] | None
@@ -102,6 +104,7 @@ def to_playoff_odds_response(odds: ServicePlayoffOdds) -> PlayoffOddsResponse:
         reason=odds.reason,
         iterations=odds.iterations,
         seed=odds.seed,
+        strength_weight=format_strength_weight(odds.strength_weight),
         input_version=odds.input_version,
         model=PlayoffOddsModel(
             version=MODEL.version,

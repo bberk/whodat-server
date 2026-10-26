@@ -8,10 +8,17 @@ The score model is a shrunk team strength plus an empirical residual bootstrap:
 
 * ``mu_w`` is the league-week mean, ``mu_bar`` the grand mean, and ``s_bar_t`` a team's mean.
 * ``delta_t = n_t / (n_t + 3) * (s_bar_t - mu_bar)`` shrinks a small sample toward the league.
+* ``base_t = mu_bar + w * delta_t`` applies the caller's team-strength weight ``w`` in
+  ``0..10``. ``w = 1`` is the shrunk model, ``w = 0`` gives every team the league grand mean so
+  future scores are even, and ``w > 1`` amplifies the gap for stronger teams.
 * A two-way residual ``s_t,w - mu_w - (s_bar_t - mu_bar)`` removes both the week's environment and
-  the team's average; a team's own residuals are used with probability ``n_t / (n_t + 4)``, else the
-  pooled residuals. With fewer than two counted weeks (or no team with two observations) the
-  simulator falls back to week-centred residuals and ``delta_t = 0``.
+  the team's average; a team's own residuals are used with probability
+  ``min(1, w) * n_t / (n_t + 4)`` capped at 1, else the pooled residuals. With fewer than two
+  counted weeks (or no team with two observations) the simulator falls back to week-centred
+  residuals and ``delta_t = 0``.
+
+At ``w = 0`` every team draws from the same distribution (the grand mean plus the pooled
+residuals), so team strength creates no edge while the exact current totals still decide seeding.
 
 All scores are integer cents and all VP is integer ticks; no ``float`` appears in this module. A
 draw source is injected so the function never imports or seeds a random-number generator itself.
@@ -26,13 +33,27 @@ from typing import Literal, Protocol
 from app.domain.vp_engine import week_h2h_ticks, week_rank_component_ticks
 
 #: Model version. Any change to sampling, parameters, or draw order must bump this value.
-MODEL_VERSION = "vp-mc-1"
+MODEL_VERSION = "vp-mc-2"
 
 #: Pseudo-games of shrinkage applied to a team's raw deviation from the league mean.
 SHRINK_GAMES = 3
 
 #: Pseudo-games of shrinkage applied to the own-residual mixture probability.
 RESIDUAL_MIX_GAMES = 4
+
+#: Smallest accepted team-strength weight: every remaining matchup is even.
+STRENGTH_WEIGHT_MIN = Decimal(0)
+
+#: Largest accepted team-strength weight: stronger teams are over-weighted tenfold.
+STRENGTH_WEIGHT_MAX = Decimal(10)
+
+#: Weight that reproduces the shrunk model exactly.
+DEFAULT_STRENGTH_WEIGHT = Decimal(1)
+
+#: Maximum decimal places accepted for a weight. The residual draw range grows with the weight's
+#: denominator, so an unbounded exponent would make the simulator allocate enormous integers; 18
+#: places is far beyond any UI or API use and keeps the range a few 64-bit words wide.
+STRENGTH_WEIGHT_MAX_DECIMALS = 18
 
 #: Completed weeks below this count make the estimate low-confidence.
 LOW_CONFIDENCE_WEEKS = 4
@@ -96,7 +117,12 @@ class RemainingWeek:
 
 @dataclass(frozen=True)
 class SeasonPredictionInputs:
-    """Everything the simulator needs for one league season."""
+    """Everything the simulator needs for one league season.
+
+    ``strength_weight`` scales how much a team's shrunk deviation from the league mean moves its
+    future scores: ``0`` makes every remaining matchup even, ``1`` is the shrunk model, and values
+    up to ``10`` amplify the stronger team's edge. The current totals are never scaled.
+    """
 
     teams: tuple[TeamSeasonTotals, ...]
     counted_weeks: tuple[CountedWeek, ...]
@@ -104,6 +130,7 @@ class SeasonPredictionInputs:
     regular_season_length: int
     playoff_team_count: int | None
     cup_week: int | None
+    strength_weight: Decimal = DEFAULT_STRENGTH_WEIGHT
 
 
 @dataclass(frozen=True)
@@ -164,7 +191,8 @@ class SeededDrawSource:
 
     The simulator's reproducibility is part of its contract (AC-PO-06), so it does not depend on
     CPython's ``random`` implementation. Rejection sampling removes the modulo bias of a plain
-    remainder without importing anything from the standard random module.
+    remainder without importing anything from the standard random module. Bounds wider than one
+    64-bit word consume several words, which keeps an arbitrary-precision strength weight safe.
     """
 
     _MULTIPLIER_1 = 0xBF58476D1CE4E5B9
@@ -180,12 +208,24 @@ class SeededDrawSource:
         self._state = seed & self._MASK
 
     def next_below(self, upper: int) -> int:
-        """Return an unbiased integer below ``upper``."""
+        """Return an unbiased integer below ``upper``.
+
+        A bound up to ``2**64`` consumes one 64-bit word, exactly as before. A larger bound, which
+        only a very precise strength weight can produce, consumes as many words as it needs, so the
+        distribution stays uniform and rejection sampling always terminates.
+        """
         if upper < 1:
             raise ValueError("upper must be positive")
-        limit = self._RANGE - self._RANGE % upper
+        if upper <= self._RANGE:
+            span, words = self._RANGE, 1
+        else:
+            words = ((upper - 1).bit_length() + 63) // 64
+            span = 1 << (64 * words)
+        limit = span - span % upper
         while True:
-            value = self._next_uint64()
+            value = 0
+            for _ in range(words):
+                value = (value << 64) | self._next_uint64()
             if value < limit:
                 return value % upper
 
@@ -236,6 +276,9 @@ class _Prepared:
     own_residuals: tuple[tuple[int, ...], ...]
     pooled_residuals: tuple[int, ...]
     observation_counts: tuple[int, ...]
+    #: Per team ``(span, own_span, pooled_divisor)`` for one draw. The own residuals own the first
+    #: ``own_span`` blocks of the range and each pooled entry the next ``pooled_divisor`` values.
+    draw_spans: tuple[tuple[int, int, int], ...]
     weeks: tuple[_SimulatedWeek, ...]
     playoff_field: int
     bye_count: int
@@ -258,7 +301,9 @@ def simulate_season(
     A finished regular season (no remaining weeks) is evaluated once from the current totals and
     reports ``iterations=0``. Otherwise ``iterations`` must be positive; ``draws`` defaults to
     :class:`DeterministicDrawSource`, so a caller that wants seeded randomness passes a
-    :class:`SeededDrawSource`. Missing or inconsistent inputs return an explicit
+    :class:`SeededDrawSource`. ``inputs.strength_weight`` must be a finite decimal in ``0..10``;
+    ``0`` makes every remaining matchup even, ``1`` is the default model, and a value outside that
+    range raises ``ValueError``. Missing or inconsistent inputs return an explicit
     :class:`PredictionUnavailable` instead of a guessed result. This function is pure and performs
     no I/O.
     """
@@ -276,6 +321,8 @@ def _prepare(inputs: SeasonPredictionInputs) -> _Prepared | PredictionUnavailabl
     """Validate the inputs and estimate the score model, or explain why it is unavailable."""
     if not inputs.teams or inputs.regular_season_length < 1:
         return PredictionUnavailable("incomplete_schedule")
+
+    weight = _strength_weight_fraction(inputs.strength_weight)
 
     team_ids = tuple(team.team_id for team in inputs.teams)
     if len(set(team_ids)) != len(team_ids):
@@ -318,7 +365,7 @@ def _prepare(inputs: SeasonPredictionInputs) -> _Prepared | PredictionUnavailabl
     if weeks is None:
         return PredictionUnavailable("incomplete_schedule")
 
-    model = _estimate_model(inputs.counted_weeks, team_ids)
+    model = _estimate_model(inputs.counted_weeks, team_ids, weight)
     scale = _tick_scale(team_ids, inputs.teams)
     start_vp_ticks = tuple(_vp_ticks(team.vp, scale) for team in inputs.teams)
     wins = tuple(team.wins for team in inputs.teams)
@@ -340,6 +387,7 @@ def _prepare(inputs: SeasonPredictionInputs) -> _Prepared | PredictionUnavailabl
         own_residuals=model.own_residuals,
         pooled_residuals=model.pooled_residuals,
         observation_counts=model.observation_counts,
+        draw_spans=model.draw_spans,
         weeks=weeks,
         playoff_field=playoff_field,
         bye_count=_bye_count(playoff_field, division_count),
@@ -411,11 +459,53 @@ class _Model:
     own_residuals: tuple[tuple[int, ...], ...]
     pooled_residuals: tuple[int, ...]
     observation_counts: tuple[int, ...]
+    draw_spans: tuple[tuple[int, int, int], ...]
     uses_two_way: bool
 
 
-def _estimate_model(counted_weeks: tuple[CountedWeek, ...], team_ids: tuple[int, ...]) -> _Model:
-    """Estimate shrunk team bases and the empirical residual pools from counted scores."""
+def normalize_strength_weight(value: Decimal) -> Decimal:
+    """Validate a team-strength weight and return it in canonical form.
+
+    The accepted range is ``0..10`` inclusive, the value must be a finite ``Decimal``, and it may
+    carry at most :data:`STRENGTH_WEIGHT_MAX_DECIMALS` decimal places. Canonical form drops trailing
+    zeroes, so ``1``, ``1.0``, and ``1.00`` are one value for the digest, the cache key, and the
+    response. Every caller shares this rule, and a rejected value raises ``ValueError``.
+    """
+    if not isinstance(value, Decimal) or not value.is_finite():
+        raise ValueError("strength_weight must be a finite decimal")
+    if not STRENGTH_WEIGHT_MIN <= value <= STRENGTH_WEIGHT_MAX:
+        raise ValueError(
+            f"strength_weight must be between {STRENGTH_WEIGHT_MIN} and {STRENGTH_WEIGHT_MAX}"
+        )
+    normalized = value.normalize()
+    exponent = normalized.as_tuple().exponent
+    if isinstance(exponent, int) and exponent < -STRENGTH_WEIGHT_MAX_DECIMALS:
+        raise ValueError(
+            f"strength_weight allows at most {STRENGTH_WEIGHT_MAX_DECIMALS} decimal places"
+        )
+    return Decimal(0) if normalized == 0 else normalized
+
+
+def _strength_weight_fraction(value: Decimal) -> Fraction:
+    """Return the exact team-strength weight as a fraction, or raise ``ValueError``.
+
+    The API rejects an invalid value with a structured 422 before any simulation; a caller that
+    bypasses the route gets ``ValueError`` rather than a silently different model.
+    """
+    return Fraction(normalize_strength_weight(value))
+
+
+def _estimate_model(
+    counted_weeks: tuple[CountedWeek, ...],
+    team_ids: tuple[int, ...],
+    strength_weight: Fraction,
+) -> _Model:
+    """Estimate shrunk team bases and the empirical residual pools from counted scores.
+
+    ``strength_weight`` moves each team's base to ``mu_bar + w * delta_t`` and scales its own
+    residual probability to ``min(1, w) * n / (n + 4)``. At ``w = 0`` every base is the league
+    grand mean and no team draws its own residuals, so all teams share one distribution.
+    """
     observations: dict[int, list[tuple[int, Fraction]]] = {team_id: [] for team_id in team_ids}
     week_means: dict[int, Fraction] = {}
     for week in counted_weeks:
@@ -458,19 +548,33 @@ def _estimate_model(counted_weeks: tuple[CountedWeek, ...], team_ids: tuple[int,
                 pooled.append(_round_half_up(value - week_means[week_number]))
 
     base_cents: list[int] = []
+    draw_spans: list[tuple[int, int, int]] = []
+    weight_numerator = strength_weight.numerator
+    weight_denominator = strength_weight.denominator
+    own_scale = min(weight_denominator, weight_numerator)
     for team_id, count in zip(team_ids, observation_counts, strict=True):
         deviation = (
-            Fraction(count, count + SHRINK_GAMES) * team_raw_deviation[team_id]
+            strength_weight * Fraction(count, count + SHRINK_GAMES) * team_raw_deviation[team_id]
             if two_way
             else Fraction(0)
         )
         base_cents.append(_round_half_up(grand_mean + deviation))
+        if count >= 2 and own[team_id]:
+            # Exact ``min(1, w) * n / (n + 4)`` in unreduced form, so ``w = 1`` keeps the draw
+            # range ``(n + 4) * pooled_size`` the unweighted model used.
+            span = weight_denominator * (count + RESIDUAL_MIX_GAMES)
+            own_span = own_scale * count
+        else:
+            # A team with fewer than two observations only ever draws the pooled pool.
+            span, own_span = 1, 0
+        draw_spans.append((span, own_span, span - own_span))
 
     return _Model(
         base_cents=tuple(base_cents),
         own_residuals=tuple(tuple(own[team_id]) for team_id in team_ids),
         pooled_residuals=tuple(pooled),
         observation_counts=observation_counts,
+        draw_spans=tuple(draw_spans),
         uses_two_way=two_way,
     )
 
@@ -526,9 +630,10 @@ def _draw_week(prepared: _Prepared, draws: DrawSource) -> list[int]:
     """Draw one future score in integer cents for every team, including bye and cup-week teams.
 
     For a team with at least two observations, one draw selects both the own-versus-pooled mixture
-    and the residual: ``n`` own outcomes per pooled entry and four pooled outcomes per entry give
-    exactly ``n / (n + 4)`` own probability and a uniform residual inside each pool. This is the
-    same distribution as two separate draws with half the generator calls.
+    and the residual. The exact own probability ``min(1, w) * n / (n + 4)`` is the unreduced
+    fraction ``own_span / span``, so the own side is split evenly across the team's own residuals
+    and the pooled side evenly across the pooled entries. At ``w = 1`` this consumes exactly the
+    same draws as the unweighted model.
     """
     scores: list[int] = []
     pooled = prepared.pooled_residuals
@@ -537,12 +642,12 @@ def _draw_week(prepared: _Prepared, draws: DrawSource) -> list[int]:
     for index, count in enumerate(prepared.observation_counts):
         if count >= 2:
             own = prepared.own_residuals[index]
-            own_span = count * pooled_size
-            draw = next_below((count + RESIDUAL_MIX_GAMES) * pooled_size)
-            if draw < own_span:
-                residual = own[draw // pooled_size]
+            span, own_span, pooled_divisor = prepared.draw_spans[index]
+            draw = next_below(span * pooled_size)
+            if draw < own_span * pooled_size:
+                residual = own[draw // (own_span // count * pooled_size)]
             else:
-                residual = pooled[(draw - own_span) // RESIDUAL_MIX_GAMES]
+                residual = pooled[(draw - own_span * pooled_size) // pooled_divisor]
         else:
             residual = pooled[next_below(pooled_size)]
         scores.append(max(0, prepared.base_cents[index] + residual))

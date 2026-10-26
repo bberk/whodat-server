@@ -274,9 +274,10 @@ export const playoffOddsResponse: PlayoffOddsResponse = {
   reason: null,
   iterations: 10000,
   seed: 1837462,
+  strength_weight: "1",
   input_version: "sha256:fixture",
   model: {
-    version: "vp-mc-1",
+    version: "vp-mc-2",
     shrink_games: 3,
     residual_mix_games: 4,
     score_precision: "0.01",

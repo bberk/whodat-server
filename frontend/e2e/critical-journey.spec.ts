@@ -350,8 +350,20 @@ test("admin reads the league admin page without blocking accessibility issues", 
   await expect(page.getByText(`${fixture.league.season} — current season`)).toBeVisible();
   await expect(page.getByLabel("Simulation season")).toHaveCount(0);
   await expect(page.getByLabel("Simulations")).toHaveValue("10000");
+  // AC-PO-13/15: the team-strength weight defaults to 1 and explains 0, 1, and >1 in help text.
+  const strengthWeight = page.getByLabel("Team strength weight");
+  await expect(strengthWeight).toHaveValue("1");
+  await expect(strengthWeight).toHaveAttribute(
+    "aria-describedby",
+    "playoff-odds-strength-weight-hint",
+  );
+  await expect(page.locator("#playoff-odds-strength-weight-hint")).toContainText(
+    "0 makes every remaining matchup even",
+  );
+  await strengthWeight.fill("0.5");
   await page.getByRole("button", { name: "Run simulations" }).click();
   await expect(page.getByText(/Regular season complete · final seeding/i)).toBeVisible();
+  await expect(page.getByText(/strength weight 0.5/i)).toBeVisible();
   await expect(
     page.getByRole("region", { name: "Playoff odds, scrollable horizontally" }),
   ).toBeVisible();

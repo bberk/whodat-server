@@ -1197,6 +1197,10 @@
             "title": "Status",
             "type": "string"
           },
+          "strength_weight": {
+            "title": "Strength Weight",
+            "type": "string"
+          },
           "teams": {
             "items": {
               "$ref": "#/components/schemas/TeamPlayoffOdds"
@@ -1212,6 +1216,7 @@
           "reason",
           "iterations",
           "seed",
+          "strength_weight",
           "input_version",
           "model",
           "confidence",
@@ -2829,7 +2834,7 @@
     },
     "/api/v1/leagues/{league_id}/seasons/{season}/playoff-odds": {
       "get": {
-        "description": "Return per-team playoff, bye, and division-title probabilities for a league season.\n\nOnly the league's latest stored season is simulated. An older stored season returns a\nstructured 409 ``season_not_current`` without reading simulation inputs or touching the cache;\nan unknown league or unstored season keeps the standings-style 404.",
+        "description": "Return per-team playoff, bye, and division-title probabilities for a league season.\n\nOnly the league's latest stored season is simulated. An older stored season returns a\nstructured 409 ``season_not_current`` without reading simulation inputs or touching the cache;\nan unknown league or unstored season keeps the standings-style 404. ``strength_weight`` scales\nteam strength in future weeks only; it never changes stored data, the provider, or current\ntotals.",
         "operationId": "get_playoff_odds_api_v1_leagues__league_id__seasons__season__playoff_odds_get",
         "parameters": [
           {
@@ -2885,6 +2890,27 @@
               ],
               "description": "Explicit seed; derived from the inputs when omitted.",
               "title": "Seed"
+            }
+          },
+          {
+            "description": "Team-strength weight: 0 makes every remaining matchup even, 1 is the default model, and up to 10 amplifies stronger teams. Decimals are accepted, with at most 18 decimal places.",
+            "in": "query",
+            "name": "strength_weight",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 10.0,
+                  "minimum": 0.0,
+                  "type": "number"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "default": "1",
+              "description": "Team-strength weight: 0 makes every remaining matchup even, 1 is the default model, and up to 10 amplifies stronger teams. Decimals are accepted, with at most 18 decimal places.",
+              "title": "Strength Weight"
             }
           }
         ],
