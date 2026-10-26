@@ -385,7 +385,9 @@ export interface paths {
      *
      *     Only the league's latest stored season is simulated. An older stored season returns a
      *     structured 409 ``season_not_current`` without reading simulation inputs or touching the cache;
-     *     an unknown league or unstored season keeps the standings-style 404.
+     *     an unknown league or unstored season keeps the standings-style 404. ``strength_weight`` scales
+     *     team strength in future weeks only; it never changes stored data, the provider, or current
+     *     totals.
      */
     get: operations["get_playoff_odds_api_v1_leagues__league_id__seasons__season__playoff_odds_get"];
     put?: never;
@@ -1074,6 +1076,8 @@ export interface components {
        * @enum {string}
        */
       status: "ok" | "unavailable";
+      /** Strength Weight */
+      strength_weight: string;
       /** Teams */
       teams: components["schemas"]["TeamPlayoffOdds"][];
     };
@@ -1986,6 +1990,8 @@ export interface operations {
         iterations?: number;
         /** @description Explicit seed; derived from the inputs when omitted. */
         seed?: number | null;
+        /** @description Team-strength weight: 0 makes every remaining matchup even, 1 is the default model, and up to 10 amplifies stronger teams. Decimals are accepted, with at most 18 decimal places. */
+        strength_weight?: number | string;
       };
       header?: never;
       path: {

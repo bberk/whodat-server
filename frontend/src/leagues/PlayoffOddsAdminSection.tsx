@@ -16,6 +16,10 @@ const MIN_ITERATIONS = 1_000;
 const MAX_ITERATIONS = 50_000;
 const DEFAULT_ITERATIONS = 10_000;
 const MAX_SEED = 2_147_483_647;
+const MIN_STRENGTH_WEIGHT = 0;
+const MAX_STRENGTH_WEIGHT = 10;
+const DEFAULT_STRENGTH_WEIGHT = "1";
+const STRENGTH_WEIGHT_PATTERN = /^\d+(?:\.\d+)?$/;
 
 type SimulationState =
   | { status: "idle" }
@@ -25,9 +29,9 @@ type SimulationState =
 
 function simulationSummary(odds: PlayoffOddsResponse): string {
   if (odds.iterations === 0) {
-    return `${odds.season} season · regular season complete · final seeding · model ${odds.model.version}`;
+    return `${odds.season} season · regular season complete · final seeding · strength weight ${odds.strength_weight} · model ${odds.model.version}`;
   }
-  return `${odds.season} season · ${odds.iterations.toLocaleString()} simulated seasons · seed ${odds.seed ?? "derived"} · model ${odds.model.version}`;
+  return `${odds.season} season · ${odds.iterations.toLocaleString()} simulated seasons · seed ${odds.seed ?? "derived"} · strength weight ${odds.strength_weight} · model ${odds.model.version}`;
 }
 
 /**
@@ -35,17 +39,18 @@ function simulationSummary(odds: PlayoffOddsResponse): string {
  *
  * The current season is the league's latest stored season, the same rule the API enforces. There is
  * deliberately no season selector, so a prior season can never be simulated from this page. This
- * section is separate from the seasons table: running it never contacts ESPN and never refreshes
- * stored data. It reveals the iteration count and optional seed, runs the existing member-only odds
- * endpoint, and shows the same table as the standings page. A missing playoff field or an
- * incomplete schedule is reported with the documented unavailable copy, pointing the admin at the
- * Seasons refresh.
+ * section is separate from the seasons table: running it never contacts ESPN, never refreshes stored
+ * data, and never changes the shared data version. It reveals the iteration count, optional seed,
+ * and team-strength weight, runs the existing member-only odds endpoint, and shows the same table as
+ * the standings page. A missing playoff field or an incomplete schedule is reported with the
+ * documented unavailable copy, pointing the admin at the Seasons refresh.
  */
 export function PlayoffOddsAdminSection({ leagueId }: { leagueId: number }) {
   const { seasons, seasonsStatus, seasonsError, reloadSeasons } = useLeague();
   const currentSeason = latestSeason(seasons);
   const [iterations, setIterations] = useState(String(DEFAULT_ITERATIONS));
   const [seed, setSeed] = useState("");
+  const [strengthWeight, setStrengthWeight] = useState(DEFAULT_STRENGTH_WEIGHT);
   const [formError, setFormError] = useState<string | null>(null);
   const [state, setState] = useState<SimulationState>({ status: "idle" });
   const [sort, setSort] = useState<SortState>({ key: "playoff", direction: "desc" });
@@ -74,6 +79,19 @@ export function PlayoffOddsAdminSection({ leagueId }: { leagueId: number }) {
       );
       return;
     }
+    const weightText = strengthWeight.trim();
+    const parsedWeight = Number(weightText);
+    if (
+      !STRENGTH_WEIGHT_PATTERN.test(weightText) ||
+      !Number.isFinite(parsedWeight) ||
+      parsedWeight < MIN_STRENGTH_WEIGHT ||
+      parsedWeight > MAX_STRENGTH_WEIGHT
+    ) {
+      setFormError(
+        `Enter a team strength weight from ${MIN_STRENGTH_WEIGHT} to ${MAX_STRENGTH_WEIGHT}, for example 1 or 0.5.`,
+      );
+      return;
+    }
     const seedText = seed.trim();
     let parsedSeed: number | undefined;
     if (seedText !== "") {
@@ -90,6 +108,7 @@ export function PlayoffOddsAdminSection({ leagueId }: { leagueId: number }) {
     try {
       const odds = await api.playoffOdds(leagueId, currentSeason, {
         iterations: parsedIterations,
+        strengthWeight: weightText,
         ...(parsedSeed === undefined ? {} : { seed: parsedSeed }),
       });
       setState({ status: "ready", odds });
@@ -129,7 +148,7 @@ export function PlayoffOddsAdminSection({ leagueId }: { leagueId: number }) {
           onSubmit={run}
           noValidate
         >
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <div>
               <span className={labelClass}>Simulation season</span>
               <p className="mt-1 text-sm font-semibold text-ink">
@@ -155,6 +174,24 @@ export function PlayoffOddsAdminSection({ leagueId }: { leagueId: number }) {
               />
             </div>
             <div>
+              <label htmlFor="playoff-odds-strength-weight" className={labelClass}>
+                Team strength weight
+              </label>
+              <input
+                id="playoff-odds-strength-weight"
+                type="number"
+                inputMode="decimal"
+                min={MIN_STRENGTH_WEIGHT}
+                max={MAX_STRENGTH_WEIGHT}
+                step={0.1}
+                value={strengthWeight}
+                disabled={state.status === "loading"}
+                onChange={(event) => setStrengthWeight(event.target.value)}
+                className={inputClass}
+                aria-describedby="playoff-odds-strength-weight-hint"
+              />
+            </div>
+            <div>
               <label htmlFor="playoff-odds-seed" className={labelClass}>
                 Seed (optional)
               </label>
@@ -177,6 +214,12 @@ export function PlayoffOddsAdminSection({ leagueId }: { leagueId: number }) {
           <p id="playoff-odds-iterations-hint" className="mt-2 text-[12px] text-ink-faint">
             Use 1,000 to 50,000 simulations; 10,000 is the default. Leave the seed blank to derive a
             stable one from the season data.
+          </p>
+          <p id="playoff-odds-strength-weight-hint" className="mt-1 text-[12px] text-ink-faint">
+            0 makes every remaining matchup even (all teams share one score distribution), 1 is the
+            current model, and values above 1 overweight stronger teams; the maximum is 10. Decimals
+            are allowed. Only simulated future scores change: the current VP, wins, and points for
+            still decide seeding, and no stored data is modified.
           </p>
 
           {formError === null ? null : (

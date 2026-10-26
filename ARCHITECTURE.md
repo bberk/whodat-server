@@ -371,10 +371,16 @@ cents and weekly VP uses integer ticks on `LCM(1..T, 2)`, with a property test p
 aggregation; past weeks are never re-sampled.
 
 The score model shrinks a team mean toward the league mean with `kappa = 3`, mixes the team's own
-empirical residuals with the pooled residuals by `n / (n + 4)` (for `n >= 2`), and falls back to
-week-centred residuals with no team deviation below two counted weeks. An unavailable result uses
-one of `no_completed_weeks`, `missing_playoff_field`, `incomplete_schedule`, or
-`unsupported_division_shape`; it never fills a missing input with a guess.
+empirical residuals with the pooled residuals by `min(1, w) * n / (n + 4)` (for `n >= 2`, capped at
+1), and falls back to week-centred residuals with no team deviation below two counted weeks. The
+caller-supplied team-strength weight `w` in `0..10` moves each base to `mu_bar + w * delta_t`: `1`
+is the shrunk model, `0` gives every team the grand mean and the pooled residuals only (even
+remaining matchups, with current totals still deciding seeding), and `w > 1` amplifies the stronger
+team's edge. The weight travels as an exact `Decimal` with at most 18 decimal places (the bound
+keeps the exact residual draw range a few 64-bit words wide), becomes a `Fraction` inside the
+domain, and never touches stored data. An unavailable result uses one of `no_completed_weeks`,
+`missing_playoff_field`, `incomplete_schedule`, or `unsupported_division_shape`; it never fills a
+missing input with a guess.
 
 Seeding uses VP, H2H wins, points for, team name, and team id. Division winners occupy the leading
 seeds in that order, followed by the remaining teams. The bye count is
@@ -386,10 +392,11 @@ raw scores, every remaining pairing, the regular-season length, cup week, and pl
 second definition of a completed week. `StandingsService.require_current_season` rejects any stored
 season other than the league's latest stored season (the maximum `league_season.season`, matching
 `LeagueService._current_season`) before the snapshot is read or the cache is consulted, so a prior
-season can never be simulated or served from cache. `PredictionService` hashes those inputs (SHA-256 over canonical
-JSON, excluding `last_refreshed_at`), derives a stable seed when the caller omits one, and caches the
-domain result in a bounded in-process LRU keyed by league, season, digest, iterations, seed, and model
-version. The route is a sync handler so Starlette runs it in its threadpool.
+season can never be simulated or served from cache. `PredictionService` hashes those inputs plus the
+canonical team-strength weight (SHA-256 over canonical JSON, excluding `last_refreshed_at`), derives a
+stable seed when the caller omits one, and caches the domain result in a bounded in-process LRU keyed
+by league, season, digest, iterations, seed, strength weight, and model version. The route is a sync
+handler so Starlette runs it in its threadpool.
 
 ## 8. API contract
 
@@ -415,7 +422,7 @@ All endpoints are under `/api/v1`, JSON, cookie-session or bearer-token auth (ba
 | `GET /leagues/{league_id}/seasons/{season}/standings` | member | Overall standings + divisions (shape below) |
 | `GET /leagues/{league_id}/seasons/{season}/vp-history` | member | Weekly and cumulative VP per team (for the chart) |
 | `GET /leagues/{league_id}/seasons/{season}/wapdate` | member | Offered WAPDate periods with status, counted weeks, and lowest-first rows |
-| `GET /leagues/{league_id}/seasons/{season}/playoff-odds?iterations=&seed=` | member | Monte Carlo playoff, bye, and division-title probabilities with 95% intervals; current season only (409 `season_not_current` for a prior stored season) |
+| `GET /leagues/{league_id}/seasons/{season}/playoff-odds?iterations=&seed=&strength_weight=` | member | Monte Carlo playoff, bye, and division-title probabilities with 95% intervals; team-strength weight 0-10 with default 1; current season only (409 `season_not_current` for a prior stored season) |
 | `GET /leagues/{league_id}/elo-history?mode=actual_schedule\|round_robin` | member | Full running Elo series, weeks, boundaries, current/peak/low, unrated teams, and warnings |
 | `GET /leagues/{league_id}/elo-config` | admin member | Saved Elo settings, or the defaults |
 | `PUT /leagues/{league_id}/elo-config` | admin member | Validate and persist the five Elo settings; later history reads use them |
@@ -520,9 +527,10 @@ finish last in the current period.
 
 `iterations` is the requested sample count for a simulated season and `0` for a finished regular
 season or an unavailable result. `seed` is the explicit or derived seed, or `null` when no sampling
-ran. `model` is versioned metadata. Probabilities and both Wilson bounds are fixed four-decimal
-strings. An unavailable result has `teams=[]` and one of the documented `reason` values; missing or
-corrupt season settings still return the structured 400 used by standings.
+ran. `strength_weight` echoes the canonical team-strength weight the simulation used (`"1"` for the
+default model). `model` is versioned metadata. Probabilities and both Wilson bounds are fixed
+four-decimal strings. An unavailable result has `teams=[]` and one of the documented `reason` values;
+missing or corrupt season settings still return the structured 400 used by standings.
 
 ```json
 {
@@ -532,9 +540,10 @@ corrupt season settings still return the structured 400 used by standings.
   "reason": null,
   "iterations": 10000,
   "seed": 1837462,
+  "strength_weight": "1",
   "input_version": "sha256:6f1c…",
   "model": {
-    "version": "vp-mc-1", "shrink_games": 3, "residual_mix_games": 4,
+    "version": "vp-mc-2", "shrink_games": 3, "residual_mix_games": 4,
     "score_precision": "0.01", "tiebreak_uses_points_for": true
   },
   "confidence": "normal",
@@ -677,9 +686,10 @@ returned by the API. There is no environment `ESPN_S2`/`ESPN_SWID` credential pa
   feature; the permanent CI named-module gate remains AC-DX-03.
 - **Playoff odds**: a parity property test against `compute_week_vp`, hand-computed winning and
   points-for scenarios, analytic two-path probabilities, seeded golden counts, probability
-  invariants, clinch cross-checks, digest/cache tests, an HTTP golden response, and frontend state,
+  invariants, clinch cross-checks, team-strength-weight parity/evenness/amplification counts,
+  digest/cache tests (including weight separation), an HTTP golden response, and frontend state,
   sorting, edge-label, interval, and accessibility tests. `domain/predictions.py` is fully covered
-  (100% lines and branches); no statistical tolerance test uses a random seed.
+  (100% lines and branches); every statistical check uses a fixed seed.
 - **Database/services**: run against SQLite by default locally, where each worktree gets its own throwaway databases so concurrent agents stay isolated; CI and production use Postgres. `scripts/dev-postgres.sh` starts a worktree-local Postgres for debugging Postgres-specific behavior.
 - **API**: FastAPI `TestClient` tests including authorization matrices and golden JSON comparison.
 - **Frontend**: Vitest + Testing Library for components; Playwright for the end-to-end smoke test, responsive screenshots, and axe accessibility checks.

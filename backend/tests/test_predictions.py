@@ -563,6 +563,8 @@ def test_predictions_draw_sources_validate_bounds() -> None:
     assert all(0 <= source.next_below(bound) < bound for bound in (1, 2, 7, 100))
     # A half-range bound makes rejection sampling retry on the first 64-bit draw.
     assert SeededDrawSource(0).next_below(2**63 + 1) < 2**63 + 1
+    # A bound wider than one 64-bit word consumes as many words as it needs.
+    assert 0 <= SeededDrawSource(3).next_below(2**80) < 2**80
 
 
 # ---------------------------------------------------------------------------
@@ -811,6 +813,227 @@ def test_predictions_golden_seeded_counts() -> None:
         ("Echo", 1255, 0, 148),
         ("Foxtrot", 67, 0, 3),
     ]
+
+
+# ---------------------------------------------------------------------------
+# AC-PO-15: the team-strength weight
+# ---------------------------------------------------------------------------
+
+
+_EQUAL_TOTALS_HISTORY = (
+    [(1, "120.00"), (2, "110.00"), (3, "100.00"), (4, "115.00"), (5, "95.00"), (6, "85.00")],
+    [(1, "100.00"), (2, "125.00"), (3, "90.00"), (4, "105.00"), (5, "110.00"), (6, "80.00")],
+    [(1, "130.00"), (2, "95.00"), (3, "120.00"), (4, "90.00"), (5, "100.00"), (6, "105.00")],
+)
+
+
+def _equal_totals_inputs(weight: Decimal, *, alpha_vp: int = 0) -> SeasonPredictionInputs:
+    """Six teams with identical current totals and deliberately unequal histories.
+
+    Every team starts from the same VP, wins, and points for, so any difference in the simulated
+    probabilities comes from the score model alone. Alpha's history is the strongest and
+    Foxtrot's the weakest.
+    """
+    teams = tuple(
+        _team(
+            index,
+            ("Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot")[index - 1],
+            "East" if index <= 3 else "West",
+            alpha_vp if index == 1 else 0,
+            0,
+            "400",
+        )
+        for index in range(1, 7)
+    )
+    counted = tuple(_counted(week, _EQUAL_TOTALS_HISTORY[week - 1]) for week in (1, 2, 3))
+    remaining = (
+        RemainingWeek(4, (RemainingMatchup(1, 4), RemainingMatchup(2, 5), RemainingMatchup(3, 6))),
+        RemainingWeek(5, (RemainingMatchup(1, 5), RemainingMatchup(2, 6), RemainingMatchup(3, 4))),
+    )
+    return SeasonPredictionInputs(teams, counted, remaining, 5, 4, None, weight)
+
+
+def _playoff_rates(outcome: SeasonSimulation) -> dict[str, Fraction]:
+    return {
+        team.team_name: Fraction(team.playoff_count, outcome.iterations) for team in outcome.teams
+    }
+
+
+def test_AC_PO_15_weight_zero_gives_every_team_the_same_future_distribution() -> None:
+    outcome = simulate_season(
+        _equal_totals_inputs(Decimal(0)), iterations=4_000, draws=SeededDrawSource(2026)
+    )
+    assert isinstance(outcome, SeasonSimulation)
+
+    assert set(outcome.base_points) == {Decimal("104.17")}
+    rates = _playoff_rates(outcome)
+    # Four of six teams qualify, and with no strength edge every team is interchangeable.
+    assert all(abs(Fraction(rate) - Fraction(2, 3)) <= Fraction(3, 100) for rate in rates.values())
+    assert max(rates.values()) - min(rates.values()) <= Fraction(3, 100)
+
+
+def test_AC_PO_15_weight_zero_keeps_current_totals_deciding_seeding() -> None:
+    outcome = simulate_season(
+        _equal_totals_inputs(Decimal(0), alpha_vp=30),
+        iterations=2_000,
+        draws=SeededDrawSource(2026),
+    )
+    assert isinstance(outcome, SeasonSimulation)
+
+    rates = _playoff_rates(outcome)
+    assert rates["Alpha"] == 1
+    # The other five teams are still interchangeable for the three remaining berths.
+    assert all(
+        abs(rate - Fraction(3, 5)) <= Fraction(3, 100)
+        for name, rate in rates.items()
+        if name != "Alpha"
+    )
+
+
+def test_AC_PO_15_weight_zero_makes_a_two_team_matchup_even() -> None:
+    """Two unequal histories, one remaining head-to-head, and one playoff berth.
+
+    Exact score ties award half VP and fall to the documented team-name tiebreak, so the rates sit
+    within a few points of even rather than exactly at one half.
+    """
+    teams = (
+        _team(1, "Alpha", "Only", 0, 0, "0"),
+        _team(2, "Bravo", "Only", 0, 0, "0"),
+    )
+    counted = tuple(
+        _counted(
+            week,
+            (
+                (1, ("130", "120", "140", "110", "125", "135")[week - 1]),
+                (2, ("95", "105", "85", "115", "100", "90")[week - 1]),
+            ),
+        )
+        for week in range(1, 7)
+    )
+    remaining = (RemainingWeek(7, (RemainingMatchup(1, 2),)),)
+
+    even = simulate_season(
+        SeasonPredictionInputs(teams, counted, remaining, 7, 1, None, Decimal(0)),
+        iterations=4_000,
+        draws=SeededDrawSource(11),
+    )
+    weighted = simulate_season(
+        SeasonPredictionInputs(teams, counted, remaining, 7, 1, None),
+        iterations=4_000,
+        draws=SeededDrawSource(11),
+    )
+    assert isinstance(even, SeasonSimulation)
+    assert isinstance(weighted, SeasonSimulation)
+
+    even_rates = _playoff_rates(even)
+    assert all(abs(rate - Fraction(1, 2)) <= Fraction(6, 100) for rate in even_rates.values())
+    assert _playoff_rates(weighted)["Alpha"] >= Fraction(4, 5)
+
+
+def test_AC_PO_15_weight_one_matches_the_default_model_exactly() -> None:
+    inputs = _six_team_inputs()
+    default = simulate_season(inputs, iterations=500, draws=SeededDrawSource(77))
+    explicit = simulate_season(
+        replace(inputs, strength_weight=Decimal(1)), iterations=500, draws=SeededDrawSource(77)
+    )
+    trailing_zeroes = simulate_season(
+        replace(inputs, strength_weight=Decimal("1.0")),
+        iterations=500,
+        draws=SeededDrawSource(77),
+    )
+
+    assert isinstance(default, SeasonSimulation)
+    assert default == explicit
+    assert default == trailing_zeroes
+
+
+@pytest.mark.parametrize(
+    ("weight", "expected"),
+    [
+        (Decimal(0), ("102.50", "102.50", "102.50", "102.50")),
+        (Decimal("0.5"), ("104.00", "101.00", "106.00", "99.00")),
+        (Decimal(1), ("105.50", "99.50", "109.50", "95.50")),
+        (Decimal(2), ("108.50", "96.50", "116.50", "88.50")),
+        (Decimal(10), ("132.50", "72.50", "172.50", "32.50")),
+    ],
+)
+def test_AC_PO_15_weight_scales_each_base_around_the_grand_mean(
+    weight: Decimal, expected: tuple[str, str, str, str]
+) -> None:
+    teams = (
+        _team(1, "A", "Only", 0, 0, "0"),
+        _team(2, "B", "Only", 0, 0, "0"),
+        _team(3, "C", "Only", 0, 0, "0"),
+        _team(4, "D", "Only", 0, 0, "0"),
+    )
+    counted = (
+        _counted(1, [(1, "120"), (2, "100"), (3, "110"), (4, "90")]),
+        _counted(2, [(1, "100"), (2, "90"), (3, "130"), (4, "80")]),
+    )
+    outcome = simulate_season(
+        SeasonPredictionInputs(teams, counted, (), 2, 1, None, weight), iterations=10
+    )
+
+    assert isinstance(outcome, SeasonSimulation)
+    assert outcome.base_points == tuple(Decimal(value) for value in expected)
+
+
+def test_AC_PO_15_high_weight_increases_the_stronger_teams_projection() -> None:
+    default = simulate_season(
+        _equal_totals_inputs(Decimal(1)), iterations=2_000, draws=SeededDrawSource(2026)
+    )
+    amplified = simulate_season(
+        _equal_totals_inputs(Decimal(10)), iterations=2_000, draws=SeededDrawSource(2026)
+    )
+    assert isinstance(default, SeasonSimulation)
+    assert isinstance(amplified, SeasonSimulation)
+
+    before = _playoff_rates(default)
+    after = _playoff_rates(amplified)
+    assert after["Alpha"] > before["Alpha"]
+    assert after["Foxtrot"] < before["Foxtrot"]
+
+
+@pytest.mark.parametrize(
+    "weight",
+    [
+        Decimal(-1),
+        Decimal("10.1"),
+        Decimal("NaN"),
+        Decimal("Infinity"),
+        Decimal("-Infinity"),
+        Decimal("0.0000000000000000001"),
+    ],
+)
+def test_AC_PO_15_rejects_an_invalid_weight(weight: Decimal) -> None:
+    inputs = replace(_standard_inputs(), strength_weight=weight)
+    with pytest.raises(ValueError):
+        simulate_season(inputs, iterations=10)
+
+
+def test_AC_PO_15_accepts_a_high_precision_weight() -> None:
+    """An 18-place weight makes the draw bound exceed one 64-bit word; it must still terminate."""
+    outcome = simulate_season(
+        replace(_six_team_inputs(), strength_weight=Decimal("0.123456789012345678")),
+        iterations=50,
+        draws=SeededDrawSource(5),
+    )
+
+    assert isinstance(outcome, SeasonSimulation)
+    assert sum(team.playoff_count for team in outcome.teams) == 50 * outcome.playoff_field
+
+
+def test_AC_PO_15_canonicalizes_the_weight_and_rejects_excess_precision() -> None:
+    from app.domain.predictions import normalize_strength_weight
+
+    assert normalize_strength_weight(Decimal("1.00")) == Decimal(1)
+    assert normalize_strength_weight(Decimal("10.000")) == Decimal(10)
+    assert normalize_strength_weight(Decimal("-0")) == Decimal(0)
+    assert normalize_strength_weight(Decimal("0.500000")) == Decimal("0.5")
+    with pytest.raises(ValueError):
+        normalize_strength_weight(Decimal("0.1234567890123456789"))
+    with pytest.raises(ValueError):
+        normalize_strength_weight(Decimal("1e-19"))
 
 
 # ---------------------------------------------------------------------------

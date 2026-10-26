@@ -426,6 +426,87 @@ def test_default_seed_is_stable_and_reported(session: Session) -> None:
     assert first == second
 
 
+def test_AC_PO_15_strength_weight_is_reported_normalized_and_bounded(session: Session) -> None:
+    league_id = _seed_league(session, weeks=_standard_weeks())
+    service = PredictionService(session, cache=PredictionCache())
+
+    default = service.get_playoff_odds(league_id, SEASON, iterations=1_000, seed=5)
+    even = service.get_playoff_odds(
+        league_id, SEASON, iterations=1_000, seed=5, strength_weight=Decimal("0.0")
+    )
+    amplified = service.get_playoff_odds(
+        league_id, SEASON, iterations=1_000, seed=5, strength_weight=Decimal("10")
+    )
+
+    assert default.strength_weight == Decimal(1)
+    assert even.strength_weight == Decimal("0.0")
+    assert amplified.strength_weight == Decimal(10)
+    # The same data and seed with a different weight is a different projection.
+    assert default.input_version != even.input_version
+    assert default.teams != even.teams
+
+    from app.services.prediction_service import format_strength_weight
+
+    assert format_strength_weight(Decimal("1.0")) == "1"
+    assert format_strength_weight(Decimal("0.50")) == "0.5"
+    assert format_strength_weight(Decimal("-0")) == "0"
+    for rejected in (
+        Decimal(-1),
+        Decimal("10.5"),
+        Decimal("NaN"),
+        Decimal("Infinity"),
+        Decimal("0.1234567890123456789"),
+    ):
+        with pytest.raises(ValueError):
+            format_strength_weight(rejected)
+        with pytest.raises(ValueError):
+            service.get_playoff_odds(league_id, SEASON, iterations=1_000, strength_weight=rejected)
+
+
+def test_AC_PO_09_cache_separates_results_by_strength_weight(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    league_id = _seed_league(session, weeks=_standard_weeks())
+    calls = 0
+    real_simulate = prediction_service.simulate_season
+
+    def counting_simulate(*args: object, **kwargs: object) -> object:
+        nonlocal calls
+        calls += 1
+        return real_simulate(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(prediction_service, "simulate_season", counting_simulate)
+    service = PredictionService(session, cache=PredictionCache())
+
+    default = service.get_playoff_odds(league_id, SEASON, iterations=1_000, seed=9)
+    even = service.get_playoff_odds(
+        league_id, SEASON, iterations=1_000, seed=9, strength_weight=Decimal(0)
+    )
+    repeated_even = service.get_playoff_odds(
+        league_id, SEASON, iterations=1_000, seed=9, strength_weight=Decimal("0.00")
+    )
+    repeated_default = service.get_playoff_odds(
+        league_id, SEASON, iterations=1_000, seed=9, strength_weight=Decimal("1.0")
+    )
+
+    assert calls == 2
+    assert even == repeated_even
+    assert default == repeated_default
+    assert default.input_version != even.input_version
+
+
+def test_AC_PO_15_digest_includes_the_strength_weight(session: Session) -> None:
+    league_id = _seed_league(session, weeks=_standard_weeks())
+    snapshot = StandingsService(session).get_prediction_snapshot(league_id, SEASON)
+    from app.services.prediction_service import input_digest
+
+    assert input_digest(snapshot, strength_weight=Decimal("1.0")) == input_digest(snapshot)
+    assert input_digest(snapshot, strength_weight=Decimal(0)) != input_digest(snapshot)
+    assert input_digest(snapshot, strength_weight=Decimal("0.5")) != input_digest(
+        snapshot, strength_weight=Decimal(1)
+    )
+
+
 def test_service_does_not_write_to_the_database(session: Session) -> None:
     league_id = _seed_league(session, weeks=_standard_weeks())
     before = session.get_bind()
@@ -722,6 +803,67 @@ def test_AC_PO_07_invalid_query_values_get_structured_422(
     assert "input" not in response.json()["detail"][0]
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("0", "0"),
+        ("0.1", "0.1"),
+        ("0.50", "0.5"),
+        ("1", "1"),
+        ("1e0", "1"),
+        ("0.123456789012345678", "0.123456789012345678"),
+        ("10.0", "10"),
+    ],
+)
+def test_AC_PO_15_accepts_and_echoes_a_decimal_strength_weight(
+    api_factory: Callable[[], Api], value: str, expected: str
+) -> None:
+    api = api_factory()
+    league_id = _api_league(api)
+    _login(api, _create_user(api, "member@example.com", league_id=league_id))
+
+    response = api.client.get(
+        _prediction_path(league_id),
+        params={"iterations": 1_000, "seed": 21, "strength_weight": value},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["strength_weight"] == expected
+    assert body["model"]["version"] == "vp-mc-2"
+    assert len(body["teams"]) == 4
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "-0.1",
+        "10.1",
+        "NaN",
+        "Infinity",
+        "-Infinity",
+        "abc",
+        "",
+        "0.1234567890123456789",
+        "1e-19",
+    ],
+)
+def test_AC_PO_15_rejects_an_invalid_strength_weight_with_422(
+    api_factory: Callable[[], Api], value: str
+) -> None:
+    api = api_factory()
+    league_id = _api_league(api)
+    _login(api, _create_user(api, "member@example.com", league_id=league_id))
+
+    response = api.client.get(_prediction_path(league_id), params={"strength_weight": value})
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert isinstance(detail, list)
+    assert detail[0]["loc"] == ["query", "strength_weight"]
+    assert "input" not in detail[0]
+
+
 def test_AC_PO_07_response_has_string_probabilities_and_private_cache_header(
     api_factory: Callable[[], Api],
 ) -> None:
@@ -739,8 +881,9 @@ def test_AC_PO_07_response_has_string_probabilities_and_private_cache_header(
     assert body["status"] == "ok"
     assert body["iterations"] == 1_000
     assert body["seed"] == 123
+    assert body["strength_weight"] == "1"
     assert body["model"] == {
-        "version": "vp-mc-1",
+        "version": "vp-mc-2",
         "shrink_games": 3,
         "residual_mix_games": 4,
         "score_precision": "0.01",
@@ -838,9 +981,10 @@ GOLDEN_PREDICTION = {
     "reason": None,
     "iterations": 1000,
     "seed": 1234,
-    "input_version": "sha256:4bf8bf99dc61fcab5953626324225c3da9c3eccfcd489d38d236b45944dd07af",
+    "strength_weight": "1",
+    "input_version": "sha256:74b06f9601bc151cef285e6f2d290359b649afa6292f67f6acd2f8b99d10ab6e",
     "model": {
-        "version": "vp-mc-1",
+        "version": "vp-mc-2",
         "shrink_games": 3,
         "residual_mix_games": 4,
         "score_precision": "0.01",
@@ -936,6 +1080,7 @@ def _dummy_odds(league_id: int) -> object:
         reason=None,
         iterations=0,
         seed=None,
+        strength_weight=Decimal(1),
         input_version="sha256:test",
         confidence="normal",
         completed_weeks=1,
@@ -957,7 +1102,8 @@ def test_cache_evicts_the_least_recently_used_entry_and_prunes_locks() -> None:
             input_digest="sha256:test",
             iterations=1_000,
             seed=1,
-            model_version="vp-mc-1",
+            model_version="vp-mc-2",
+            strength_weight="1",
         )
         for index in range(1, 4)
     ]

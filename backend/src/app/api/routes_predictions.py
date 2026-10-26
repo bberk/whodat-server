@@ -9,9 +9,11 @@ the CPU from repeated unique-seed requests.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from pydantic import AfterValidator
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -21,6 +23,12 @@ from app.api.routes_standings import MemberDep, _raise_standings_error
 from app.api.schemas_auth import PublicUser, error_detail
 from app.api.schemas_predictions import PlayoffOddsResponse, to_playoff_odds_response
 from app.db.session import get_session
+from app.domain.predictions import (
+    DEFAULT_STRENGTH_WEIGHT,
+    STRENGTH_WEIGHT_MAX,
+    STRENGTH_WEIGHT_MIN,
+    normalize_strength_weight,
+)
 from app.services.prediction_service import (
     CACHE_CONTROL,
     CACHE_MAX_ENTRIES,
@@ -93,6 +101,20 @@ SeedQuery = Annotated[
     int | None,
     Query(ge=0, le=MAX_SEED, description="Explicit seed; derived from the inputs when omitted."),
 ]
+StrengthWeightQuery = Annotated[
+    Decimal,
+    Query(
+        ge=STRENGTH_WEIGHT_MIN,
+        le=STRENGTH_WEIGHT_MAX,
+        allow_inf_nan=False,
+        description=(
+            "Team-strength weight: 0 makes every remaining matchup even, 1 is the default model, "
+            "and up to 10 amplifies stronger teams. Decimals are accepted, with at most 18 "
+            "decimal places."
+        ),
+    ),
+    AfterValidator(normalize_strength_weight),
+]
 
 
 @router.get(
@@ -113,15 +135,24 @@ def get_playoff_odds(
     service: PredictionServiceDep,
     iterations: IterationsQuery = DEFAULT_ITERATIONS,
     seed: SeedQuery = None,
+    strength_weight: StrengthWeightQuery = DEFAULT_STRENGTH_WEIGHT,
 ) -> PlayoffOddsResponse:
     """Return per-team playoff, bye, and division-title probabilities for a league season.
 
     Only the league's latest stored season is simulated. An older stored season returns a
     structured 409 ``season_not_current`` without reading simulation inputs or touching the cache;
-    an unknown league or unstored season keeps the standings-style 404.
+    an unknown league or unstored season keeps the standings-style 404. ``strength_weight`` scales
+    team strength in future weeks only; it never changes stored data, the provider, or current
+    totals.
     """
     try:
-        odds = service.get_playoff_odds(league_id, season, iterations=iterations, seed=seed)
+        odds = service.get_playoff_odds(
+            league_id,
+            season,
+            iterations=iterations,
+            seed=seed,
+            strength_weight=strength_weight,
+        )
     except StandingsServiceError as error:
         _raise_standings_error(error)
     response.headers["Cache-Control"] = CACHE_CONTROL

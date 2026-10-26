@@ -155,6 +155,13 @@ change standings, clinch designations, Elo, or stored data.
   shrinkage toward the pooled set) or the pooled residual set. With fewer than two counted weeks (or
   no team with two observations) the model uses week-centred residuals and no team deviation. No
   prior or invented score is used.
+- **Team-strength weight.** The simulation accepts one optional dial, a team-strength weight `w` from
+  0 to 10 inclusive with up to 18 decimal places. It scales only the projected future scores:
+  `base_t = mu_bar + w * delta_t`, and the probability of drawing a team's own residuals becomes
+  `min(1, w) * n_t / (n_t + 4)`. At `w = 1` nothing changes; at `w = 0` every remaining matchup is
+  even because all teams share the grand mean and the pooled residuals, while the exact current VP,
+  wins, and points for still decide seeding; values above 1 overweight stronger teams. The weight is
+  reported with the result and is part of the cache identity; it is never stored.
 - **Seeding.** The final table ranks by season VP, then H2H wins, then points for, then team name and
   id. Division winners are seeded first, in that same order; the remaining teams follow in overall
   order. Exactly `playoff_team_count` teams qualify.
@@ -337,7 +344,10 @@ Pages and views:
 5. **League admin**: a page available only to signed-in admins for a selected league. It also runs
    an on-demand **Playoff odds simulation** for the current season only (the league's latest stored
    season, stated explicitly with no season selector), with a simulations count (1,000-50,000,
-   default 10,000), an optional seed, and a Run simulations action. This is separate from the provider season refresh: it never contacts ESPN and never
+   default 10,000), a team-strength weight (0-10, decimals, default 1, with help text explaining
+   that 0 makes remaining matchups even, 1 is the current model, and values above 1 overweight
+   stronger teams), an optional seed, and a Run simulations action. This is separate from the
+   provider season refresh: it never contacts ESPN and never
    changes stored data. It manages the
    league's membership (member list by email with role, owner association, and credential status, and
    confirmed removal with a last-admin guard and a credential warning), a single **seasons table**

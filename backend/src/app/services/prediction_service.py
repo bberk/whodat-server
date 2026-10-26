@@ -4,8 +4,8 @@ The service reads stored season data through
 :class:`~app.services.standings_service.StandingsService` and runs the pure simulator in
 :mod:`app.domain.predictions`. It never writes to the database. Only the league's latest stored
 season can be simulated; a prior season is rejected before its snapshot is read or the cache is
-consulted. The result is cached in-process by input digest, iteration count, seed, and model
-version, so repeated page loads do not recompute the same league season.
+consulted. The result is cached in-process by input digest, iteration count, seed, team-strength
+weight, and model version, so repeated page loads do not recompute the same league season.
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ from typing import Literal
 from sqlalchemy.orm import Session
 
 from app.domain.predictions import (
+    DEFAULT_STRENGTH_WEIGHT,
     MODEL_VERSION,
     RESIDUAL_MIX_GAMES,
     SHRINK_GAMES,
@@ -34,6 +35,7 @@ from app.domain.predictions import (
     SeasonSimulation,
     SeededDrawSource,
     TeamSeasonTotals,
+    normalize_strength_weight,
     simulate_season,
 )
 from app.services.standings_service import PredictionSnapshot, StandingsService
@@ -53,7 +55,7 @@ MAX_SEED = (1 << 31) - 1
 #: Cache lifetime. A changed input digest always misses, so the TTL only bounds memory.
 CACHE_TTL_SECONDS = 1_800.0
 
-#: Number of distinct (league, season, input, iterations, seed) results kept.
+#: Number of distinct (league, season, input, iterations, seed, weight) results kept.
 CACHE_MAX_ENTRIES = 64
 
 #: Member-only payloads must not be cached by a shared proxy.
@@ -111,6 +113,7 @@ class PlayoffOdds:
     reason: PredictionReason | None
     iterations: int
     seed: int | None
+    strength_weight: Decimal
     input_version: str
     confidence: Literal["low", "normal"] | None
     completed_weeks: int
@@ -130,6 +133,7 @@ class _CacheKey:
     iterations: int
     seed: int
     model_version: str
+    strength_weight: str
 
 
 @dataclass(frozen=True)
@@ -240,6 +244,7 @@ class PredictionService:
         *,
         iterations: int = DEFAULT_ITERATIONS,
         seed: int | None = None,
+        strength_weight: Decimal = DEFAULT_STRENGTH_WEIGHT,
     ) -> PlayoffOdds:
         """Return the cached or freshly simulated playoff odds for a league season.
 
@@ -248,18 +253,20 @@ class PredictionService:
         read, any cache entry is consulted, or any simulation runs. Unknown leagues and unstored
         seasons keep raising the standings-service not-found errors.
 
-        ``iterations`` must be within 1,000-50,000 and ``seed`` must be 0..2**31-1 when supplied;
-        an omitted seed is derived from the input digest, the iteration count, and the model
-        version so the same data and parameters return the same numbers on every page load.
+        ``iterations`` must be within 1,000-50,000, ``seed`` must be 0..2**31-1 when supplied, and
+        ``strength_weight`` must be a finite decimal in 0..10. An omitted seed is derived from the
+        input digest, the iteration count, and the model version, so the same data and parameters
+        return the same numbers on every page load.
         """
         if not MIN_ITERATIONS <= iterations <= MAX_ITERATIONS:
             raise ValueError(f"iterations must be between {MIN_ITERATIONS} and {MAX_ITERATIONS}")
         if seed is not None and not 0 <= seed <= MAX_SEED:
             raise ValueError(f"seed must be between 0 and {MAX_SEED}")
+        weight_text = format_strength_weight(strength_weight)
 
         self._standings.require_current_season(league_id, season)
         snapshot = self._standings.get_prediction_snapshot(league_id, season)
-        digest = input_digest(snapshot)
+        digest = input_digest(snapshot, strength_weight=strength_weight)
         effective_seed = seed if seed is not None else derive_seed(digest, iterations)
         key = _CacheKey(
             league_id=league_id,
@@ -268,19 +275,41 @@ class PredictionService:
             iterations=iterations,
             seed=effective_seed,
             model_version=MODEL_VERSION,
+            strength_weight=weight_text,
         )
         return self._cache.get_or_compute(
             key,
-            lambda: _compute(snapshot, digest=digest, iterations=iterations, seed=effective_seed),
+            lambda: _compute(
+                snapshot,
+                digest=digest,
+                iterations=iterations,
+                seed=effective_seed,
+                strength_weight=strength_weight,
+            ),
         )
 
 
+def format_strength_weight(value: Decimal) -> str:
+    """Return the canonical text of a team-strength weight, or raise ``ValueError``.
+
+    Canonical text makes ``1``, ``1.0``, and ``1.00`` the same cache key and the same digest input,
+    while keeping the exact decimal the caller sent. Out-of-range, non-finite, and over-precise
+    values are rejected here as well as in the route, so no caller reaches the simulator with them.
+    """
+    return format(normalize_strength_weight(value), "f")
+
+
 def _compute(
-    snapshot: PredictionSnapshot, *, digest: str, iterations: int, seed: int
+    snapshot: PredictionSnapshot,
+    *,
+    digest: str,
+    iterations: int,
+    seed: int,
+    strength_weight: Decimal,
 ) -> PlayoffOdds:
     """Run the pure simulator once and project its counts into probabilities."""
     outcome = simulate_season(
-        _simulation_inputs(snapshot),
+        _simulation_inputs(snapshot, strength_weight),
         iterations=iterations,
         draws=SeededDrawSource(seed),
     )
@@ -292,6 +321,7 @@ def _compute(
             reason=outcome.reason,
             iterations=0,
             seed=None,
+            strength_weight=strength_weight,
             input_version=digest,
             confidence=None,
             completed_weeks=len(snapshot.counted_weeks),
@@ -300,7 +330,9 @@ def _compute(
             division_count=_division_count(snapshot.teams),
             teams=(),
         )
-    return _result_odds(snapshot, outcome, digest=digest, seed=seed)
+    return _result_odds(
+        snapshot, outcome, digest=digest, seed=seed, strength_weight=strength_weight
+    )
 
 
 def _result_odds(
@@ -309,6 +341,7 @@ def _result_odds(
     *,
     digest: str,
     seed: int,
+    strength_weight: Decimal,
 ) -> PlayoffOdds:
     """Build probability rows; a finished season reports exact zero/one probabilities."""
     samples = simulation.iterations
@@ -330,6 +363,7 @@ def _result_odds(
         reason=None,
         iterations=samples,
         seed=None if samples == 0 else seed,
+        strength_weight=strength_weight,
         input_version=digest,
         confidence=simulation.confidence,
         completed_weeks=simulation.completed_weeks,
@@ -340,7 +374,9 @@ def _result_odds(
     )
 
 
-def _simulation_inputs(snapshot: PredictionSnapshot) -> SeasonPredictionInputs:
+def _simulation_inputs(
+    snapshot: PredictionSnapshot, strength_weight: Decimal
+) -> SeasonPredictionInputs:
     """Project the service snapshot into the domain's immutable input type."""
     return SeasonPredictionInputs(
         teams=snapshot.teams,
@@ -349,6 +385,7 @@ def _simulation_inputs(snapshot: PredictionSnapshot) -> SeasonPredictionInputs:
         regular_season_length=snapshot.regular_season_length,
         playoff_team_count=snapshot.playoff_team_count,
         cup_week=snapshot.cup_week,
+        strength_weight=strength_weight,
     )
 
 
@@ -388,12 +425,14 @@ def derive_seed(digest: str, iterations: int) -> int:
     return int.from_bytes(hashlib.sha256(payload).digest()[:8], "big") % (MAX_SEED + 1)
 
 
-def input_digest(snapshot: PredictionSnapshot) -> str:
+def input_digest(
+    snapshot: PredictionSnapshot, *, strength_weight: Decimal = DEFAULT_STRENGTH_WEIGHT
+) -> str:
     """Return a canonical SHA-256 digest of the simulation inputs only.
 
     ``last_refreshed_at`` is deliberately absent: a refresh that changes nothing keeps the cache.
-    A score, pairing, cup week, playoff field, division, team name, or current total change does
-    invalidate it.
+    A score, pairing, cup week, playoff field, division, team name, current total, or team-strength
+    weight change does invalidate it.
     """
     payload = {
         "league_id": snapshot.league_id,
@@ -401,6 +440,7 @@ def input_digest(snapshot: PredictionSnapshot) -> str:
         "regular_season_length": snapshot.regular_season_length,
         "cup_week": snapshot.cup_week,
         "playoff_team_count": snapshot.playoff_team_count,
+        "strength_weight": format_strength_weight(strength_weight),
         "teams": [
             _team_payload(team) for team in sorted(snapshot.teams, key=lambda item: item.team_id)
         ],

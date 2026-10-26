@@ -144,7 +144,12 @@ export const api = {
   playoffOdds(
     leagueId: number,
     season: number,
-    options: { iterations?: number; seed?: number; signal?: AbortSignal } = {},
+    options: {
+      iterations?: number;
+      seed?: number;
+      strengthWeight?: string;
+      signal?: AbortSignal;
+    } = {},
   ): Promise<PlayoffOddsResponse> {
     const params = new URLSearchParams();
     if (options.iterations !== undefined) {
@@ -152,6 +157,9 @@ export const api = {
     }
     if (options.seed !== undefined) {
       params.set("seed", String(options.seed));
+    }
+    if (options.strengthWeight !== undefined) {
+      params.set("strength_weight", options.strengthWeight);
     }
     const query = params.toString();
     return apiRequest<PlayoffOddsResponse>(

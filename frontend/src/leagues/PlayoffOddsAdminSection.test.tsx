@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -73,14 +73,23 @@ describe("PlayoffOddsAdminSection", () => {
     expect(screen.getByText("2026 — current season")).toBeInTheDocument();
     expect(screen.queryByLabelText("Simulation season")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Simulations")).toHaveValue(10000);
+    expect(screen.getByLabelText("Team strength weight")).toHaveValue(1);
     expect(screen.getByLabelText("Seed (optional)")).toHaveValue(null);
     expect(screen.getByText(/does not contact ESPN or refresh stored data/i)).toBeInTheDocument();
+    expect(screen.getByLabelText("Team strength weight")).toHaveAttribute(
+      "aria-describedby",
+      "playoff-odds-strength-weight-hint",
+    );
+    expect(screen.getByText(/0 makes every remaining matchup even/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 is the current model/i)).toBeInTheDocument();
+    expect(screen.getByText(/values above 1 overweight stronger teams/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Run simulations" }));
 
     expect(await screen.findByText(/10,000 simulated seasons/i)).toBeVisible();
     expect(screen.getByText(/seed 1837462/i)).toBeInTheDocument();
-    expect(screen.getByText(/Model vp-mc-1:/i)).toBeInTheDocument();
+    expect(screen.getByText(/strength weight 1/i)).toBeInTheDocument();
+    expect(screen.getByText(/Model vp-mc-2:/i)).toBeInTheDocument();
     const table = screen.getByRole("region", {
       name: "Playoff odds, scrollable horizontally",
     });
@@ -88,9 +97,28 @@ describe("PlayoffOddsAdminSection", () => {
     const requestUrl = new URL(urls[0]);
     expect(requestUrl.pathname).toBe("/api/v1/leagues/1/seasons/2026/playoff-odds");
     expect(requestUrl.searchParams.get("iterations")).toBe("10000");
+    expect(requestUrl.searchParams.get("strength_weight")).toBe("1");
     expect(requestUrl.searchParams.has("seed")).toBe(false);
     expect(urls.some((url) => url.includes("/refresh"))).toBe(false);
     expect(value.notifyDataChanged).not.toHaveBeenCalled();
+  });
+
+  it("sends a decimal team strength weight to the odds endpoint", async () => {
+    const urls: string[] = [];
+    oddsFetch(
+      { ...playoffOddsResponse, strength_weight: "0.5", input_version: "sha256:even" },
+      urls,
+    );
+    const user = userEvent.setup();
+    renderSection();
+
+    await user.clear(screen.getByLabelText("Team strength weight"));
+    await user.type(screen.getByLabelText("Team strength weight"), "0.5");
+    await user.click(screen.getByRole("button", { name: "Run simulations" }));
+
+    expect(await screen.findByText(/strength weight 0.5/i)).toBeVisible();
+    const requestUrl = new URL(urls[0]);
+    expect(requestUrl.searchParams.get("strength_weight")).toBe("0.5");
   });
 
   it("runs only the latest stored season even when an older season is selected", async () => {
@@ -128,6 +156,12 @@ describe("PlayoffOddsAdminSection", () => {
       message: /1,000 to 50,000/,
     },
     { label: "seed", field: "Seed (optional)", value: "-1", message: /whole seed/i },
+    {
+      label: "weight",
+      field: "Team strength weight",
+      value: "10.1",
+      message: /0 to 10, for example 1 or 0.5/,
+    },
   ])("rejects an invalid $label before requesting the API", async ({ field, value, message }) => {
     let calls = 0;
     mockFetch(() => {
@@ -142,6 +176,39 @@ describe("PlayoffOddsAdminSection", () => {
     await user.click(screen.getByRole("button", { name: "Run simulations" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(message);
+    expect(calls).toBe(0);
+  });
+
+  it("rejects an empty team strength weight before requesting the API", async () => {
+    let calls = 0;
+    mockFetch(() => {
+      calls += 1;
+      return jsonResponse(playoffOddsResponse);
+    });
+    const user = userEvent.setup();
+    renderSection();
+
+    await user.clear(screen.getByLabelText("Team strength weight"));
+    await user.click(screen.getByRole("button", { name: "Run simulations" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/0 to 10/);
+    expect(calls).toBe(0);
+  });
+
+  it("rejects a non-decimal team strength weight", async () => {
+    let calls = 0;
+    mockFetch(() => {
+      calls += 1;
+      return jsonResponse(playoffOddsResponse);
+    });
+    const user = userEvent.setup();
+    renderSection();
+
+    // A number input accepts scientific notation, but the endpoint contract is a plain decimal.
+    fireEvent.change(screen.getByLabelText("Team strength weight"), { target: { value: "1e1" } });
+    await user.click(screen.getByRole("button", { name: "Run simulations" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/0 to 10/);
     expect(calls).toBe(0);
   });
 
