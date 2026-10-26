@@ -97,7 +97,7 @@ afterEach(() => {
 });
 
 describe("HistoryPage", () => {
-  it("renders the chart summary, legend, cup marker, and current scores table", async () => {
+  it("renders the chart summary, legend, and current scores table", async () => {
     eloFetch();
     renderPage();
 
@@ -115,7 +115,9 @@ describe("HistoryPage", () => {
     const chart = screen.getByRole("img", { name: /Elo score history, Round robin/i });
     expect(chart).toBeInTheDocument();
     expect(chart.getAttribute("aria-label")).toContain("Alpha leads at 1525.20");
-    expect(chart.getAttribute("aria-label")).toContain("Cup weeks are marked and count");
+    expect(chart.getAttribute("aria-label")).not.toMatch(/Cup/i);
+    expect(chart.querySelectorAll("[data-dot]")).toHaveLength(7);
+    expect(chart.parentElement?.querySelector("[data-cup-week]")).toBeNull();
 
     const table = screen.getByRole("region", {
       name: "Elo score history current scores, scrollable horizontally",
@@ -132,10 +134,11 @@ describe("HistoryPage", () => {
     expect(within(rows[3]).getByText("1475")).toBeInTheDocument();
     expect(within(rows[3]).getByText("-12.60")).toBeInTheDocument();
 
-    // The data-table alternative carries the exact values, the gap, and the cup-week header.
+    // The data-table alternative carries the exact values and the gap.
     await userEvent.setup().click(screen.getByText("View chart data as a table"));
     const data = screen.getByRole("region", { name: "Elo score history data table" });
-    expect(within(data).getByRole("columnheader", { name: "2025 W2 (cup)" })).toBeInTheDocument();
+    expect(within(data).getByRole("columnheader", { name: "2025 W2" })).toBeInTheDocument();
+    expect(within(data).queryByRole("columnheader", { name: /cup/i })).not.toBeInTheDocument();
     const alphaRow = within(data).getByRole("row", { name: /Alpha/ });
     expect(within(alphaRow).getAllByRole("cell")[0]).toHaveTextContent("1512.60");
     const charlieRow = within(data).getByRole("row", { name: /Charlie/ });
