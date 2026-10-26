@@ -305,7 +305,7 @@ Pages and views:
    - Season selector (default: current season).
    - **Overall standings table**: rank, team, owner, season VP, H2H record (W-L-T), points for, and one column per week showing that week's VP. A proven playoff designation appears beside the team: **Z** top seed, **Y** division winner, **X** clinched playoff berth, or **E** eliminated. A text legend near the table explains all four; status is never conveyed by colour alone.
    - **Division standings**: one table per division; the division only filters and groups the rows, and the rank displayed for each team is its overall league rank. Division rows carry the same designation as the overall table.
-   - **Playoff odds**: below the overall table, a separately loaded section estimates each team's
+   - **Playoff odds**: below the WAPDate standings, a separately loaded section estimates each team's
      playoff berth, first-round bye, and division-title probability from a Monte Carlo simulation of
      the remaining season (section 3.7). It shows Team, Division, Playoff %, Bye %, and the
      uncertainty range; numeric columns sort on the client, and the team column is pinned at narrow

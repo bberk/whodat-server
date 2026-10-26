@@ -633,10 +633,10 @@ structured 422s; a non-admin member gets 403; a non-member or unknown league get
   hover/focus explanations used by the Elo model and settings fields.
 - **State**: server state via TanStack Query; local UI state (selected team, hidden chart series) in component state or a small store. No global state library needed.
 - **Components**: `StandingsTable` (reused for overall and per-division, with `ClinchBadge` beside
-  the team and `ClinchLegend` above the overall table), `PlayoffOddsSection` (a separately loaded
-  section below the overall table with `PlayoffOddsTable`, sortable playoff/bye columns, interval
-  text, and unavailable/error/loading states), `WapdateSection` (period
-  toggle plus a lowest-first table below the chart), `WeeklyVPCells`, `VPChart`, `EloChart`,
+  the team and `ClinchLegend` above the overall table), `WapdateSection` (period
+  toggle plus a lowest-first table below the chart), `PlayoffOddsSection` (a separately loaded
+  section below the WAPDate standings with `PlayoffOddsTable`, sortable playoff/bye columns,
+  interval text, and unavailable/error/loading states), `WeeklyVPCells`, `VPChart`, `EloChart`,
   `EloRatingsTable`, `InfoTooltip`, `TeamSelector`/legend, `SeasonPicker`, `LeagueSwitcher`,
   `SeasonsSection`, `EloSettingsSection`, `MembersSection`, `InvitesSection`,
   `DeleteLeagueSection`, layout/nav, and states (`Loading`, `Empty`, `ErrorState`).
