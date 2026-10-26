@@ -154,6 +154,36 @@ describe("StandingsPage", () => {
     ]);
   });
 
+  it("hides playoff odds for a prior season without requesting them", async () => {
+    const paths: string[] = [];
+    mockFetch((url) => {
+      const path = requestPath(url);
+      paths.push(path);
+      if (path.endsWith("/standings")) {
+        return jsonResponse(standingsResponse);
+      }
+      if (path.endsWith("/vp-history")) {
+        return jsonResponse(historyResponse);
+      }
+      if (path.endsWith("/wapdate")) {
+        return jsonResponse(wapdateResponse);
+      }
+      if (path.endsWith("/playoff-odds")) {
+        return jsonResponse(playoffOddsResponse);
+      }
+      return errorResponse(404, { code: "not_found", message: "Not found" });
+    });
+
+    renderPage(contextValue({ seasons: [2025, 2026], season: 2025 }));
+
+    await screen.findByRole("heading", { level: 2, name: "WAPDate standings" });
+    expect(
+      screen.queryByRole("heading", { level: 2, name: "Playoff odds" }),
+    ).not.toBeInTheDocument();
+    expect(paths.some((path) => path.includes("/seasons/2025/standings"))).toBe(true);
+    expect(paths.some((path) => path.endsWith("/playoff-odds"))).toBe(false);
+  });
+
   it("shows W-L-T when a team recorded an H2H tie", async () => {
     const tied = {
       ...standingsResponse,

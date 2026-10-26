@@ -1,13 +1,14 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 
 import { api } from "../api/endpoints";
 import { toDisplayError, type DisplayError } from "../api/errors";
 import type { PlayoffOddsResponse } from "../api/types";
 import { ApiAlert } from "../components/ApiAlert";
 import { EmptyState, ErrorState, LoadingState } from "../components/DataStates";
-import { inputClass, labelClass, primaryButtonClass, selectClass } from "../components/formStyles";
+import { inputClass, labelClass, primaryButtonClass } from "../components/formStyles";
 import { toggleSort, type SortDirection, type SortState } from "../components/sorting";
 import { useLeague } from "./LeagueContext";
+import { latestSeason } from "./latestSeason";
 import { PLAYOFF_ODDS_UNAVAILABLE_COPY } from "../standings/playoffOddsCopy";
 import { PlayoffOddsTable } from "../standings/PlayoffOddsTable";
 
@@ -22,42 +23,32 @@ type SimulationState =
   | { status: "error"; error: DisplayError }
   | { status: "ready"; odds: PlayoffOddsResponse };
 
-function latestSeason(seasons: readonly number[]): number | null {
-  return seasons.length === 0 ? null : seasons[seasons.length - 1];
-}
-
 function simulationSummary(odds: PlayoffOddsResponse): string {
   if (odds.iterations === 0) {
-    return `Regular season complete · final seeding · model ${odds.model.version}`;
+    return `${odds.season} season · regular season complete · final seeding · model ${odds.model.version}`;
   }
-  return `${odds.iterations.toLocaleString()} simulated seasons · seed ${odds.seed ?? "derived"} · model ${odds.model.version}`;
+  return `${odds.season} season · ${odds.iterations.toLocaleString()} simulated seasons · seed ${odds.seed ?? "derived"} · model ${odds.model.version}`;
 }
 
 /**
- * Admin: run the playoff-odds simulation for one stored season.
+ * Admin: run the playoff-odds simulation for the current season only.
  *
- * This section is deliberately separate from the seasons table: running it never contacts ESPN and
- * never refreshes stored data. It reveals the iteration count and optional seed, runs the existing
- * member-only odds endpoint, and shows the same table as the standings page. A missing playoff field
- * or an incomplete schedule is reported with the documented unavailable copy, pointing the admin at
- * the Seasons refresh.
+ * The current season is the league's latest stored season, the same rule the API enforces. There is
+ * deliberately no season selector, so a prior season can never be simulated from this page. This
+ * section is separate from the seasons table: running it never contacts ESPN and never refreshes
+ * stored data. It reveals the iteration count and optional seed, runs the existing member-only odds
+ * endpoint, and shows the same table as the standings page. A missing playoff field or an
+ * incomplete schedule is reported with the documented unavailable copy, pointing the admin at the
+ * Seasons refresh.
  */
 export function PlayoffOddsAdminSection({ leagueId }: { leagueId: number }) {
-  const { seasons, seasonsStatus, seasonsError, season, reloadSeasons } = useLeague();
-  const fallbackSeason =
-    season !== null && seasons.includes(season) ? season : latestSeason(seasons);
-  const [selectedSeason, setSelectedSeason] = useState<number | null>(fallbackSeason);
+  const { seasons, seasonsStatus, seasonsError, reloadSeasons } = useLeague();
+  const currentSeason = latestSeason(seasons);
   const [iterations, setIterations] = useState(String(DEFAULT_ITERATIONS));
   const [seed, setSeed] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [state, setState] = useState<SimulationState>({ status: "idle" });
   const [sort, setSort] = useState<SortState>({ key: "playoff", direction: "desc" });
-
-  useEffect(() => {
-    setSelectedSeason((current) =>
-      current !== null && seasons.includes(current) ? current : fallbackSeason,
-    );
-  }, [seasons, fallbackSeason]);
 
   const handleSort = (key: string, initialDirection: SortDirection) => {
     setSort((current) => toggleSort(current, key, initialDirection));
@@ -66,8 +57,8 @@ export function PlayoffOddsAdminSection({ leagueId }: { leagueId: number }) {
   const run = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setFormError(null);
-    if (selectedSeason === null) {
-      setFormError("Choose a stored season first.");
+    if (currentSeason === null) {
+      setFormError("The league has no current stored season to simulate.");
       return;
     }
     const iterationText = iterations.trim();
@@ -97,7 +88,7 @@ export function PlayoffOddsAdminSection({ leagueId }: { leagueId: number }) {
 
     setState({ status: "loading", iterations: parsedIterations });
     try {
-      const odds = await api.playoffOdds(leagueId, selectedSeason, {
+      const odds = await api.playoffOdds(leagueId, currentSeason, {
         iterations: parsedIterations,
         ...(parsedSeed === undefined ? {} : { seed: parsedSeed }),
       });
@@ -114,8 +105,9 @@ export function PlayoffOddsAdminSection({ leagueId }: { leagueId: number }) {
         Playoff odds simulation
       </h2>
       <p className="mt-1 text-[13px] text-ink-faint">
-        Run the remaining-season simulation for one stored season. This does not contact ESPN or
-        refresh stored data; use the Seasons table above when a season needs a provider re-sync.
+        Run the remaining-season simulation for the current season only, the league&apos;s latest
+        stored season. This does not contact ESPN or refresh stored data; use the Seasons table
+        above when a season needs a provider re-sync. Prior seasons are not simulated.
       </p>
 
       {seasonsStatus === "loading" ? <LoadingState label="Loading seasons…" /> : null}
@@ -139,26 +131,10 @@ export function PlayoffOddsAdminSection({ leagueId }: { leagueId: number }) {
         >
           <div className="grid gap-3 sm:grid-cols-3">
             <div>
-              <label htmlFor="playoff-odds-season" className={labelClass}>
-                Simulation season
-              </label>
-              <select
-                id="playoff-odds-season"
-                className={`${selectClass} w-full`}
-                value={selectedSeason ?? ""}
-                disabled={state.status === "loading"}
-                onChange={(event) => {
-                  setSelectedSeason(Number(event.target.value));
-                  setState({ status: "idle" });
-                  setFormError(null);
-                }}
-              >
-                {seasons.map((stored) => (
-                  <option key={stored} value={stored}>
-                    {stored}
-                  </option>
-                ))}
-              </select>
+              <span className={labelClass}>Simulation season</span>
+              <p className="mt-1 text-sm font-semibold text-ink">
+                {currentSeason} — current season
+              </p>
             </div>
             <div>
               <label htmlFor="playoff-odds-iterations" className={labelClass}>
@@ -227,7 +203,7 @@ export function PlayoffOddsAdminSection({ leagueId }: { leagueId: number }) {
 
       {state.status === "error" ? <ApiAlert error={state.error} /> : null}
 
-      {state.status === "ready" ? (
+      {state.status === "ready" && state.odds.season === currentSeason ? (
         <SimulationResult odds={state.odds} sort={sort} onSort={handleSort} />
       ) : null}
     </section>

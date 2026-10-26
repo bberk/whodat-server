@@ -98,6 +98,11 @@ SeedQuery = Annotated[
 @router.get(
     "/leagues/{league_id}/seasons/{season}/playoff-odds",
     response_model=PlayoffOddsResponse,
+    responses={
+        status.HTTP_409_CONFLICT: {
+            "description": "The season is stored but is not the league's current season.",
+        }
+    },
 )
 def get_playoff_odds(
     league_id: LeagueIdPath,
@@ -109,7 +114,12 @@ def get_playoff_odds(
     iterations: IterationsQuery = DEFAULT_ITERATIONS,
     seed: SeedQuery = None,
 ) -> PlayoffOddsResponse:
-    """Return per-team playoff, bye, and division-title probabilities for a league season."""
+    """Return per-team playoff, bye, and division-title probabilities for a league season.
+
+    Only the league's latest stored season is simulated. An older stored season returns a
+    structured 409 ``season_not_current`` without reading simulation inputs or touching the cache;
+    an unknown league or unstored season keeps the standings-style 404.
+    """
     try:
         odds = service.get_playoff_odds(league_id, season, iterations=iterations, seed=seed)
     except StandingsServiceError as error:

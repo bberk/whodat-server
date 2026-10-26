@@ -168,6 +168,10 @@ change standings, clinch designations, Elo, or stored data.
   inconsistent remaining schedule (including a playoff game inside the regular season), and an
   unsupported division shape produce an explicit unavailable result. Corrupt season settings still
   produce the standings-style structured error.
+- **Current season only.** Playoff odds describe the season in progress, so they are available only
+  for the league's current season: the latest stored season (the maximum stored season for the
+  league). A prior stored season is rejected by the API and shows no section or admin form, because
+  its schedule is finished rather than remaining.
 - **Presentation.** Probabilities are estimates with a 95% interval for Monte Carlo uncertainty; the
   interval is not a statement of model certainty. A finished regular season is reported as exact
   final seeding with no simulation.
@@ -331,9 +335,9 @@ Pages and views:
      inside its card with a sticky team column and no page-body sideways scroll at 360px.
    - Loading, empty (no rated weeks), and error states are present; colour is never the only signal.
 5. **League admin**: a page available only to signed-in admins for a selected league. It also runs
-   an on-demand **Playoff odds simulation** for a stored season, with a season selector, a
-   simulations count (1,000-50,000, default 10,000), an optional seed, and a Run simulations
-   action. This is separate from the provider season refresh: it never contacts ESPN and never
+   an on-demand **Playoff odds simulation** for the current season only (the league's latest stored
+   season, stated explicitly with no season selector), with a simulations count (1,000-50,000,
+   default 10,000), an optional seed, and a Run simulations action. This is separate from the provider season refresh: it never contacts ESPN and never
    changes stored data. It manages the
    league's membership (member list by email with role, owner association, and credential status, and
    confirmed removal with a last-admin guard and a credential warning), a single **seasons table**
