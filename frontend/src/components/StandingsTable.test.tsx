@@ -177,7 +177,7 @@ describe("StandingsTable", () => {
     const user = userEvent.setup();
     renderTable();
     const weekHeader = screen.getByRole("columnheader", { name: "Week 1 VP" });
-    await user.click(screen.getByRole("button", { name: "Sort by week 1 VP" }));
+    await user.click(screen.getByRole("button", { name: /W1 — sort by week 1 VP/ }));
     expect(weekHeader).toHaveAttribute("aria-sort", "descending");
     // Alpha and Bravo both scored 2.5; the API order (rank 1, then 2) decides the tie.
     expect(
@@ -185,7 +185,7 @@ describe("StandingsTable", () => {
         .slice(0, 2)
         .map((row) => row.textContent),
     ).toEqual([expect.stringContaining("Alpha"), expect.stringContaining("Bravo")]);
-    await user.click(screen.getByRole("button", { name: "Sort by week 1 VP" }));
+    await user.click(screen.getByRole("button", { name: /W1 — sort by week 1 VP/ }));
     expect(weekHeader).toHaveAttribute("aria-sort", "ascending");
     expect(dataRows()[0]).toHaveTextContent("Foxtrot");
   });

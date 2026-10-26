@@ -20,7 +20,12 @@ export default tseslint.config(
     rules: {
       "react-hooks/rules-of-hooks": "error",
       "react-hooks/exhaustive-deps": "warn",
-      "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
+      "react-refresh/only-export-components": [
+        "warn",
+        // v0.5 stopped treating object literals as constant exports; this shared label map is
+        // intentionally exported beside its component.
+        { allowConstantExport: true, allowExportNames: ["CLINCH_LABELS"] },
+      ],
     },
   },
   {

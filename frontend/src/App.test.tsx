@@ -504,6 +504,9 @@ describe("App routing", () => {
     signedInFetch();
     renderAt("/leagues/1/admin");
     await screen.findByRole("heading", { level: 1, name: "League admin" });
+    // The admin heading renders from the route before the league list arrives; wait for the
+    // switcher to become usable so the selection does not race the fetch.
+    await waitFor(() => expect(screen.getByLabelText("League")).not.toBeDisabled());
 
     await user.selectOptions(screen.getByLabelText("League"), "2");
 
