@@ -8,7 +8,7 @@ FROM node:26.12.1-alpine AS build
 
 WORKDIR /app
 
-RUN npm install --global pnpm@12.14.0
+RUN npm install --global pnpm@12.15.0
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
@@ -19,7 +19,7 @@ ARG VITE_API_BASE_URL=http://localhost:8000
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 RUN pnpm build
 
-FROM nginx:1.27-alpine AS runtime
+FROM nginx:1.30-alpine-slim AS runtime
 
 # Client-side routes need index.html for paths nginx does not find on disk.
 RUN printf '%s\n' \
