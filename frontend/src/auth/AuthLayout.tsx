@@ -33,7 +33,7 @@ export function AuthLayout({
             <p className="text-xs text-ink-faint">Fantasy football, ranked your way</p>
           </div>
         </div>
-        <section className="rounded-xl border border-line bg-surface p-5 shadow-sm sm:p-6">
+        <section className="rounded-xl border border-line bg-surface p-5 shadow-xs sm:p-6">
           <h1 className="text-xl font-bold">{title}</h1>
           <p className="mt-1 text-[13px] text-ink-faint">{subtitle}</p>
           <div className="mt-5">{children}</div>

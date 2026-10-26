@@ -149,7 +149,7 @@ export function StandingsTable({
                   key={week}
                   label={`W${week}`}
                   headerLabel={`Week ${week} VP`}
-                  buttonLabel={`Sort by week ${week} VP`}
+                  buttonLabel={`W${week} — sort by week ${week} VP`}
                   sortKey={`week:${week}`}
                   state={sort}
                   onSort={handleSort}

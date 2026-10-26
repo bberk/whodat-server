@@ -289,7 +289,7 @@ export function VPChart({
                 </svg>
                 <span className={selected ? "font-semibold text-brand-ink" : ""}>
                   {entry.teamName}
-                </span>
+                </span>{" "}
                 <span className="tabular-nums text-ink-faint">{formatVP(lastValue(entry))}</span>
               </button>
             </li>

@@ -494,13 +494,13 @@ export function EloChart({
               <button
                 type="button"
                 aria-pressed={selected}
-                aria-label={`Highlight ${entry.name}`}
+                aria-label={`Highlight ${entry.name} ${formatEloValue(entry.current)}`}
                 onClick={() => onSelectTeam(entry.teamKey)}
                 className={`flex items-center gap-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-ink ${
                   shown ? "" : "line-through"
                 }`}
               >
-                <span className={selected ? "font-semibold text-brand-ink" : ""}>{entry.name}</span>
+                <span className={selected ? "font-semibold text-brand-ink" : ""}>{entry.name}</span>{" "}
                 <span className="tabular-nums text-ink-faint">{formatEloValue(entry.current)}</span>
               </button>
             </li>
