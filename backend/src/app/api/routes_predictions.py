@@ -37,6 +37,7 @@ from app.services.prediction_service import (
     MAX_SEED,
     MIN_ITERATIONS,
     PredictionService,
+    iterations_cap_for_role,
 )
 from app.services.standings_service import StandingsServiceError
 
@@ -121,9 +122,12 @@ StrengthWeightQuery = Annotated[
     "/leagues/{league_id}/seasons/{season}/playoff-odds",
     response_model=PlayoffOddsResponse,
     responses={
+        status.HTTP_403_FORBIDDEN: {
+            "description": "The iteration count is above the authenticated role's cap.",
+        },
         status.HTTP_409_CONFLICT: {
             "description": "The season is stored but is not the league's current season.",
-        }
+        },
     },
 )
 def get_playoff_odds(
@@ -131,20 +135,31 @@ def get_playoff_odds(
     season: SeasonPath,
     response: Response,
     _member: MemberDep,
+    current_user: CurrentUserDep,
     _rate: RateLimitDep,
     service: PredictionServiceDep,
     iterations: IterationsQuery = DEFAULT_ITERATIONS,
     seed: SeedQuery = None,
     strength_weight: StrengthWeightQuery = DEFAULT_STRENGTH_WEIGHT,
 ) -> PlayoffOddsResponse:
-    """Return per-team playoff, bye, and division-title probabilities for a league season.
+    """Return per-team playoff, bye, division-title, and championship probabilities.
 
     Only the league's latest stored season is simulated. An older stored season returns a
     structured 409 ``season_not_current`` without reading simulation inputs or touching the cache;
     an unknown league or unstored season keeps the standings-style 404. ``strength_weight`` scales
     team strength in future weeks only; it never changes stored data, the provider, or current
-    totals.
+    totals. Regular members may request at most 10,000 iterations; admins may request up to 100,000.
+    A larger request returns a structured 403 before any simulation runs.
     """
+    cap = iterations_cap_for_role(current_user.role)
+    if iterations > cap:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=error_detail(
+                "iterations_not_allowed",
+                f"This role may request at most {cap:,} simulated seasons",
+            ),
+        )
     try:
         odds = service.get_playoff_odds(
             league_id,

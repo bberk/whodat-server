@@ -50,7 +50,7 @@ Key principle: **dependencies point inward**. The VP engine knows nothing about 
 │   │   │   ├── standings.py     # ranking + tiebreakers (pure)
 │   │   │   ├── wapdate.py       # fixed four-week periods + safe-from-last bounds (pure)
 │   │   │   ├── clinch.py         # conservative playoff designations (pure)
-│   │   │   ├── predictions.py    # Monte Carlo playoff odds: score model, ticks, seeding (pure)
+│   │   │   ├── predictions.py    # Monte Carlo odds: score model, seeding, reseeded bracket (pure)
 │   │   │   ├── elo.py           # Elo formula, modes, regression, franchise history (pure)
 │   │   │   └── types.py
 │   │   ├── providers/
@@ -378,14 +378,25 @@ is the shrunk model, `0` gives every team the grand mean and the pooled residual
 remaining matchups, with current totals still deciding seeding), and `w > 1` amplifies the stronger
 team's edge. The weight travels as an exact `Decimal` with at most 18 decimal places (the bound
 keeps the exact residual draw range a few 64-bit words wide), becomes a `Fraction` inside the
-domain, and never touches stored data. An unavailable result uses one of `no_completed_weeks`,
-`missing_playoff_field`, `incomplete_schedule`, or `unsupported_division_shape`; it never fills a
-missing input with a guess.
+domain, and never touches stored data. Both the route and the frontend accept any castable numeric
+string, including `.25`, `1.`, and `0.25`. An unavailable result uses one of `no_completed_weeks`,
+`missing_playoff_field`, `incomplete_schedule`, `unsupported_division_shape`, or
+`invalid_playoff_bracket`; it never fills a missing input with a guess.
 
 Seeding uses VP, H2H wins, points for, team name, and team id. Division winners occupy the leading
 seeds in that order, followed by the remaining teams. The bye count is
 `min(divisions, max(0, next_power_of_two(P) - P))` and only division winners can receive a bye, so
-exactly `P` teams qualify per simulated season.
+exactly `P` teams qualify per simulated season. The field and bye count must form a complete
+bracket: an even number of non-bye teams whose first round halves to a power of two. A one-team
+field is its own champion; any other unformable shape is `invalid_playoff_bracket`.
+
+After the seeded field, one projected single-elimination bracket is played per iteration. The
+bracket reseeds after every round (highest remaining seed versus lowest), byes apply only in the
+first round to the top `bye_count` seeds, every round draws fresh scores from the same model, the
+higher score wins, and an exact tie goes to the higher seed. Real stored playoff matchups are never
+read or replayed. The champion is tallied separately, so each run has exactly one champion per
+iteration. A finished regular season still projects the requested number of brackets from its final
+seeds; `iterations` is never reported as zero for a successful result.
 
 `StandingsService.get_prediction_snapshot` is the read-only bridge: it exposes current totals, counted
 raw scores, every remaining pairing, the regular-season length, cup week, and playoff field without a
@@ -422,7 +433,7 @@ All endpoints are under `/api/v1`, JSON, cookie-session or bearer-token auth (ba
 | `GET /leagues/{league_id}/seasons/{season}/standings` | member | Overall standings + divisions (shape below) |
 | `GET /leagues/{league_id}/seasons/{season}/vp-history` | member | Weekly and cumulative VP per team (for the chart) |
 | `GET /leagues/{league_id}/seasons/{season}/wapdate` | member | Offered WAPDate periods with status, counted weeks, and lowest-first rows |
-| `GET /leagues/{league_id}/seasons/{season}/playoff-odds?iterations=&seed=&strength_weight=` | member | Monte Carlo playoff, bye, and division-title probabilities with 95% intervals; team-strength weight 0-10 with default 1; current season only (409 `season_not_current` for a prior stored season) |
+| `GET /leagues/{league_id}/seasons/{season}/playoff-odds?iterations=&seed=&strength_weight=` | member | Monte Carlo playoff, bye, division-title, and championship probabilities with 95% intervals from a projected reseeded bracket; iterations 1-100,000 (members capped at 10,000, admins at 100,000); team-strength weight 0-10 with default 1; current season only (409 `season_not_current` for a prior stored season) |
 | `GET /leagues/{league_id}/elo-history?mode=actual_schedule\|round_robin` | member | Full running Elo series, weeks, boundaries, current/peak/low, unrated teams, and warnings |
 | `GET /leagues/{league_id}/elo-config` | admin member | Saved Elo settings, or the defaults |
 | `PUT /leagues/{league_id}/elo-config` | admin member | Validate and persist the five Elo settings; later history reads use them |
@@ -525,12 +536,14 @@ finish last in the current period.
 
 ### Playoff-odds response (shape)
 
-`iterations` is the requested sample count for a simulated season and `0` for a finished regular
-season or an unavailable result. `seed` is the explicit or derived seed, or `null` when no sampling
-ran. `strength_weight` echoes the canonical team-strength weight the simulation used (`"1"` for the
-default model). `model` is versioned metadata. Probabilities and both Wilson bounds are fixed
-four-decimal strings. An unavailable result has `teams=[]` and one of the documented `reason` values;
-missing or corrupt season settings still return the structured 400 used by standings.
+`iterations` is the requested sample count, including for a finished regular season whose final
+seeds are still used to project the bracket. `seed` is the explicit or derived seed, or `null` for
+an unavailable result. `strength_weight` echoes the canonical team-strength weight the simulation
+used (`"1"` for the default model). `model` is versioned metadata. Probabilities and both Wilson
+bounds are fixed four-decimal strings. An unavailable result has `teams=[]` and one of the
+documented `reason` values; missing or corrupt season settings still return the structured 400 used
+by standings. Regular members may request up to 10,000 iterations; admins up to 100,000. A larger
+request is a structured 403 `iterations_not_allowed` before any simulation runs.
 
 ```json
 {
@@ -543,7 +556,7 @@ missing or corrupt season settings still return the structured 400 used by stand
   "strength_weight": "1",
   "input_version": "sha256:6f1c…",
   "model": {
-    "version": "vp-mc-2", "shrink_games": 3, "residual_mix_games": 4,
+    "version": "vp-mc-3", "shrink_games": 3, "residual_mix_games": 4,
     "score_precision": "0.01", "tiebreak_uses_points_for": true
   },
   "confidence": "normal",
@@ -556,7 +569,8 @@ missing or corrupt season settings still return the structured 400 used by stand
       "team_id": 7, "team_name": "…", "division": "East",
       "playoff": {"probability": "0.8421", "low": "0.8345", "high": "0.8497"},
       "bye": {"probability": "0.3120", "low": "0.3011", "high": "0.3231"},
-      "division_title": {"probability": "0.4123", "low": "0.4002", "high": "0.4245"}
+      "division_title": {"probability": "0.4123", "low": "0.4002", "high": "0.4245"},
+      "championship": {"probability": "0.1540", "low": "0.1320", "high": "0.1780"}
     }
   ]
 }
@@ -627,12 +641,11 @@ structured 422s; a non-admin member gets 403; a non-member or unknown league get
   sections: the member list (`MembersSection`: email, role, owner, credential status; confirmed
   removal with a last-admin guard and a credential warning), one seasons table (`SeasonsSection`:
   a row per stored season with its cup-week dropdown, last-refreshed time, per-season refresh, and
-  confirmed delete, plus a `+` action that adds a season), an on-demand `PlayoffOddsAdminSection`
-  (season selector, iteration count, optional seed, and a run that never refreshes provider data),
-  invite generation (`InvitesSection`:
+  confirmed delete, plus a `+` action that adds a season), invite generation (`InvitesSection`:
   member invite bound to the league or league-less admin invite, raw code shown once with a copy
   control), and a separated `DeleteLeagueSection` that requires the league name typed before the
-  destructive action. It also hosts `EloSettingsSection`: the five per-league Elo fields with
+  destructive action. The simulation adjustment controls live in the standings `PlayoffOddsSection`,
+  not on the admin page. It also hosts `EloSettingsSection`: the five per-league Elo fields with
   accessible tooltips, a "Recalculate Elo history" save that invalidates the shared data version,
   and its own loading/saving/success/error states. The cup week saves immediately per row through
   the provider-free cup-week API; refresh and add-season use the caller's stored credentials.

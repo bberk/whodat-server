@@ -214,6 +214,16 @@ test("follows the OS theme, persists an explicit choice, and stays accessible in
   await expect(overall.getByRole("columnheader", { name: "Team" })).toBeVisible();
   await expect(page.getByRole("img", { name: /cumulative victory points/i })).toBeVisible();
 
+  // AC-PO-11/19: the odds table and its controls are present in dark mode; as an admin the
+  // iteration maximum is 100,000.
+  const odds = page.getByRole("region", {
+    name: "Playoff odds, scrollable horizontally",
+  });
+  await expect(odds).toBeVisible();
+  await expect(odds.getByRole("columnheader", { name: "Championship %" })).toBeVisible();
+  await expect(page.getByLabel("Simulations", { exact: true })).toHaveValue("10000");
+  await expect(page.getByText(/Use 1 to 100,000 simulations/i)).toBeVisible();
+
   // The pinned team column stays sticky and keeps an opaque dark background (no bleed-through).
   const teamHeader = overall.getByRole("columnheader", { name: "Team" });
   expect(await teamHeader.evaluate((element) => getComputedStyle(element).position)).toBe("sticky");

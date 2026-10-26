@@ -253,21 +253,33 @@ test("sign up with a member invite, set owner, and read the seeded standings", a
     "aria-sort",
   );
 
-  // AC-PO-11: the playoff-odds section sits below the overall table, loads independently, and
-  // reports the finished regular season as exact final seeding.
+  // AC-PO-11/19: the playoff-odds section sits below the overall table, loads independently, and
+  // owns the simulation controls (moved off the admin page).
   await expect(page.getByRole("heading", { level: 2, name: "Playoff odds" })).toBeVisible();
   const odds = page.getByRole("region", {
     name: "Playoff odds, scrollable horizontally",
   });
   await expect(odds).toBeVisible();
-  await expect(page.getByText(/Regular season complete · final seeding/i)).toBeVisible();
+  await expect(page.getByLabel("Simulations", { exact: true })).toHaveValue("10000");
+  await expect(page.getByLabel("Team strength weight", { exact: true })).toHaveValue("1");
+  await expect(page.getByLabel("Seed (optional)", { exact: true })).toHaveValue("");
+  await expect(page.getByText(/Use 1 to 10,000 simulations/i)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Run", exact: true })).toBeVisible();
+  await expect(page.getByText(/Regular season complete · projected bracket/i)).toBeVisible();
   await expect(odds.getByRole("columnheader", { name: "Playoff %" })).toHaveAttribute(
     "aria-sort",
     "descending",
   );
+  await expect(odds.getByRole("columnheader", { name: "Championship %" })).toBeVisible();
   await expect(odds.getByRole("row")).toHaveCount(fixture.teams.length + 1);
   await expect(odds.getByText("100%", { exact: true }).first()).toBeVisible();
   await expectPinnedColumns(odds, "one");
+
+  // The strength weight accepts a numeric string without a leading zero and reruns in place.
+  await page.getByLabel("Team strength weight", { exact: true }).fill(".25");
+  await page.getByRole("button", { name: "Run", exact: true }).click();
+  await expect(odds).toBeVisible();
+  await expect(odds.getByRole("columnheader", { name: "Championship %" })).toBeVisible();
 
   // AC-FE-05: no page-body sideways scroll at 360/768/1280, wide tables scroll inside their own
   // region, and the team column is pinned at every width.
@@ -342,32 +354,12 @@ test("admin reads the league admin page without blocking accessibility issues", 
   ).toBeVisible();
   await expect(page.getByRole("heading", { level: 2, name: "Members" })).toBeVisible();
 
-  // AC-PO-13: playoff odds run on demand from the admin page, separately from season refresh.
+  // AC-PO-19: simulation controls live on the standings page, not the admin page.
   await expect(
     page.getByRole("heading", { level: 2, name: "Playoff odds simulation" }),
-  ).toBeVisible();
-  // AC-PO-13/14: the admin form states the current season and offers no prior-season selector.
-  await expect(page.getByText(`${fixture.league.season} — current season`)).toBeVisible();
-  await expect(page.getByLabel("Simulation season")).toHaveCount(0);
-  await expect(page.getByLabel("Simulations")).toHaveValue("10000");
-  // AC-PO-13/15: the team-strength weight defaults to 1 and explains 0, 1, and >1 in help text.
-  const strengthWeight = page.getByLabel("Team strength weight");
-  await expect(strengthWeight).toHaveValue("1");
-  await expect(strengthWeight).toHaveAttribute(
-    "aria-describedby",
-    "playoff-odds-strength-weight-hint",
-  );
-  await expect(page.locator("#playoff-odds-strength-weight-hint")).toContainText(
-    "0 makes every remaining matchup even",
-  );
-  await strengthWeight.fill("0.5");
-  await page.getByRole("button", { name: "Run simulations" }).click();
-  await expect(page.getByText(/Regular season complete · final seeding/i)).toBeVisible();
-  await expect(page.getByText(/strength weight 0.5/i)).toBeVisible();
-  await expect(
-    page.getByRole("region", { name: "Playoff odds, scrollable horizontally" }),
-  ).toBeVisible();
-  await expect(page.getByText(/does not contact ESPN or refresh stored data/i)).toBeVisible();
+  ).toHaveCount(0);
+  await expect(page.getByLabel("Simulations", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Team strength weight", { exact: true })).toHaveCount(0);
 
   // AC-Elo-*: the admin page hosts the per-league Elo settings with keyboard tooltips.
   await expect(page.getByRole("heading", { level: 2, name: "Elo settings" })).toBeVisible();

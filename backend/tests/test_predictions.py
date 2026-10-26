@@ -27,6 +27,7 @@ from app.domain.predictions import (
     SeededDrawSource,
     TeamPredictionCounts,
     TeamSeasonTotals,
+    playoff_round_pairs,
     simulate_season,
 )
 from app.domain.types import TeamWeek, TeamWeekCents, WeekVP
@@ -327,10 +328,10 @@ def _finished_result(
             playoff_team_count=playoff_team_count,
             cup_week=None,
         ),
-        iterations=10_000,
+        iterations=1,
     )
     assert isinstance(outcome, SeasonSimulation)
-    assert outcome.iterations == 0
+    assert outcome.iterations == 1
     return outcome
 
 
@@ -372,6 +373,7 @@ def test_AC_PO_04_three_divisions_seed_winners_and_cap_byes_at_divisions() -> No
     assert counts["East Three"].playoff_count == 0
     assert sum(team.playoff_count for team in result.teams) == 6
     assert sum(team.bye_count for team in result.teams) == 2
+    assert sum(team.championship_count for team in result.teams) == 1
 
 
 def test_AC_PO_05_worked_example_scenario_one_seeds_division_winners_and_byes() -> None:
@@ -652,6 +654,116 @@ def test_predictions_each_team_in_its_own_division_still_seeds_every_team() -> N
     assert all(counts[f"Team {index}"].division_title_count == 1 for index in range(1, 5))
 
 
+# ---------------------------------------------------------------------------
+# AC-PO-16/17: the projected, reseeded bracket and its champion
+# ---------------------------------------------------------------------------
+
+
+_SEED_NAMES = ("Seed One", "Seed Two", "Seed Three", "Seed Four", "Seed Five", "Seed Six")
+
+
+def _bracket_inputs(
+    *,
+    playoff_team_count: int,
+    divisions: tuple[str, ...],
+    scores: Sequence[str],
+) -> SeasonPredictionInputs:
+    """Six teams in one counted week; the pool lets a draw choose any observed score exactly.
+
+    With a single counted week every team's base is the grand mean and the pooled residuals are
+    week-centred, so drawing pooled index ``k`` gives the score observed at index ``k``. That makes
+    the bracket's score path exact for a ``FixedDrawSource``.
+    """
+    teams = tuple(
+        _team(
+            index,
+            _SEED_NAMES[index - 1],
+            divisions[index - 1],
+            7 - index,
+            6 - index,
+            str(700 - index),
+        )
+        for index in range(1, 7)
+    )
+    counted = (_counted(1, [(index, scores[index - 1]) for index in range(1, 7)]),)
+    return SeasonPredictionInputs(teams, counted, (), 1, playoff_team_count, None)
+
+
+def test_AC_PO_16_reseeds_every_round_high_seed_against_low_seed() -> None:
+    """The pairing rule is reseeding: highest versus lowest, with byes outside the first round."""
+    assert playoff_round_pairs((1, 2, 3, 4, 5, 6)) == ((1, 6), (2, 5), (3, 4))
+    # Two first-round byes leave seeds 3-6 to play; the byes never appear in a pairing.
+    assert playoff_round_pairs((3, 4, 5, 6)) == ((3, 6), (4, 5))
+    # The next round reseeds the survivors, so seed 1 now meets the lowest survivor.
+    assert playoff_round_pairs((1, 2, 5, 6)) == ((1, 6), (2, 5))
+
+
+def test_AC_PO_16_reseeds_after_every_round_with_first_round_byes() -> None:
+    inputs = _bracket_inputs(
+        playoff_team_count=6,
+        divisions=("East", "West", "East", "West", "East", "West"),
+        scores=("100", "200", "300", "400", "500", "600"),
+    )
+
+    # Round 1: seeds 3-6 play (seeds 1-2 have byes); seed 6 beats 3 and seed 5 beats 4.
+    # Round 2 reseeds to 1v6 and 2v5; both lower seeds win. The final is 5v6 and seed 5 wins.
+    outcome = simulate_season(
+        inputs,
+        iterations=1,
+        draws=FixedDrawSource([0, 5, 0, 4, 0, 5, 0, 4, 5, 0]),
+    )
+    assert isinstance(outcome, SeasonSimulation)
+    counts = _counts_by_name(outcome)
+
+    assert outcome.playoff_field == 6
+    assert outcome.bye_count == 2
+    assert counts["Seed One"].bye_count == 1
+    assert counts["Seed Two"].bye_count == 1
+    assert all(counts[name].playoff_count == 1 for name in _SEED_NAMES)
+    assert counts["Seed Five"].championship_count == 1
+    assert sum(team.championship_count for team in outcome.teams) == 1
+
+
+def test_AC_PO_17_an_exact_tie_advances_the_higher_seed() -> None:
+    inputs = _bracket_inputs(
+        playoff_team_count=4,
+        divisions=("East", "West", "East", "West", "East", "West"),
+        scores=("100", "100", "100", "100", "100", "100"),
+    )
+
+    outcome = simulate_season(inputs, iterations=3)
+    assert isinstance(outcome, SeasonSimulation)
+    counts = _counts_by_name(outcome)
+
+    assert outcome.bye_count == 0
+    assert counts["Seed One"].championship_count == 3
+    assert sum(team.championship_count for team in outcome.teams) == 3
+
+
+def test_AC_PO_16_a_valid_small_bracket_awards_one_division_bye() -> None:
+    teams = (
+        _team(1, "A", "Only", 3, 2, "300"),
+        _team(2, "B", "Only", 2, 1, "200"),
+        _team(3, "C", "Only", 1, 0, "100"),
+    )
+    counted = (_counted(1, [(1, "130"), (2, "120"), (3, "110")]),)
+    outcome = simulate_season(SeasonPredictionInputs(teams, counted, (), 1, 3, None), iterations=2)
+
+    assert isinstance(outcome, SeasonSimulation)
+    assert outcome.bye_count == 1
+    assert sum(team.championship_count for team in outcome.teams) == 2
+
+
+def test_AC_PO_16_an_unformable_bracket_is_unavailable() -> None:
+    inputs = _bracket_inputs(
+        playoff_team_count=6,
+        divisions=("Only", "Only", "Only", "Only", "Only", "Only"),
+        scores=("100", "200", "300", "400", "500", "600"),
+    )
+
+    assert _unavailable(inputs) == "invalid_playoff_bracket"
+
+
 def test_AC_PO_03_normal_confidence_needs_four_weeks_and_three_observations() -> None:
     teams = (
         _team(1, "A", "Only", 0, 0, "0"),
@@ -767,6 +879,8 @@ def test_predictions_probability_invariants_hold_per_run() -> None:
         iterations * outcome.division_count
     )
     assert outcome.bye_count == 0  # a four-team bracket has no first-round byes
+    assert sum(team.championship_count for team in outcome.teams) == iterations
+    assert all(0 <= team.championship_count <= iterations for team in outcome.teams)
 
 
 def test_predictions_cup_week_adds_no_head_to_head_win() -> None:
@@ -803,15 +917,21 @@ def test_predictions_golden_seeded_counts() -> None:
     assert isinstance(outcome, SeasonSimulation)
 
     assert [
-        (team.team_name, team.playoff_count, team.bye_count, team.division_title_count)
+        (
+            team.team_name,
+            team.playoff_count,
+            team.bye_count,
+            team.division_title_count,
+            team.championship_count,
+        )
         for team in outcome.teams
     ] == [
-        ("Alpha", 2000, 0, 1659),
-        ("Bravo", 1945, 0, 341),
-        ("Charlie", 759, 0, 0),
-        ("Delta", 1974, 0, 1849),
-        ("Echo", 1255, 0, 148),
-        ("Foxtrot", 67, 0, 3),
+        ("Alpha", 2000, 0, 1649, 848),
+        ("Bravo", 1929, 0, 350, 507),
+        ("Charlie", 769, 0, 1, 132),
+        ("Delta", 1973, 0, 1851, 349),
+        ("Echo", 1250, 0, 147, 161),
+        ("Foxtrot", 79, 0, 2, 3),
     ]
 
 
@@ -1184,17 +1304,20 @@ def test_AC_PO_08_finished_season_is_deterministic_and_can_follow_a_cup_week() -
             2,
             1,
         ),
-        iterations=0,
+        iterations=1,
     )
 
     assert isinstance(result, SeasonSimulation)
-    assert result.iterations == 0
+    assert result.iterations == 1
     assert [team.playoff_count for team in result.teams] == [1, 1]
+    assert sum(team.championship_count for team in result.teams) == 1
 
 
-def test_AC_PO_06_rejects_zero_iterations_while_weeks_remain() -> None:
+def test_AC_PO_06_rejects_zero_iterations_with_or_without_remaining_weeks() -> None:
     with pytest.raises(ValueError):
         simulate_season(_six_team_inputs(), iterations=0)
+    with pytest.raises(ValueError):
+        simulate_season(_standard_inputs(), iterations=0)
 
 
 def _twelve_team_inputs() -> SeasonPredictionInputs:

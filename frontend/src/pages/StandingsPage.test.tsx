@@ -2,6 +2,8 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { AuthContextValue } from "../auth/AuthContext";
+import { AuthContext } from "../auth/AuthContext";
 import type { LeagueContextValue } from "../leagues/LeagueContext";
 import { LeagueContext } from "../leagues/LeagueContext";
 import {
@@ -13,6 +15,7 @@ import {
   historyResponse,
   jsonResponse,
   leagueAlpha,
+  memberUser,
   mockFetch,
   playoffOddsResponse,
   requestPath,
@@ -43,11 +46,25 @@ function contextValue(overrides: Partial<LeagueContextValue> = {}): LeagueContex
   };
 }
 
+function authValue(): AuthContextValue {
+  return {
+    status: "signed-in",
+    user: memberUser,
+    bootError: null,
+    login: vi.fn(),
+    signup: vi.fn(),
+    refreshUser: vi.fn(),
+    logout: vi.fn(),
+  };
+}
+
 function renderPage(value: LeagueContextValue = contextValue()) {
   return render(
-    <LeagueContext.Provider value={value}>
-      <StandingsPage />
-    </LeagueContext.Provider>,
+    <AuthContext.Provider value={authValue()}>
+      <LeagueContext.Provider value={value}>
+        <StandingsPage />
+      </LeagueContext.Provider>
+    </AuthContext.Provider>,
   );
 }
 
