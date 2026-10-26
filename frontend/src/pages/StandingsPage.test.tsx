@@ -137,6 +137,23 @@ describe("StandingsPage", () => {
     ).toBeInTheDocument();
   });
 
+  it("places playoff odds below the WAPDate standings", async () => {
+    readyFetch();
+    renderPage();
+
+    await screen.findByRole("heading", { level: 2, name: "WAPDate standings" });
+    const headings = screen
+      .getAllByRole("heading", { level: 2 })
+      .map((heading) => heading.textContent ?? "");
+    expect(headings).toEqual([
+      "Overall standings",
+      "Division standings",
+      "Cumulative VP by week",
+      "WAPDate standings",
+      "Playoff odds",
+    ]);
+  });
+
   it("shows W-L-T when a team recorded an H2H tie", async () => {
     const tied = {
       ...standingsResponse,

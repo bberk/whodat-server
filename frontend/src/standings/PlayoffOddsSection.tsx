@@ -18,9 +18,9 @@ export interface PlayoffOddsSectionProps {
 }
 
 /**
- * The standings page's Playoff odds section: a separately loaded table below the overall table.
+ * The standings page's Playoff odds section: a separately loaded table below the WAPDate standings.
  * Loading, unavailable (per API reason), error, and ready states are all handled here, and the
- * calculation never delays the standings table or chart.
+ * calculation never delays the standings tables or chart.
  */
 export function PlayoffOddsSection({ leagueId, season, dataVersion }: PlayoffOddsSectionProps) {
   const { state, reload } = usePlayoffOdds(leagueId, season, dataVersion);

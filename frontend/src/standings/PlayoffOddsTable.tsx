@@ -38,7 +38,7 @@ function ProbabilityCell({
 }) {
   return (
     <td className={`${numCell} align-top`}>
-      <span aria-hidden="true" className="font-semibold">
+      <span aria-hidden="true" className="font-semibold text-ink">
         {percentLabel(probability.probability)}
       </span>
       <span
@@ -123,7 +123,7 @@ export function PlayoffOddsTable({ rows, sort, onSort }: PlayoffOddsTableProps) 
               <tr key={row.team_id} className={`group ${ROW_DIVIDER} hover:bg-surface-hover`}>
                 <th
                   scope="row"
-                  className="sticky left-0 z-10 min-w-[160px] bg-surface px-3 py-2 text-left font-semibold shadow-sticky group-hover:bg-surface-hover"
+                  className="sticky left-0 z-10 min-w-[160px] bg-surface px-3 py-2 text-left font-semibold text-ink shadow-sticky group-hover:bg-surface-hover"
                 >
                   <span>{row.team_name}</span>
                   <span className="sr-only">
