@@ -2829,7 +2829,7 @@
     },
     "/api/v1/leagues/{league_id}/seasons/{season}/playoff-odds": {
       "get": {
-        "description": "Return per-team playoff, bye, and division-title probabilities for a league season.",
+        "description": "Return per-team playoff, bye, and division-title probabilities for a league season.\n\nOnly the league's latest stored season is simulated. An older stored season returns a\nstructured 409 ``season_not_current`` without reading simulation inputs or touching the cache;\nan unknown league or unstored season keeps the standings-style 404.",
         "operationId": "get_playoff_odds_api_v1_leagues__league_id__seasons__season__playoff_odds_get",
         "parameters": [
           {
@@ -2898,6 +2898,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "409": {
+            "description": "The season is stored but is not the league's current season."
           },
           "422": {
             "content": {

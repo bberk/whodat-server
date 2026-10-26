@@ -383,7 +383,10 @@ exactly `P` teams qualify per simulated season.
 
 `StandingsService.get_prediction_snapshot` is the read-only bridge: it exposes current totals, counted
 raw scores, every remaining pairing, the regular-season length, cup week, and playoff field without a
-second definition of a completed week. `PredictionService` hashes those inputs (SHA-256 over canonical
+second definition of a completed week. `StandingsService.require_current_season` rejects any stored
+season other than the league's latest stored season (the maximum `league_season.season`, matching
+`LeagueService._current_season`) before the snapshot is read or the cache is consulted, so a prior
+season can never be simulated or served from cache. `PredictionService` hashes those inputs (SHA-256 over canonical
 JSON, excluding `last_refreshed_at`), derives a stable seed when the caller omits one, and caches the
 domain result in a bounded in-process LRU keyed by league, season, digest, iterations, seed, and model
 version. The route is a sync handler so Starlette runs it in its threadpool.
@@ -412,7 +415,7 @@ All endpoints are under `/api/v1`, JSON, cookie-session or bearer-token auth (ba
 | `GET /leagues/{league_id}/seasons/{season}/standings` | member | Overall standings + divisions (shape below) |
 | `GET /leagues/{league_id}/seasons/{season}/vp-history` | member | Weekly and cumulative VP per team (for the chart) |
 | `GET /leagues/{league_id}/seasons/{season}/wapdate` | member | Offered WAPDate periods with status, counted weeks, and lowest-first rows |
-| `GET /leagues/{league_id}/seasons/{season}/playoff-odds?iterations=&seed=` | member | Monte Carlo playoff, bye, and division-title probabilities with 95% intervals |
+| `GET /leagues/{league_id}/seasons/{season}/playoff-odds?iterations=&seed=` | member | Monte Carlo playoff, bye, and division-title probabilities with 95% intervals; current season only (409 `season_not_current` for a prior stored season) |
 | `GET /leagues/{league_id}/elo-history?mode=actual_schedule\|round_robin` | member | Full running Elo series, weeks, boundaries, current/peak/low, unrated teams, and warnings |
 | `GET /leagues/{league_id}/elo-config` | admin member | Saved Elo settings, or the defaults |
 | `PUT /leagues/{league_id}/elo-config` | admin member | Validate and persist the five Elo settings; later history reads use them |

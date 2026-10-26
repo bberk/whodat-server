@@ -346,6 +346,9 @@ test("admin reads the league admin page without blocking accessibility issues", 
   await expect(
     page.getByRole("heading", { level: 2, name: "Playoff odds simulation" }),
   ).toBeVisible();
+  // AC-PO-13/14: the admin form states the current season and offers no prior-season selector.
+  await expect(page.getByText(`${fixture.league.season} — current season`)).toBeVisible();
+  await expect(page.getByLabel("Simulation season")).toHaveCount(0);
   await expect(page.getByLabel("Simulations")).toHaveValue("10000");
   await page.getByRole("button", { name: "Run simulations" }).click();
   await expect(page.getByText(/Regular season complete · final seeding/i)).toBeVisible();

@@ -70,6 +70,19 @@ class SeasonNotFoundError(StandingsServiceError, LookupError):
         super().__init__(f"League {league_id} has no stored season {season}")
 
 
+class SeasonNotCurrentError(StandingsServiceError):
+    """Raised when a stored season is not the league's latest stored season.
+
+    Playoff odds estimate the rest of the season in progress, so an older stored season has no
+    meaningful remaining schedule to simulate. The message never includes simulation data.
+    """
+
+    def __init__(self, league_id: int, season: int) -> None:
+        self.league_id = league_id
+        self.season = season
+        super().__init__(f"League {league_id} season {season} is not the current season")
+
+
 class SeasonSettingsError(StandingsServiceError):
     """Raised when a league season lacks the settings standings depend on."""
 
@@ -383,6 +396,23 @@ class StandingsService:
             highest_completed_week=highest,
             periods=tuple(periods),
         )
+
+    def require_current_season(self, league_id: int, season: int) -> None:
+        """Reject a stored season that is not the league's latest stored season.
+
+        The "current season" is the maximum stored ``league_season.season`` for the league, the
+        same rule the league refresh and the frontend's latest-season default use. An unknown
+        league and an unstored season raise the same errors as every other read, so the response
+        does not distinguish them; an older stored season raises
+        :class:`SeasonNotCurrentError` before any simulation input is read.
+        """
+        if self._session.get(League, league_id) is None:
+            raise LeagueNotFoundError(league_id)
+        if self._repository.get_league_season(league_id, season) is None:
+            raise SeasonNotFoundError(league_id, season)
+        latest = max(row.season for row in self._repository.list_league_seasons(league_id))
+        if season != latest:
+            raise SeasonNotCurrentError(league_id, season)
 
     def get_prediction_snapshot(self, league_id: int, season: int) -> PredictionSnapshot:
         """Return current exact totals, counted raw scores, and every remaining pairing.

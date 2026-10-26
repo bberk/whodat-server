@@ -7,6 +7,7 @@ import { VPRulesTooltip } from "../components/VPRulesTooltip";
 import { useMediaQuery } from "../components/useMediaQuery";
 import { VPChart } from "../components/VPChart";
 import { useLeague } from "../leagues/LeagueContext";
+import { latestSeason } from "../leagues/latestSeason";
 import {
   buildHistorySeries,
   seasonHasHeadToHeadTies,
@@ -31,6 +32,7 @@ export function StandingsPage() {
     reloadLeagues,
     seasonsStatus,
     seasonsError,
+    seasons,
     season,
     dataVersion,
   } = useLeague();
@@ -102,6 +104,8 @@ export function StandingsPage() {
   const series = bundle === null ? [] : buildHistorySeries(bundle.history);
   const teamStyles = bundle === null ? EMPTY_STYLES : seriesIndexByTeamId(bundle.history);
   const showTies = bundle === null ? false : seasonHasHeadToHeadTies(bundle.standings.overall);
+  const currentSeason = latestSeason(seasons);
+  const showPlayoffOdds = currentSeason !== null && season === currentSeason;
   const visibleTeamIds = series
     .filter((entry) => !hiddenTeamIds.has(entry.teamId))
     .map((entry) => entry.teamId);
@@ -258,11 +262,14 @@ export function StandingsPage() {
         dataVersion={dataVersion}
       />
 
-      <PlayoffOddsSection
-        leagueId={selectedLeague.league_id}
-        season={season}
-        dataVersion={dataVersion}
-      />
+      {/* Odds estimate the season in progress; a prior stored season is hidden and never requested. */}
+      {showPlayoffOdds ? (
+        <PlayoffOddsSection
+          leagueId={selectedLeague.league_id}
+          season={season}
+          dataVersion={dataVersion}
+        />
+      ) : null}
     </div>
   );
 }

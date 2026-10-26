@@ -114,6 +114,8 @@ describe("AdminPage", () => {
     expect(
       screen.getByRole("heading", { level: 2, name: "Playoff odds simulation" }),
     ).toBeInTheDocument();
+    expect(screen.getByText("2026 — current season")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Simulation season")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Simulations")).toHaveValue(10000);
     expect(screen.getByRole("button", { name: "Run simulations" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: "Elo settings" })).toBeInTheDocument();

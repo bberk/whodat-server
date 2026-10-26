@@ -382,6 +382,10 @@ export interface paths {
     /**
      * Get Playoff Odds
      * @description Return per-team playoff, bye, and division-title probabilities for a league season.
+     *
+     *     Only the league's latest stored season is simulated. An older stored season returns a
+     *     structured 409 ``season_not_current`` without reading simulation inputs or touching the cache;
+     *     an unknown league or unstored season keeps the standings-style 404.
      */
     get: operations["get_playoff_odds_api_v1_leagues__league_id__seasons__season__playoff_odds_get"];
     put?: never;
@@ -2000,6 +2004,13 @@ export interface operations {
         content: {
           "application/json": components["schemas"]["PlayoffOddsResponse"];
         };
+      };
+      /** @description The season is stored but is not the league's current season. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
       };
       /** @description Validation Error */
       422: {

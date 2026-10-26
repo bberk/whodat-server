@@ -4,10 +4,7 @@ import { api } from "../api/endpoints";
 import type { LeagueSummary } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { LeagueContext, type LoadStatus } from "./LeagueContext";
-
-function latestSeason(seasons: readonly number[]): number | null {
-  return seasons.length === 0 ? null : Math.max(...seasons);
-}
+import { latestSeason } from "./latestSeason";
 
 /**
  * Load the caller's memberships on sign-in, default to the first league and its latest season, and

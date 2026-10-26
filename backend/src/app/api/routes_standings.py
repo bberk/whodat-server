@@ -30,6 +30,7 @@ from app.db.session import get_session
 from app.services.league_service import LeagueService, LeagueServiceError
 from app.services.standings_service import (
     LeagueNotFoundError,
+    SeasonNotCurrentError,
     SeasonNotFoundError,
     StandingsService,
     StandingsServiceError,
@@ -76,6 +77,14 @@ def _raise_standings_error(error: StandingsServiceError) -> Never:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=error_detail("not_found", "League or season not found"),
+        ) from None
+    if isinstance(error, SeasonNotCurrentError):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=error_detail(
+                "season_not_current",
+                "Playoff odds are only available for the current season",
+            ),
         ) from None
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,

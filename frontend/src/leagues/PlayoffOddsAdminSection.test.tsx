@@ -70,7 +70,8 @@ describe("PlayoffOddsAdminSection", () => {
     expect(
       screen.getByRole("heading", { level: 2, name: "Playoff odds simulation" }),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText("Simulation season")).toHaveValue("2026");
+    expect(screen.getByText("2026 — current season")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Simulation season")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Simulations")).toHaveValue(10000);
     expect(screen.getByLabelText("Seed (optional)")).toHaveValue(null);
     expect(screen.getByText(/does not contact ESPN or refresh stored data/i)).toBeInTheDocument();
@@ -92,7 +93,7 @@ describe("PlayoffOddsAdminSection", () => {
     expect(value.notifyDataChanged).not.toHaveBeenCalled();
   });
 
-  it("runs a chosen season, simulation count, and seed", async () => {
+  it("runs only the latest stored season even when an older season is selected", async () => {
     const urls: string[] = [];
     const body: PlayoffOddsResponse = {
       ...playoffOddsResponse,
@@ -101,9 +102,10 @@ describe("PlayoffOddsAdminSection", () => {
     };
     oddsFetch(body, urls);
     const user = userEvent.setup();
-    renderSection();
+    renderSection(leagueValue({ seasons: [2025, 2026], season: 2025 }));
 
-    await user.selectOptions(screen.getByLabelText("Simulation season"), "2025");
+    expect(screen.getByText("2026 — current season")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Simulation season")).not.toBeInTheDocument();
     await user.clear(screen.getByLabelText("Simulations"));
     await user.type(screen.getByLabelText("Simulations"), "50000");
     await user.type(screen.getByLabelText("Seed (optional)"), "42");
@@ -112,7 +114,7 @@ describe("PlayoffOddsAdminSection", () => {
     expect(await screen.findByText(/50,000 simulated seasons/i)).toBeVisible();
     expect(screen.getByText(/seed 42/i)).toBeInTheDocument();
     const requestUrl = new URL(urls[0]);
-    expect(requestUrl.pathname).toBe("/api/v1/leagues/1/seasons/2025/playoff-odds");
+    expect(requestUrl.pathname).toBe("/api/v1/leagues/1/seasons/2026/playoff-odds");
     expect(requestUrl.searchParams.get("iterations")).toBe("50000");
     expect(requestUrl.searchParams.get("seed")).toBe("42");
   });

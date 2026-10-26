@@ -43,6 +43,7 @@ from app.services.prediction_service import (
     wilson_interval,
 )
 from app.services.standings_service import (
+    SeasonNotCurrentError,
     SeasonSettingsError,
     StandingsService,
 )
@@ -170,6 +171,7 @@ def _seed_league(
     session: Session,
     *,
     weeks: Mapping[int, Sequence[MatchupDTO]],
+    season: int = SEASON,
     regular_season_length: int = 3,
     playoff_team_count: int | None = 3,
     teams: Sequence[tuple[str, str, str | None]] = TEAM_SPECS,
@@ -200,7 +202,7 @@ def _seed_league(
         metadata=metadata,
     )
     seed = {
-        (LEAGUE_EXTERNAL_ID, SEASON): (
+        (LEAGUE_EXTERNAL_ID, season): (
             league,
             owners,
             team_dtos,
@@ -211,11 +213,11 @@ def _seed_league(
     summary = SyncService(FakeProvider(seed), session).sync_league(
         LeagueRef(external_id=LEAGUE_EXTERNAL_ID),
         "fake",
-        SEASON,
+        season,
         weeks=sorted(weeks),
     )
     if cup_week is not None:
-        stored = SyncRepository(session).get_league_season(summary.league_id, SEASON)
+        stored = SyncRepository(session).get_league_season(summary.league_id, season)
         assert stored is not None
         stored.cup_week = cup_week
     session.commit()
@@ -254,6 +256,42 @@ def test_service_returns_probabilities_and_metadata(session: Session) -> None:
     assert all(0 <= team.playoff.value <= 1 for team in odds.teams)
     assert abs(sum(team.playoff.value for team in odds.teams) - Decimal(3)) < Decimal("0.0001")
     assert odds.input_version.startswith("sha256:")
+
+
+class _RecordingCache(PredictionCache):
+    """Count cache lookups so a rejected season can prove it never reached the cache."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.lookups = 0
+
+    def get_or_compute(self, key, compute):  # type: ignore[no-untyped-def]
+        self.lookups += 1
+        return super().get_or_compute(key, compute)
+
+
+def test_AC_PO_14_service_rejects_a_prior_season_before_reading_or_caching(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prior_season = SEASON - 1
+    league_id = _seed_league(session, weeks=_standard_weeks(), season=prior_season)
+    _seed_league(session, weeks=_standard_weeks(), season=SEASON)
+    cache = _RecordingCache()
+    snapshot_reads = 0
+
+    def fail_snapshot(*_args: object, **_kwargs: object) -> object:
+        nonlocal snapshot_reads
+        snapshot_reads += 1
+        raise AssertionError("a prior season must not read simulation inputs")
+
+    monkeypatch.setattr(StandingsService, "get_prediction_snapshot", fail_snapshot)
+    service = PredictionService(session, cache=cache)
+
+    with pytest.raises(SeasonNotCurrentError):
+        service.get_playoff_odds(league_id, prior_season, iterations=1_000, seed=3)
+
+    assert snapshot_reads == 0
+    assert cache.lookups == 0
 
 
 def test_digest_changes_with_every_simulation_input(session: Session) -> None:
@@ -622,6 +660,43 @@ def test_AC_PO_07_non_member_and_unknown_league_get_404(
     assert unknown.json()["detail"]["code"] == "not_found"
     assert unknown_season.status_code == 404
     assert unknown_season.json()["detail"]["code"] == "not_found"
+
+
+def test_AC_PO_14_prior_season_is_rejected_without_simulating(
+    api_factory: Callable[[], Api], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = api_factory()
+    prior_season = SEASON - 1
+    with api.factory() as session:
+        league_id = _seed_league(session, weeks=_standard_weeks(), season=prior_season)
+        _seed_league(session, weeks=_standard_weeks(), season=SEASON)
+    _login(api, _create_user(api, "member@example.com", league_id=league_id))
+
+    simulations = 0
+    real_simulate = prediction_service.simulate_season
+
+    def counting_simulate(*args: object, **kwargs: object) -> object:
+        nonlocal simulations
+        simulations += 1
+        return real_simulate(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(prediction_service, "simulate_season", counting_simulate)
+
+    rejected = api.client.get(
+        _prediction_path(league_id, prior_season), params={"iterations": 1_000, "seed": 4}
+    )
+    current = api.client.get(
+        _prediction_path(league_id, SEASON), params={"iterations": 1_000, "seed": 4}
+    )
+
+    assert rejected.status_code == 409
+    assert rejected.json()["detail"] == {
+        "code": "season_not_current",
+        "message": "Playoff odds are only available for the current season",
+    }
+    assert "teams" not in rejected.text
+    assert current.status_code == 200
+    assert simulations == 1
 
 
 @pytest.mark.parametrize(

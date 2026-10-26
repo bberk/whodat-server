@@ -2,9 +2,10 @@
 
 The service reads stored season data through
 :class:`~app.services.standings_service.StandingsService` and runs the pure simulator in
-:mod:`app.domain.predictions`. It never writes to the database. The result is cached in-process by
-input digest, iteration count, seed, and model version, so repeated page loads do not recompute the
-same league season.
+:mod:`app.domain.predictions`. It never writes to the database. Only the league's latest stored
+season can be simulated; a prior season is rejected before its snapshot is read or the cache is
+consulted. The result is cached in-process by input digest, iteration count, seed, and model
+version, so repeated page loads do not recompute the same league season.
 """
 
 from __future__ import annotations
@@ -242,6 +243,11 @@ class PredictionService:
     ) -> PlayoffOdds:
         """Return the cached or freshly simulated playoff odds for a league season.
 
+        Only the league's latest stored season is accepted: a prior stored season raises
+        :class:`~app.services.standings_service.SeasonNotCurrentError` before any snapshot is
+        read, any cache entry is consulted, or any simulation runs. Unknown leagues and unstored
+        seasons keep raising the standings-service not-found errors.
+
         ``iterations`` must be within 1,000-50,000 and ``seed`` must be 0..2**31-1 when supplied;
         an omitted seed is derived from the input digest, the iteration count, and the model
         version so the same data and parameters return the same numbers on every page load.
@@ -251,6 +257,7 @@ class PredictionService:
         if seed is not None and not 0 <= seed <= MAX_SEED:
             raise ValueError(f"seed must be between 0 and {MAX_SEED}")
 
+        self._standings.require_current_season(league_id, season)
         snapshot = self._standings.get_prediction_snapshot(league_id, season)
         digest = input_digest(snapshot)
         effective_seed = seed if seed is not None else derive_seed(digest, iterations)
