@@ -11,7 +11,7 @@
 #               `text` and `json-summary` reporters and coverage thresholds in the vitest config)
 #
 # Third-party actions are pinned to their latest major version tag. setup-uv publishes no moving
-# major tag, so it is pinned to a full version (v10.3.0).
+# major tag, so it is pinned to a full version (v10.3.2).
 
 name: ci
 
@@ -34,7 +34,7 @@ jobs:
       SKIP: no-commit-to-branch # meaningless in CI (runs on main after merge)
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: astral-sh/setup-uv@v10.3.2
       - uses: pnpm/action-setup@v6
         with:
           package_json_file: frontend/package.json
@@ -77,7 +77,7 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: astral-sh/setup-uv@v10.3.2
       - run: uv sync --frozen
       - name: Apply migrations and check for model drift (Postgres)
         run: |
@@ -148,7 +148,7 @@ jobs:
       CORS_ORIGINS: http://localhost:4173
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: astral-sh/setup-uv@v10.3.2
       - uses: pnpm/action-setup@v6
         with:
           package_json_file: frontend/package.json

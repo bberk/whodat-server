@@ -1,0 +1,16 @@
+# Keep host artefacts out of the build context. Without this the host .venv is copied into the
+# image by `COPY . .`, shipping a second, stale dependency tree that image scanners report on.
+.venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.hypothesis
+.coverage
+coverage.xml
+htmlcov
+tests
+*.db
+.env
+.env.*
