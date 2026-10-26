@@ -2,6 +2,12 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import fixture from "../../e2e/fixture.json" with { type: "json" };
 import { expectNoBlockingAxeViolations } from "./axe";
+import {
+  DENSE_TEAM_NAMES,
+  expectDenseSeasonLabels,
+  expectReadableChart,
+  showDenseHistory,
+} from "./eloChartChecks";
 
 const weeks = Object.keys(fixture.weeks)
   .map(Number)
@@ -589,9 +595,22 @@ test("opens the History tab, switches modes and seasons, and passes axe", async 
   await expectPinnedColumns(scores, "two");
 
   await expectNoBlockingAxeViolations(page, "history");
+  await expectReadableChart(
+    page,
+    "light",
+    testInfo,
+    fixture.teams.map((team) => team.name),
+    "seeded",
+  );
 
   await testInfo.attach(`history-${testInfo.project.name}`, {
     body: await page.screenshot({ fullPage: true }),
     contentType: "image/png",
   });
+
+  // A long history must keep its axis and legend readable at every width (dense API fixture).
+  await showDenseHistory(page);
+  await expectReadableChart(page, "light", testInfo, DENSE_TEAM_NAMES, "dense");
+  await expectDenseSeasonLabels(page, testInfo);
+  await expectNoBlockingAxeViolations(page, "history with twelve seasons");
 });

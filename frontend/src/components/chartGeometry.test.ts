@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { niceScale, niceValueScale, positionFor, spreadLabelPositions } from "./chartGeometry";
+import {
+  niceIntegerScale,
+  niceScale,
+  niceValueScale,
+  positionFor,
+  selectWeekLabelIndices,
+  spreadLabelPositions,
+} from "./chartGeometry";
 
 describe("niceScale", () => {
   it("keeps zero in range and rounds to a readable step", () => {
@@ -75,5 +82,61 @@ describe("niceValueScale", () => {
 describe("spreadLabelPositions with identical values", () => {
   it("keeps equal labels in their original order", () => {
     expect(spreadLabelPositions([100, 100], 16, 0, 1000)).toEqual([100, 116]);
+  });
+});
+
+describe("niceIntegerScale", () => {
+  it("keeps every tick a whole number", () => {
+    const scale = niceIntegerScale(1487.4, 1525.2, 5);
+    expect(scale.ticks.every(Number.isInteger)).toBe(true);
+    expect(scale).toEqual({ min: 1480, max: 1530, ticks: [1480, 1490, 1500, 1510, 1520, 1530] });
+  });
+
+  it("rounds a sub-unit step up to one so labels never repeat", () => {
+    expect(niceIntegerScale(1499, 1501, 5)).toEqual({
+      min: 1499,
+      max: 1501,
+      ticks: [1499, 1500, 1501],
+    });
+  });
+
+  it("uses a whole-number step for tight and mid-sized spans", () => {
+    expect(niceIntegerScale(1500, 1504, 4).ticks).toEqual([1500, 1501, 1502, 1503, 1504]);
+    expect(niceIntegerScale(1500, 1510, 4).ticks).toEqual([1500, 1503, 1506, 1509, 1512]);
+  });
+
+  it("expands a flat range and falls back for non-finite input", () => {
+    expect(niceIntegerScale(1500.4, 1500.4)).toEqual({
+      min: 1499,
+      max: 1501,
+      ticks: [1499, 1500, 1501],
+    });
+    expect(niceIntegerScale(Number.NaN, 1)).toEqual({ min: 0, max: 1, ticks: [0, 1] });
+  });
+});
+
+describe("selectWeekLabelIndices", () => {
+  it("keeps the first and last week and spreads the rest", () => {
+    const positions = Array.from({ length: 40 }, (_, index) => index * 10);
+    expect(selectWeekLabelIndices(40, 6, 40, (index) => positions[index])).toEqual([
+      0, 8, 16, 24, 32, 39,
+    ]);
+  });
+
+  it("drops a label that would sit closer than the minimum gap", () => {
+    // Every step is 10px, so a 25px gap forces a wider spacing than the naive max count.
+    const positions = Array.from({ length: 10 }, (_, index) => index * 10);
+    expect(selectWeekLabelIndices(10, 5, 25, (index) => positions[index])).toEqual([0, 3, 6, 9]);
+  });
+
+  it("keeps the last week even when it replaces a too-close neighbour", () => {
+    const positions = Array.from({ length: 10 }, (_, index) => index * 10);
+    positions[9] = 65;
+    expect(selectWeekLabelIndices(10, 5, 25, (index) => positions[index])).toEqual([0, 3, 9]);
+  });
+
+  it("handles a single week and an empty range", () => {
+    expect(selectWeekLabelIndices(0, 6, 40, (index) => index)).toEqual([]);
+    expect(selectWeekLabelIndices(1, 6, 40, (index) => index)).toEqual([0]);
   });
 });

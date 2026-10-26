@@ -1,6 +1,6 @@
 import type { EloWeek } from "../api/types";
-import { niceValueScale, positionFor, spreadLabelPositions } from "./chartGeometry";
-import { formatEloValue } from "./format";
+import { niceIntegerScale, positionFor, selectWeekLabelIndices } from "./chartGeometry";
+import { formatEloValue, formatEloWhole } from "./format";
 import { seriesStyle } from "./series";
 import { BODY_CELL_DIVIDER, LAST_ROW_NO_DIVIDER } from "./tableStyles";
 
@@ -31,72 +31,13 @@ export interface EloChartProps {
 
 const LAYOUT = {
   compact: { width: 360, height: 310, top: 38, right: 12, bottom: 30, left: 42 },
-  full: { width: 760, height: 420, top: 44, right: 112, bottom: 44, left: 52 },
+  full: { width: 760, height: 420, top: 44, right: 16, bottom: 44, left: 52 },
 } as const;
 
 const MODE_LABELS = {
   actual_schedule: "Actual schedule",
   round_robin: "Round robin",
 } as const;
-
-interface MarkerProps {
-  shape: ReturnType<typeof seriesStyle>["marker"];
-  x: number;
-  y: number;
-  color: string;
-  size: number;
-}
-
-function Marker({ shape, x, y, color, size }: MarkerProps) {
-  switch (shape) {
-    case "circle":
-      return <circle cx={x} cy={y} r={size} style={{ fill: color }} />;
-    case "square":
-      return (
-        <rect
-          x={x - size}
-          y={y - size}
-          width={size * 2}
-          height={size * 2}
-          style={{ fill: color }}
-        />
-      );
-    case "triangle":
-      return (
-        <path
-          d={`M ${x} ${y - size} L ${x + size} ${y + size} L ${x - size} ${y + size} Z`}
-          style={{ fill: color }}
-        />
-      );
-    case "diamond":
-      return (
-        <path
-          d={`M ${x} ${y - size} L ${x + size} ${y} L ${x} ${y + size} L ${x - size} ${y} Z`}
-          style={{ fill: color }}
-        />
-      );
-    case "plus":
-      return (
-        <path
-          d={`M ${x - size} ${y} H ${x + size} M ${x} ${y - size} V ${y + size}`}
-          fill="none"
-          style={{ stroke: color }}
-          strokeWidth={2}
-          strokeLinecap="round"
-        />
-      );
-    case "cross":
-      return (
-        <path
-          d={`M ${x - size} ${y - size} L ${x + size} ${y + size} M ${x + size} ${y - size} L ${x - size} ${y + size}`}
-          fill="none"
-          style={{ stroke: color }}
-          strokeWidth={2}
-          strokeLinecap="round"
-        />
-      );
-  }
-}
 
 interface Point {
   x: number;
@@ -154,24 +95,17 @@ function summaryFor(
     ranked.length === 0
       ? "No visible team has a rating yet."
       : `${ranked[0].entry.name} leads at ${formatEloValue(ranked[0].value)}.`;
-  const cupWeeks = weeks.filter((week) => week.is_cup_week);
-  const cupNote =
-    cupWeeks.length === 0
-      ? ""
-      : mode === "actual_schedule"
-        ? " Cup weeks are marked and skipped in actual schedule."
-        : " Cup weeks are marked and count in round robin.";
-  return `Elo score history, ${MODE_LABELS[mode]}, ${weeks.length} chart weeks from ${first.season} week ${first.week} to ${last.season} week ${last.week}. ${leader}${cupNote} Ratings regress toward the starting rating before each new season.`;
+  return `Elo score history, ${MODE_LABELS[mode]}, ${weeks.length} chart weeks from ${first.season} week ${first.week} to ${last.season} week ${last.week}. ${leader} Ratings regress toward the starting rating before each new season.`;
 }
 
 /**
  * Running Elo chart drawn as dependency-free inline SVG.
  *
- * Season starts get vertical rules and labels, cup weeks get a distinct marker, and non-null
- * values are joined in segments so a franchise that missed a season has a real gap. Series differ
- * by color, dash pattern, and marker shape; the selected team is drawn last and thicker, and
- * legend buttons toggle visibility or select a team. The `<details>` table is the chart's
- * non-visual equivalent and includes every exact value and cup-week header.
+ * Season starts get vertical rules and season labels (thinned when the axis is narrow), and
+ * non-null values are joined in segments so a franchise that missed a season has a real gap. Every
+ * rated week is a plain dot; series differ by color, dash pattern, and line weight, the selected
+ * team is drawn last and thicker, and legend buttons toggle visibility or select a team. The
+ * `<details>` table is the chart's non-visual equivalent and includes every exact value.
  */
 export function EloChart({
   weeks,
@@ -203,7 +137,7 @@ export function EloChart({
     entry.values.filter((value): value is string => value !== null).map(Number),
   );
   const start = Number(startingRating);
-  const scale = niceValueScale(Math.min(...allValues, start), Math.max(...allValues, start), 5);
+  const scale = niceIntegerScale(Math.min(...allValues, start), Math.max(...allValues, start), 5);
   const xFor = (index: number) => positionFor(index, weeks.length, layout.left, plotWidth);
   const yFor = (value: number) =>
     layout.top + ((scale.max - value) / (scale.max - scale.min)) * plotHeight;
@@ -216,34 +150,27 @@ export function EloChart({
         Number(left.teamKey === selectedTeamKey) - Number(right.teamKey === selectedTeamKey),
     );
 
-  const endLabels = compact
-    ? []
-    : drawn
-        .map((entry) => ({ entry, value: lastValue(entry) }))
-        .filter((item): item is { entry: EloChartSeries; value: string } => item.value !== null)
-        .sort((left, right) => Number(left.value) - Number(right.value))
-        .map((item) => ({ entry: item.entry, y: yFor(Number(item.value)) }));
-  const endLabelY = spreadLabelPositions(
-    endLabels.map((item) => item.y),
-    16,
-    layout.top,
-    layout.height - layout.bottom,
-  );
-
   const summary = summaryFor(weeks, series, visible, mode);
   const xLabelY = layout.height - (compact ? 8 : 10);
   const seasonStarts = weeks
     .map((week, index) => ({ week, index }))
     .filter((item) => item.week.is_season_start);
-  const labelStep = Math.max(1, Math.ceil(weeks.length / (compact ? 6 : 12)));
-  const showXLabel = (index: number) =>
-    index === 0 ||
-    index === weeks.length - 1 ||
-    index % labelStep === 0 ||
-    weeks[index].is_season_start;
+  const weekLabelIndices = selectWeekLabelIndices(
+    weeks.length,
+    compact ? 6 : 8,
+    compact ? 34 : 40,
+    xFor,
+  );
+  // Season labels share their row with nothing else, but a long history needs thinning at 360px.
+  const seasonLabelIndices = selectWeekLabelIndices(
+    seasonStarts.length,
+    compact ? 6 : 12,
+    compact ? 34 : 30,
+    (position) => xFor(seasonStarts[position].index),
+  );
 
   return (
-    <div className="mt-3 rounded-xl border border-line bg-surface p-4">
+    <div className="mt-3 rounded-xl border border-line bg-surface p-4" data-chart="elo">
       <svg
         className="block h-auto w-full"
         viewBox={`0 0 ${layout.width} ${layout.height}`}
@@ -275,8 +202,8 @@ export function EloChart({
                   className="stroke-chart-grid"
                   strokeWidth={1}
                 />
-                <text x={layout.left - 5} y={y + 3}>
-                  {formatEloValue(String(tick))}
+                <text x={layout.left - 5} y={y + 3} data-axis="value">
+                  {formatEloWhole(String(tick))}
                 </text>
               </g>
             );
@@ -301,7 +228,7 @@ export function EloChart({
               fontSize={compact ? 8.5 : 10}
               className="fill-chart-start-label"
             >
-              start {formatEloValue(startingRating)}
+              start {formatEloWhole(startingRating)}
             </text>
           </g>
         ) : null}
@@ -323,58 +250,38 @@ export function EloChart({
           );
         })}
 
-        {weeks.map((week, index) =>
-          week.is_cup_week ? (
-            <g
-              key={`cup-${week.season}-${week.week}`}
-              data-cup-week={`${week.season}-${week.week}`}
-            >
-              <line
-                x1={xFor(index)}
-                y1={layout.top}
-                x2={xFor(index)}
-                y2={layout.height - layout.bottom}
-                className={mode === "actual_schedule" ? "stroke-chart-cup" : "stroke-brand-ink"}
-                strokeWidth={1.2}
-                strokeDasharray="2 3"
-              />
+        <g fontSize={compact ? 8.5 : 10.5} textAnchor="middle" className="fill-chart-label-muted">
+          {seasonLabelIndices.map((position) => {
+            const item = seasonStarts[position];
+            return (
               <text
-                x={xFor(index)}
-                y={layout.top - (compact ? 5 : 7)}
-                textAnchor="middle"
-                fontSize={compact ? 7.5 : 9}
-                className={
-                  mode === "actual_schedule" ? "fill-chart-cup-label" : "fill-chart-brand-label"
+                key={`season-${item.week.season}`}
+                x={xFor(item.index)}
+                y={compact ? 12 : 14}
+                fontWeight={700}
+                data-axis="season"
+                textAnchor={
+                  item.index === 0 ? "start" : item.index === weeks.length - 1 ? "end" : "middle"
                 }
               >
-                Cup
+                {item.week.season}
               </text>
-            </g>
-          ) : null,
-        )}
-
-        <g fontSize={compact ? 8.5 : 10.5} textAnchor="middle" className="fill-chart-label-muted">
-          {seasonStarts.map((item) => (
-            <text
-              key={`season-${item.week.season}`}
-              x={xFor(item.index)}
-              y={compact ? 12 : 14}
-              fontWeight={700}
-              textAnchor={item.index === 0 ? "start" : "middle"}
-            >
-              {item.week.season}
-            </text>
-          ))}
+            );
+          })}
         </g>
 
         <g fontSize={compact ? 8 : 9.5} textAnchor="middle" className="fill-chart-axis">
-          {weeks.map((week, index) =>
-            showXLabel(index) ? (
-              <text key={`x-${week.season}-${week.week}`} x={xFor(index)} y={xLabelY}>
-                W{week.week}
-              </text>
-            ) : null,
-          )}
+          {weekLabelIndices.map((index) => (
+            <text
+              key={`x-${weeks[index].season}-${weeks[index].week}`}
+              x={xFor(index)}
+              y={xLabelY}
+              data-axis="week"
+              data-week-index={index}
+            >
+              W{weeks[index].week}
+            </text>
+          ))}
         </g>
 
         <g fill="none" strokeLinecap="round" strokeLinejoin="round">
@@ -405,31 +312,19 @@ export function EloChart({
               value === null
                 ? []
                 : [
-                    <Marker
+                    <circle
                       key={`${entry.teamKey}-${index}`}
-                      shape={style.marker}
-                      x={xFor(index)}
-                      y={yFor(Number(value))}
-                      color={style.color}
-                      size={selected ? 4 : compact ? 2.2 : 2.8}
+                      data-dot={entry.teamKey}
+                      data-week-index={index}
+                      cx={xFor(index)}
+                      cy={yFor(Number(value))}
+                      r={selected ? 2.6 : compact ? 1.4 : 1.6}
+                      style={{ fill: style.color }}
                     />,
                   ],
             );
           })}
         </g>
-
-        {endLabels.map((item, index) => (
-          <text
-            key={item.entry.teamKey}
-            x={layout.width - layout.right + 8}
-            y={endLabelY[index] + 4}
-            fontSize={11}
-            fontWeight={600}
-            style={{ fill: seriesStyle(item.entry.styleIndex).color }}
-          >
-            {item.entry.name} {formatEloValue(lastValue(item.entry) ?? item.entry.current)}
-          </text>
-        ))}
 
         {compact ? null : (
           <g fontSize={10.5} textAnchor="middle" className="fill-chart-label">
@@ -452,7 +347,7 @@ export function EloChart({
         Click a team to hide or show its line. Double-click a team to show only that team.
       </p>
       <ul
-        className="mt-2 flex flex-wrap gap-2"
+        className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3"
         aria-label="Chart series toggles"
         aria-describedby="elo-chart-legend-hint"
       >
@@ -463,9 +358,10 @@ export function EloChart({
           return (
             <li
               key={entry.teamKey}
+              data-series-chip={entry.teamKey}
               onDoubleClick={() => onIsolateTeam(entry.teamKey)}
               title={`Show or hide ${entry.name}. Double-click to show only ${entry.name}.`}
-              className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[13px] ${
+              className={`flex min-w-0 items-center gap-2 rounded-xl border px-2 py-1 text-[13px] ${
                 selected ? "border-brand-ink bg-brand-soft" : "border-line bg-surface"
               }`}
             >
@@ -474,7 +370,7 @@ export function EloChart({
                 aria-pressed={shown}
                 aria-label={`Show or hide ${entry.name} series`}
                 onClick={() => onToggleTeam(entry.teamKey)}
-                className="rounded-full p-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-ink"
+                className="shrink-0 rounded-full p-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-ink"
               >
                 <svg width={30} height={10} aria-hidden="true">
                   <line
@@ -488,7 +384,7 @@ export function EloChart({
                     opacity={shown ? 1 : 0.3}
                     style={{ stroke: style.color }}
                   />
-                  <Marker shape={style.marker} x={15} y={5} color={style.color} size={3} />
+                  <circle cx={15} cy={5} r={3} style={{ fill: style.color }} />
                 </svg>
               </button>
               <button
@@ -496,12 +392,18 @@ export function EloChart({
                 aria-pressed={selected}
                 aria-label={`Highlight ${entry.name} ${formatEloValue(entry.current)}`}
                 onClick={() => onSelectTeam(entry.teamKey)}
-                className={`flex items-center gap-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-ink ${
-                  shown ? "" : "line-through"
-                }`}
+                className="flex min-w-0 flex-1 items-center justify-between gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-ink"
               >
-                <span className={selected ? "font-semibold text-brand-ink" : ""}>{entry.name}</span>{" "}
-                <span className="tabular-nums text-ink-faint">{formatEloValue(entry.current)}</span>
+                <span
+                  className={`min-w-0 break-words ${shown ? "" : "line-through"} ${
+                    selected ? "font-semibold text-brand-ink" : ""
+                  }`}
+                >
+                  {entry.name}
+                </span>{" "}
+                <span className="shrink-0 tabular-nums text-ink-faint">
+                  {formatEloValue(entry.current)}
+                </span>
               </button>
             </li>
           );
@@ -538,7 +440,6 @@ export function EloChart({
                     className="whitespace-nowrap border-b border-line-strong px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-ink-faint"
                   >
                     {week.season} W{week.week}
-                    {week.is_cup_week ? " (cup)" : ""}
                   </th>
                 ))}
               </tr>

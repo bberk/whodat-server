@@ -2,6 +2,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import fixture from "../../e2e/fixture.json" with { type: "json" };
 import { expectNoBlockingAxeViolations } from "./axe";
+import { expectReadableChart } from "./eloChartChecks";
 
 /** Run this whole file with the operating system reporting a dark colour scheme. */
 test.use({ colorScheme: "dark" });
@@ -247,6 +248,13 @@ test("follows the OS theme, persists an explicit choice, and stays accessible in
   await expect(page.getByRole("heading", { level: 2, name: "Current scores" })).toBeVisible();
   await expectNoBlockingAxeViolations(page, "history (dark)");
   await expectPageDoesNotScrollSideways(page);
+  await expectReadableChart(
+    page,
+    "dark",
+    testInfo,
+    fixture.teams.map((team) => team.name),
+    "seeded",
+  );
 
   await page.getByRole("link", { name: "Admin" }).click();
   await expect(page).toHaveURL(/\/admin$/);
@@ -263,6 +271,15 @@ test("follows the OS theme, persists an explicit choice, and stays accessible in
   // The light theme must pass the same scans, including the hidden chip on its white surface.
   await page.getByText("Light", { exact: true }).click();
   await expect(root).not.toHaveClass(/dark/);
+  await page.getByRole("link", { name: "History" }).click();
+  await expect(page).toHaveURL(/\/history$/);
+  await expectReadableChart(
+    page,
+    "light",
+    testInfo,
+    fixture.teams.map((team) => team.name),
+    "seeded",
+  );
   await page.getByRole("link", { name: "Standings", exact: true }).click();
   await expect(page).toHaveURL(/\/$/);
   await expectHiddenVpSeriesIsAccessible(page, "light");
