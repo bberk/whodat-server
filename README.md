@@ -249,9 +249,9 @@ never commit real values):
 | `LEAGUE_CREDENTIALS_KEY` | Encrypts stored league credentials (base64-encoded 32 bytes). Required when members save ESPN credentials; generate with `openssl rand -base64 32`. |
 | `DATABASE_URL` | SQLAlchemy URL for Postgres, for example `postgresql+psycopg://user:password@db-host:5432/whodat`. Defaults to the Compose Postgres service. |
 | `CORS_ORIGINS` | Comma-separated browser origins allowed to send the session cookie, for example `https://standings.example.com`. Defaults to `http://localhost:5173,http://localhost:8080`. |
-| `REFRESH_LEAGUE_INTERVAL_SECONDS` | Seconds between league-wide refreshes of one league. Default `300`. |
+| `REFRESH_LEAGUE_INTERVAL_SECONDS` | Seconds between league-wide refreshes of one league. App default `300`; the production Compose default is `5`. |
 | `REFRESH_USER_LIMIT` / `REFRESH_USER_WINDOW_SECONDS` | League-wide refresh cap per user and its rolling window. Defaults `3` per `3600` seconds. |
-| `SEASON_REFRESH_LEAGUE_INTERVAL_SECONDS` | Seconds between admin per-season refreshes of one league. Default `0` (consecutive seasons allowed). |
+| `SEASON_REFRESH_LEAGUE_INTERVAL_SECONDS` | Seconds between admin per-season refreshes of one league. App default `0`; the production Compose default is `5`. |
 | `SEASON_REFRESH_USER_LIMIT` / `SEASON_REFRESH_USER_WINDOW_SECONDS` | Admin per-season refresh cap per user and its rolling window. Defaults `60` per `3600` seconds. |
 | `VITE_API_BASE_URL` | Browser-facing API origin, baked in at frontend build time. Defaults to `http://localhost:8000`. |
 

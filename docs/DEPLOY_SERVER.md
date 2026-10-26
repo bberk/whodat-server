@@ -333,12 +333,14 @@ ENV=production
 The frontend build argument is also `https://${DOMAIN}`. Changing the domain later requires a
 rebuild so the SPA gets the new API origin.
 
-Refresh limits are optional. The league-wide refresh defaults to one per league every five minutes
-and three per user per hour (`REFRESH_LEAGUE_INTERVAL_SECONDS`, `REFRESH_USER_LIMIT`,
-`REFRESH_USER_WINDOW_SECONDS`). Admin per-season refresh has its own bucket, defaulting to no
-per-league interval and 60 per user per hour (`SEASON_REFRESH_LEAGUE_INTERVAL_SECONDS`,
-`SEASON_REFRESH_USER_LIMIT`, `SEASON_REFRESH_USER_WINDOW_SECONDS`), so an admin can refresh several
-stored seasons in a row. Override them in `deploy/server/.env` and restart the backend container. Keep `POSTGRES_USER` and `POSTGRES_DB` stable after the
+Refresh limits are optional. The production Compose defaults use a **5-second cooldown per league**
+for both the league-wide refresh and the admin per-season refresh, with separate per-user buckets
+(`REFRESH_LEAGUE_INTERVAL_SECONDS`, `REFRESH_USER_LIMIT`, `REFRESH_USER_WINDOW_SECONDS`,
+`SEASON_REFRESH_LEAGUE_INTERVAL_SECONDS`, `SEASON_REFRESH_USER_LIMIT`,
+`SEASON_REFRESH_USER_WINDOW_SECONDS`). This replaces the old five-minute league cooldown; after five
+seconds another refresh of the same league is allowed. The league-wide per-user cap stays at three
+per hour, while the per-season cap is 60 per hour. Override any value in `deploy/server/.env` and
+restart the backend container. Keep `POSTGRES_USER` and `POSTGRES_DB` stable after the
 first initialization. Changing `POSTGRES_PASSWORD` in `.env` does not change the role password in
 an existing volume.
 
