@@ -347,9 +347,9 @@ Pages and views:
    current-ratings table.
    - A mode control switches between **Actual schedule** and **Round robin**, with an accessible
      explanation of the difference; switching refetches.
-   - The chart has one line per franchise, season boundary rules and labels, cup-week markers in
-     actual-schedule mode, legend controls to toggle and select series, a text summary, and a
-     data-table alternative. A season filter defaults to **All history**.
+   - The chart has one line per franchise, season boundary rules and labels, a plain dot at every
+     rated week (cup weeks are not marked), legend controls to toggle and select series, a text
+     summary, and a data-table alternative. A season filter defaults to **All history**.
    - The current-ratings table shows team, current rating (whole number), change this week and this
      season (two decimals with signs), peak, low, and owner, sorted by current rating. It scrolls
      inside its card with a sticky team column and no page-body sideways scroll at 360px.

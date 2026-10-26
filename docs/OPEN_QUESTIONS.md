@@ -8,6 +8,24 @@ Follow the format used below. Newest entries at the top.
 
 ---
 
+## OQ-0018 — The Elo chart no longer marks cup weeks
+
+- **Found:** `ACCEPTANCE.md` AC-Elo-09/17/20, `ARCHITECTURE.md`, and `SPEC.md` described
+  cup-week chart markers and cup-specific chart text. The human product decision for the Elo
+  history chart is the opposite: cup weeks must not get markers, labels, or annotations in the
+  graph, while cup-week scoring stays unchanged and exact values remain available in the
+  accessible data table.
+- **Options:** (1) keep cup markers and the old criteria; (2) remove cup markers and annotations
+  from the chart and update the governance wording to match.
+- **Recommendation:** option 2. It matches the requested product behaviour and keeps the
+  `<details>` table as the chart's exact-value non-visual equivalent.
+- **In the meantime:** cup markers, cup vertical rules, "Cup" labels, cup summary notes, and
+  `(cup)` table/select annotations were removed. Cup-week scoring is unchanged; a cup week that
+  changes a series value remains visible in the accessible data table without a cup annotation.
+- **Follow-up:** none; this entry records that it supersedes the old cup-marker requirement.
+
+---
+
 ## OQ-0017 — Two latest releases cannot be adopted without breaking the toolchain
 
 - **Found:** The 2026-10-25 dependency audit (`docs/DEPENDENCY_AUDIT.md`) found two latest stable

@@ -655,10 +655,11 @@ structured 422s; a non-admin member gets 403; a non-member or unknown league get
 - **History page**: `/leagues/:leagueId/history` loads `GET /elo-history` for the selected mode
   (`round_robin` by default), keeps the shared weeks/teams arrays aligned, and filters the chart
   with a season control defaulting to All history. `EloChart` is a dependency-free inline SVG with
-  season rules/labels, cup markers, series toggles, a selected-team emphasis, an accessible
-  summary, and a `<details>` data table. `EloRatingsTable` sorts by current rating and keeps the
-  rank/team columns sticky inside its own horizontal scroll region. `InfoTooltip` supplies the
-  hover/focus explanations used by the Elo model and settings fields.
+  season rules/labels, a plain dot at every rated week (cup weeks are not marked), series toggles,
+  a selected-team emphasis, an accessible summary, and a `<details>` data table. `EloRatingsTable`
+  sorts by current rating and keeps the rank/team columns sticky inside its own horizontal scroll
+  region. `InfoTooltip` supplies the hover/focus explanations used by the Elo model and settings
+  fields.
 - **State**: server state via TanStack Query; local UI state (selected team, hidden chart series) in component state or a small store. No global state library needed.
 - **Components**: `StandingsTable` (reused for overall and per-division, with `ClinchBadge` beside
   the team and `ClinchLegend` above the overall table), `WapdateSection` (period
