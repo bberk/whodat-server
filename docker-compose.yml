@@ -36,6 +36,12 @@ services:
       # The browser origin(s) allowed to send the session cookie. Includes both the Vite dev
       # server and the composed frontend.
       CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:5173,http://localhost:8080}"
+      REFRESH_LEAGUE_INTERVAL_SECONDS: "${REFRESH_LEAGUE_INTERVAL_SECONDS:-300}"
+      REFRESH_USER_LIMIT: "${REFRESH_USER_LIMIT:-3}"
+      REFRESH_USER_WINDOW_SECONDS: "${REFRESH_USER_WINDOW_SECONDS:-3600}"
+      SEASON_REFRESH_LEAGUE_INTERVAL_SECONDS: "${SEASON_REFRESH_LEAGUE_INTERVAL_SECONDS:-0}"
+      SEASON_REFRESH_USER_LIMIT: "${SEASON_REFRESH_USER_LIMIT:-60}"
+      SEASON_REFRESH_USER_WINDOW_SECONDS: "${SEASON_REFRESH_USER_WINDOW_SECONDS:-3600}"
     ports:
       - "8000:8000"
     depends_on:
