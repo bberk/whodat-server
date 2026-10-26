@@ -332,6 +332,7 @@ def _compute(
         _simulation_inputs(snapshot, strength_weight),
         iterations=iterations,
         draws=SeededDrawSource(seed),
+        bracket_draws=SeededDrawSource(derive_bracket_seed(seed)),
     )
     if isinstance(outcome, PredictionUnavailable):
         return PlayoffOdds(
@@ -363,7 +364,7 @@ def _result_odds(
     seed: int,
     strength_weight: Decimal,
 ) -> PlayoffOdds:
-    """Build probability rows; a finished season reports exact zero/one probabilities."""
+    """Build probability rows; a finished season has exact seeding but a projected champion."""
     samples = simulation.iterations
     teams = tuple(
         TeamOdds(
@@ -442,6 +443,18 @@ def wilson_interval(count: int, samples: int) -> tuple[Decimal, Decimal]:
 def derive_seed(digest: str, iterations: int) -> int:
     """Derive a stable seed from the input digest, iteration count, and model version."""
     payload = f"{digest}:{iterations}:{MODEL_VERSION}".encode()
+    return int.from_bytes(hashlib.sha256(payload).digest()[:8], "big") % (MAX_SEED + 1)
+
+
+def derive_bracket_seed(seed: int) -> int:
+    """Derive the projected bracket's own draw seed from the regular-season seed.
+
+    A separate stream keeps the regular-season draw order unchanged from the previous model, so a
+    team-strength weight of ``1`` reproduces the earlier regular-season counts exactly; only the
+    newly projected bracket consumes these draws. The derivation is stable for an explicit or
+    derived seed and includes the model version.
+    """
+    payload = f"bracket:{seed}:{MODEL_VERSION}".encode()
     return int.from_bytes(hashlib.sha256(payload).digest()[:8], "big") % (MAX_SEED + 1)
 
 

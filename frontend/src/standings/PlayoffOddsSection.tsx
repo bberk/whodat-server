@@ -139,8 +139,7 @@ export function PlayoffOddsSection({ leagueId, season, dataVersion }: PlayoffOdd
 
         <p id="playoff-odds-iterations-hint" className="mt-2 text-[12px] text-ink-faint">
           Use {MIN_ITERATIONS.toLocaleString()} to {maxIterations.toLocaleString()} simulations;{" "}
-          {DEFAULT_ITERATIONS.toLocaleString()} is the default. Admins may run up to{" "}
-          {maxIterationsForRole("admin").toLocaleString()}.
+          {DEFAULT_ITERATIONS.toLocaleString()} is the default.
         </p>
         <p id="playoff-odds-strength-weight-hint" className="mt-1 text-[12px] text-ink-faint">
           {MIN_STRENGTH_WEIGHT} makes every remaining matchup even (all teams share one score

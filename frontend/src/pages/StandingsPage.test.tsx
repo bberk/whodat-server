@@ -201,6 +201,67 @@ describe("StandingsPage", () => {
     expect(paths.some((path) => path.endsWith("/playoff-odds"))).toBe(false);
   });
 
+  it("keeps a simulation run local to the odds endpoint (AC-PO-13)", async () => {
+    const urls: string[] = [];
+    mockFetch((url) => {
+      urls.push(String(url));
+      const path = requestPath(url);
+      if (path.endsWith("/standings")) {
+        return jsonResponse(standingsResponse);
+      }
+      if (path.endsWith("/vp-history")) {
+        return jsonResponse(historyResponse);
+      }
+      if (path.endsWith("/wapdate")) {
+        return jsonResponse(wapdateResponse);
+      }
+      if (path.endsWith("/playoff-odds")) {
+        return jsonResponse(playoffOddsResponse);
+      }
+      return errorResponse(404, { code: "not_found", message: "Not found" });
+    });
+    const value = contextValue();
+    const user = userEvent.setup();
+    renderPage(value);
+
+    await screen.findByRole("region", { name: "Playoff odds, scrollable horizontally" });
+    const counts = (suffix: string) =>
+      urls.filter((url) => requestPath(url).endsWith(suffix)).length;
+    const before = {
+      standings: counts("/standings"),
+      history: counts("/vp-history"),
+      wapdate: counts("/wapdate"),
+      odds: counts("/playoff-odds"),
+    };
+
+    await user.clear(screen.getByLabelText("Team strength weight"));
+    await user.type(screen.getByLabelText("Team strength weight"), ".25");
+    await user.click(screen.getByRole("button", { name: "Run" }));
+
+    await waitFor(() => {
+      expect(
+        urls.some(
+          (url) =>
+            requestPath(url).endsWith("/playoff-odds") &&
+            new URL(url).searchParams.get("strength_weight") === ".25",
+        ),
+      ).toBe(true);
+    });
+
+    expect(counts("/standings")).toBe(before.standings);
+    expect(counts("/vp-history")).toBe(before.history);
+    expect(counts("/wapdate")).toBe(before.wapdate);
+    expect(counts("/playoff-odds")).toBe(before.odds + 1);
+    expect(urls.some((url) => url.includes("/refresh"))).toBe(false);
+    expect(urls.some((url) => /\/(provider|sync)/.test(new URL(url).pathname))).toBe(false);
+    expect(value.notifyDataChanged).not.toHaveBeenCalled();
+    expect(value.reloadLeagues).not.toHaveBeenCalled();
+    expect(value.reloadSeasons).not.toHaveBeenCalled();
+    expect(value.selectLeague).not.toHaveBeenCalled();
+    expect(value.selectSeason).not.toHaveBeenCalled();
+    expect(value.dataVersion).toBe(0);
+  });
+
   it("shows W-L-T when a team recorded an H2H tie", async () => {
     const tied = {
       ...standingsResponse,

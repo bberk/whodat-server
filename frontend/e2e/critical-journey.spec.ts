@@ -277,9 +277,18 @@ test("sign up with a member invite, set owner, and read the seeded standings", a
 
   // The strength weight accepts a numeric string without a leading zero and reruns in place.
   await page.getByLabel("Team strength weight", { exact: true }).fill(".25");
-  await page.getByRole("button", { name: "Run", exact: true }).click();
+  const [runResponse] = await Promise.all([
+    page.waitForResponse((response) => {
+      if (!response.url().includes("/playoff-odds")) {
+        return false;
+      }
+      return new URL(response.url()).searchParams.get("strength_weight") === ".25";
+    }),
+    page.getByRole("button", { name: "Run", exact: true }).click(),
+  ]);
+  expect(runResponse.ok()).toBe(true);
   await expect(odds).toBeVisible();
-  await expect(odds.getByRole("columnheader", { name: "Championship %" })).toBeVisible();
+  await expect(odds.getByRole("table", { name: /championship probability/i })).toBeVisible();
 
   // AC-FE-05: no page-body sideways scroll at 360/768/1280, wide tables scroll inside their own
   // region, and the team column is pinned at every width.

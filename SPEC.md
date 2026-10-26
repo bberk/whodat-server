@@ -159,7 +159,9 @@ designations, Elo, or stored data.
 - **Team-strength weight.** The simulation accepts one optional dial, a team-strength weight `w` from
   0 to 10 inclusive with up to 18 decimal places. It scales only the projected future scores:
   `base_t = mu_bar + w * delta_t`, and the probability of drawing a team's own residuals becomes
-  `min(1, w) * n_t / (n_t + 4)`. At `w = 1` nothing changes; at `w = 0` every remaining matchup is
+  `min(1, w) * n_t / (n_t + 4)`. At `w = 1` the regular-season projection is unchanged from the
+  previous model and the projected bracket uses its own derived draw stream, so championship
+  probabilities are new; at `w = 0` every remaining matchup is
   even because all teams share the grand mean and the pooled residuals, while the exact current VP,
   wins, and points for still decide seeding; values above 1 overweight stronger teams. The weight is
   reported with the result and is part of the cache identity; it is never stored.
