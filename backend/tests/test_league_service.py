@@ -974,13 +974,35 @@ def test_AC_AU_24_refresh_season_syncs_only_that_season_and_sets_the_timestamp(
     assert refreshed_at.replace(tzinfo=UTC) == SEASON_REFRESHED_AT
 
 
-def test_AC_AU_24_refresh_season_is_rate_limited_per_league(session: Session) -> None:
+def test_AC_AU_24_refresh_season_allows_consecutive_admin_refreshes(
+    session: Session,
+) -> None:
+    """The admin per-season bucket has no default league interval, so multiple seasons work."""
+    admin = _create_user(session, "admin@example.com", "admin")
+    league = _seed_existing_league(session, season=2025)
+    _seed_membership(session, user=admin, league=league)
+    factory = RecordingFactory(_seed(season=2025))
+    service = LeagueService(session, factory, provider_id="fake")
+
+    service.refresh_season(_actor(admin), league.id, 2025)
+    service.refresh_season(_actor(admin), league.id, 2025)
+
+    assert len(factory.calls) == 2
+
+
+def test_AC_AU_24_refresh_season_limiter_is_injectable(session: Session) -> None:
     admin = _create_user(session, "admin@example.com", "admin")
     league = _seed_existing_league(session, season=2025)
     _seed_membership(session, user=admin, league=league)
     factory = RecordingFactory(_seed(season=2025))
     limiter = RefreshRateLimiter(clock=lambda: 0.0)
-    service = LeagueService(session, factory, provider_id="fake", refresh_limiter=limiter)
+    service = LeagueService(
+        session,
+        factory,
+        provider_id="fake",
+        refresh_limiter=limiter,
+        season_refresh_limiter=limiter,
+    )
 
     service.refresh_season(_actor(admin), league.id, 2025)
     with pytest.raises(RefreshRateLimitedError) as denied:

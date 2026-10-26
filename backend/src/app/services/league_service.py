@@ -82,6 +82,15 @@ DEFAULT_USER_REFRESH_LIMIT = 3
 #: Rolling window for the per-user refresh limit.
 DEFAULT_USER_REFRESH_WINDOW_SECONDS = 60 * 60.0
 
+#: Admin per-season refresh allows consecutive seasons; the default has no per-league interval.
+DEFAULT_SEASON_REFRESH_INTERVAL_SECONDS = 0.0
+
+#: A season refresh is allowed this many times per user in the rolling window below.
+DEFAULT_SEASON_REFRESH_USER_LIMIT = 60
+
+#: Rolling window for the per-season refresh user limit.
+DEFAULT_SEASON_REFRESH_USER_WINDOW_SECONDS = 60 * 60.0
+
 
 @dataclass(frozen=True)
 class LeagueUser:
@@ -428,13 +437,24 @@ class LeagueService:
         *,
         provider_id: str = PROVIDER_ID,
         refresh_limiter: RefreshRateLimiter | None = None,
+        season_refresh_limiter: RefreshRateLimiter | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
-        """Bind the service to a caller-owned session and an injected credential-backed factory."""
+        """Bind the service to a caller-owned session and an injected credential-backed factory.
+
+        ``refresh_limiter`` protects the league-wide refresh. ``season_refresh_limiter`` is a
+        separate bucket for the admin per-season refresh, so refreshing several stored seasons does
+        not consume the league-wide quota or wait for its five-minute interval.
+        """
         self._session = session
         self._provider_factory = provider_factory
         self._provider_id = provider_id
         self._refresh_limiter = refresh_limiter or RefreshRateLimiter()
+        self._season_refresh_limiter = season_refresh_limiter or RefreshRateLimiter(
+            league_interval_seconds=DEFAULT_SEASON_REFRESH_INTERVAL_SECONDS,
+            user_limit=DEFAULT_SEASON_REFRESH_USER_LIMIT,
+            user_window_seconds=DEFAULT_SEASON_REFRESH_USER_WINDOW_SECONDS,
+        )
         self._clock = clock or _utc_now
         self._memberships = MembershipRepository(session)
         self._invites = InviteRepository(session)
@@ -708,8 +728,9 @@ class LeagueService:
 
         Only an admin member may call this. The season must already be stored, so a refresh never
         invents or duplicates a season, and the provider is built from the caller's membership
-        ciphertext exactly as for the league-wide refresh. Rate limits are checked per league and
-        per user before the provider call. A successful sync records the season's
+        ciphertext exactly as for the league-wide refresh. The separate per-season rate limit is
+        checked per user before the provider call (the default allows consecutive season refreshes
+        and caps one administrator's hourly volume). A successful sync records the season's
         ``last_refreshed_at``; a failure rolls the SAVEPOINT back and changes neither scores nor the
         timestamp.
         """
@@ -721,7 +742,7 @@ class LeagueService:
         if not espn_s2_encrypted or not espn_swid_encrypted:
             raise CredentialsRequiredError("membership holds no league credentials")
 
-        decision = self._refresh_limiter.check(league_id=league_id, user_id=user.user_id)
+        decision = self._season_refresh_limiter.check(league_id=league_id, user_id=user.user_id)
         if not decision.allowed:
             raise RefreshRateLimitedError(decision.retry_after)
 

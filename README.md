@@ -181,8 +181,11 @@ add any league from the UI with its ESPN id and credentials.
 Credentials are per membership. Members enter the league's `ESPN_S2` and `ESPN_SWID` in the UI;
 they are stored encrypted under `LEAGUE_CREDENTIALS_KEY` and never returned by the API. The admin
 page's **Seasons** table is the only refresh control: each row refreshes one season with the
-caller's own stored credentials. Refresh is rate limited (one league-wide refresh every five
-minutes, and three per user per hour), and changing a cup week recomputes standings without
+caller's own stored credentials. League-wide refresh is rate limited (one per league every five
+minutes and three per user per hour). Admin per-season refresh has its own bucket: consecutive
+seasons are allowed and the default cap is 60 per user per hour, so refreshing several seasons does
+not consume the league-wide quota. Both are configurable through the `REFRESH_*` and
+`SEASON_REFRESH_*` variables in `.env.example`. Changing a cup week recomputes standings without
 contacting ESPN.
 
 ## Run the tests
@@ -246,6 +249,10 @@ never commit real values):
 | `LEAGUE_CREDENTIALS_KEY` | Encrypts stored league credentials (base64-encoded 32 bytes). Required when members save ESPN credentials; generate with `openssl rand -base64 32`. |
 | `DATABASE_URL` | SQLAlchemy URL for Postgres, for example `postgresql+psycopg://user:password@db-host:5432/whodat`. Defaults to the Compose Postgres service. |
 | `CORS_ORIGINS` | Comma-separated browser origins allowed to send the session cookie, for example `https://standings.example.com`. Defaults to `http://localhost:5173,http://localhost:8080`. |
+| `REFRESH_LEAGUE_INTERVAL_SECONDS` | Seconds between league-wide refreshes of one league. Default `300`. |
+| `REFRESH_USER_LIMIT` / `REFRESH_USER_WINDOW_SECONDS` | League-wide refresh cap per user and its rolling window. Defaults `3` per `3600` seconds. |
+| `SEASON_REFRESH_LEAGUE_INTERVAL_SECONDS` | Seconds between admin per-season refreshes of one league. Default `0` (consecutive seasons allowed). |
+| `SEASON_REFRESH_USER_LIMIT` / `SEASON_REFRESH_USER_WINDOW_SECONDS` | Admin per-season refresh cap per user and its rolling window. Defaults `60` per `3600` seconds. |
 | `VITE_API_BASE_URL` | Browser-facing API origin, baked in at frontend build time. Defaults to `http://localhost:8000`. |
 
 ESPN cookies are entered per league in the UI and stored encrypted on the member's membership;

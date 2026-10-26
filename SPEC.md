@@ -265,7 +265,9 @@ All ESPN-specific code lives behind a provider interface that returns normalized
 - Credentials are encrypted at rest with AES-256-GCM under `LEAGUE_CREDENTIALS_KEY`, decrypted only
   in the provider layer, and never logged or returned by the API.
 - A member whose membership holds credentials can trigger a league-wide refresh through the API;
-  refresh is rate limited per league and per user. Members without credentials cannot refresh.
+  refresh is rate limited per league and per user. Admin per-season refresh uses a separate,
+  configurable per-user bucket so refreshing several stored seasons does not consume the
+  league-wide quota. Members without credentials cannot refresh.
   The only refresh control in the UI is the admin seasons table, where an admin member refreshes
   one stored season at a time using the same credential and rate-limit rules.
 - An admin who belongs to a league can refresh or delete a single stored season from the admin

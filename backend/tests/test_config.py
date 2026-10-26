@@ -11,6 +11,24 @@ def test_settings_have_dev_defaults() -> None:
     assert settings.secret_key
 
 
+def test_refresh_limits_are_configurable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("REFRESH_LEAGUE_INTERVAL_SECONDS", "12")
+    monkeypatch.setenv("REFRESH_USER_LIMIT", "4")
+    monkeypatch.setenv("REFRESH_USER_WINDOW_SECONDS", "120")
+    monkeypatch.setenv("SEASON_REFRESH_LEAGUE_INTERVAL_SECONDS", "0")
+    monkeypatch.setenv("SEASON_REFRESH_USER_LIMIT", "25")
+    monkeypatch.setenv("SEASON_REFRESH_USER_WINDOW_SECONDS", "600")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.refresh_league_interval_seconds == 12
+    assert settings.refresh_user_limit == 4
+    assert settings.refresh_user_window_seconds == 120
+    assert settings.season_refresh_league_interval_seconds == 0
+    assert settings.season_refresh_user_limit == 25
+    assert settings.season_refresh_user_window_seconds == 600
+
+
 def test_get_settings_is_cached() -> None:
     assert get_settings() is get_settings()
 
