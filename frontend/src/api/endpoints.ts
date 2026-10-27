@@ -16,6 +16,7 @@ import type {
   CreateInviteResponse,
   CupWeekResponse,
   CupWeekUpdateRequest,
+  DisplaySettingsUpdateRequest,
   EloConfigResponse,
   EloConfigUpdateRequest,
   EloHistoryResponse,
@@ -118,6 +119,16 @@ export const api = {
   refreshLeague(leagueId: number): Promise<RefreshResponse> {
     return apiRequest<RefreshResponse>(`/api/v1/leagues/${leagueId}/refresh`, {
       method: "POST",
+    });
+  },
+
+  updateDisplaySettings(
+    leagueId: number,
+    body: DisplaySettingsUpdateRequest,
+  ): Promise<LeagueSummary> {
+    return apiRequest<LeagueSummary>(`/api/v1/leagues/${leagueId}/display-settings`, {
+      method: "PUT",
+      body,
     });
   },
 

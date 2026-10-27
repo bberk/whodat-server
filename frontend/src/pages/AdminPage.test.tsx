@@ -119,6 +119,9 @@ describe("AdminPage", () => {
     expect(screen.queryByRole("button", { name: "Run simulations" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: "Elo settings" })).toBeInTheDocument();
     expect(await screen.findByLabelText("K factor")).toHaveValue("24");
+    expect(screen.getByRole("heading", { level: 2, name: "Display settings" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "WAPDate standings" })).toBeChecked();
+    expect(screen.getByRole("button", { name: "Save display settings" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: "Invites" })).toBeInTheDocument();
     expect(screen.getByLabelText("Invite type")).toBeInTheDocument();
     expect(

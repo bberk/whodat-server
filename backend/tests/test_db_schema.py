@@ -6,7 +6,7 @@ in test_migrations.py, and repository behaviour lives in test_repositories.py an
 test_auth_schema.py, so neither repeats these shapes.
 """
 
-from sqlalchemy import JSON, DateTime, Index, Integer, Numeric, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, Index, Integer, Numeric, Text, UniqueConstraint
 
 from app.db.models import (
     AppUser,
@@ -42,6 +42,7 @@ EXPECTED_COLUMNS = {
         "name",
         "metadata",
         "provider_config_ref",
+        "show_wapdate",
         "created_at",
         "updated_at",
     },
@@ -215,6 +216,14 @@ def test_AC_DB_01_model_metadata_matches_the_schema_contract() -> None:
 
     # AC-DB-04: Score stores points and every VP component at the declared precision.
     score_columns = Score.__table__.c
+    # The per-league WAPDate display flag is a non-null boolean defaulting to true, so existing
+    # and new leagues keep showing the section until an admin turns it off.
+    show_wapdate = League.__table__.c.show_wapdate
+    assert isinstance(show_wapdate.type, Boolean)
+    assert show_wapdate.nullable is False
+    assert show_wapdate.default is not None
+    assert show_wapdate.default.arg is True
+    assert show_wapdate.server_default is not None
     assert isinstance(League.__table__.c.metadata.type, JSON)
     assert isinstance(score_columns.points.type, Numeric)
     assert (score_columns.points.type.precision, score_columns.points.type.scale) == (8, 2)

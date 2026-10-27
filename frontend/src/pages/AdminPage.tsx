@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 
 import { DeleteLeagueSection } from "../leagues/DeleteLeagueSection";
+import { DisplaySettingsSection } from "../leagues/DisplaySettingsSection";
 import { EloSettingsSection } from "../leagues/EloSettingsSection";
 import { InvitesSection } from "../leagues/InvitesSection";
 import { useLeague } from "../leagues/LeagueContext";
@@ -13,7 +14,8 @@ import { SeasonsSection } from "../leagues/SeasonsSection";
  *
  * The route is wrapped in the admin guard, so non-admins are redirected before this page renders.
  * The page hosts member management, the single seasons table (add, cup week, refresh, and delete
- * per season), invite generation, and league deletion. Simulation controls live on the standings
+ * per season), the Elo settings, the per-league display settings (such as the WAPDate standings
+ * flag), invite generation, and league deletion. Simulation controls live on the standings
  * page. The shell hides its season picker on this route; the seasons table is the only refresh
  * mechanism in the UI. Each section owns its forms, validation, loading/error/success states, and
  * confirmations.
@@ -55,6 +57,8 @@ export function AdminPage() {
       <SeasonsSection leagueId={leagueId} />
 
       <EloSettingsSection leagueId={leagueId} />
+
+      <DisplaySettingsSection leagueId={leagueId} />
 
       <InvitesSection leagueId={leagueId} />
 

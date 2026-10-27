@@ -115,6 +115,31 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/leagues/{league_id}/display-settings": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Update Display Settings
+     * @description Set whether this league's standings page shows the WAPDate section.
+     *
+     *     Only an admin member may change it: a non-member gets 404 (the league is not confirmed to
+     *     exist) and a member without the admin role gets 403. The flag is per league and display-only,
+     *     so no stored scores, VP, or rankings change; the updated league summary is returned so the
+     *     client can replace its cached league and drop or restore the section immediately.
+     */
+    put: operations["update_display_settings_api_v1_leagues__league_id__display_settings_put"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/leagues/{league_id}/elo-config": {
     parameters: {
       query?: never;
@@ -697,6 +722,17 @@ export interface components {
       cup_week: number | null;
     };
     /**
+     * DisplaySettingsUpdateRequest
+     * @description Per-league display preferences an admin member can change.
+     *
+     *     The body is strict: only the documented field is accepted, so a typo cannot silently hide or
+     *     show a standings section.
+     */
+    DisplaySettingsUpdateRequest: {
+      /** Show Wapdate */
+      show_wapdate: boolean;
+    };
+    /**
      * DivisionStandings
      * @description A division's rows in overall-rank order; each row keeps its overall league rank.
      */
@@ -950,6 +986,8 @@ export interface components {
       owner_id: number | null;
       /** Provider */
       provider: string;
+      /** Show Wapdate */
+      show_wapdate: boolean;
     };
     /**
      * LoginRequest
@@ -1521,6 +1559,41 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  update_display_settings_api_v1_leagues__league_id__display_settings_put: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        league_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["DisplaySettingsUpdateRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LeagueSummary"];
+        };
       };
       /** @description Validation Error */
       422: {

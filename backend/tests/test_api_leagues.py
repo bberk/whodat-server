@@ -391,6 +391,7 @@ def _add_payload(*, credentials: bool = True) -> dict[str, object]:
         ("delete", "/api/v1/leagues/1/seasons/2026", None),
         ("get", "/api/v1/leagues/1/owners", None),
         ("put", "/api/v1/me/leagues/1/owner", {"owner_id": 1}),
+        ("put", "/api/v1/leagues/1/display-settings", {"show_wapdate": False}),
         ("post", "/api/v1/leagues/1/refresh", None),
         ("get", "/api/v1/leagues/1/members", None),
         ("delete", "/api/v1/leagues/1/members/2", None),
@@ -431,6 +432,8 @@ def test_AC_AU_06_admin_add_returns_201_and_never_echoes_credentials(
     assert body["weeks_synced"] == [1]
     assert body["league"]["external_id"] == LEAGUE_EXTERNAL
     assert body["league"]["has_credentials"] is True
+    # A newly added league shows the WAPDate section until an admin hides it (AC-API-11).
+    assert body["league"]["show_wapdate"] is True
     assert api.provider_factory.decrypted == [(S2, SWID)]
     for secret in (S2, SWID, "espn_s2_encrypted", "espn_swid_encrypted"):
         assert secret not in response.text
@@ -781,6 +784,150 @@ def test_AC_AU_12_foreign_owner_and_non_member_are_rejected(
     assert foreign.status_code == 404
     assert foreign.json()["detail"]["code"] == "not_found"
     assert non_member.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Per-league display settings (AC-API-11)
+# ---------------------------------------------------------------------------
+
+
+def _show_wapdate(api: Api, league_id: int) -> bool:
+    """Read a league's stored display flag directly, proving the request committed it."""
+    with api.factory() as session:
+        league = session.get(League, league_id)
+        assert league is not None
+        return league.show_wapdate
+
+
+def test_AC_API_11_new_leagues_default_to_showing_wapdate(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    member_id = _create_user(api, "member@example.com")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=member_id, league_id=league_id)
+    _login(api, member_id)
+
+    response = api.client.get("/api/v1/me/leagues")
+
+    assert response.status_code == 200
+    assert response.json()[0]["show_wapdate"] is True
+    assert _show_wapdate(api, league_id) is True
+
+
+def test_AC_API_11_admin_update_persists_and_returns_the_new_value(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=admin_id, league_id=league_id)
+    _login(api, admin_id)
+
+    updated = api.client.put(
+        f"/api/v1/leagues/{league_id}/display-settings", json={"show_wapdate": False}
+    )
+
+    assert updated.status_code == 200
+    body = updated.json()
+    assert body["league_id"] == league_id
+    assert body["show_wapdate"] is False
+    assert _show_wapdate(api, league_id) is False
+    assert api.client.get("/api/v1/me/leagues").json()[0]["show_wapdate"] is False
+
+    restored = api.client.put(
+        f"/api/v1/leagues/{league_id}/display-settings", json={"show_wapdate": True}
+    )
+
+    assert restored.status_code == 200
+    assert restored.json()["show_wapdate"] is True
+    assert _show_wapdate(api, league_id) is True
+
+
+def test_AC_API_11_non_admin_member_gets_403_and_no_change(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    member_id = _create_user(api, "member@example.com")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=member_id, league_id=league_id)
+    _login(api, member_id)
+
+    response = api.client.put(
+        f"/api/v1/leagues/{league_id}/display-settings", json={"show_wapdate": False}
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "forbidden"
+    assert _show_wapdate(api, league_id) is True
+
+
+def test_AC_API_11_non_member_and_unknown_league_get_404(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    outsider_id = _create_user(api, "outsider@example.com", role="admin")
+    league_id = _seed_league(api)
+    _login(api, outsider_id)
+
+    non_member = api.client.put(
+        f"/api/v1/leagues/{league_id}/display-settings", json={"show_wapdate": False}
+    )
+    unknown = api.client.put("/api/v1/leagues/9999/display-settings", json={"show_wapdate": False})
+
+    assert non_member.status_code == 404
+    assert non_member.json()["detail"]["code"] == "not_found"
+    assert unknown.status_code == 404
+    assert unknown.json()["detail"]["code"] == "not_found"
+    assert _show_wapdate(api, league_id) is True
+
+
+def test_AC_API_11_setting_is_per_league_not_global(
+    api_factory: Callable[..., Api],
+) -> None:
+    api = api_factory()
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    first = _seed_league(api, external_id="league-a")
+    second = _seed_league(api, external_id="league-b")
+    _seed_membership(api, user_id=admin_id, league_id=first)
+    _seed_membership(api, user_id=admin_id, league_id=second)
+    _login(api, admin_id)
+
+    response = api.client.put(
+        f"/api/v1/leagues/{first}/display-settings", json={"show_wapdate": False}
+    )
+
+    assert response.status_code == 200
+    assert _show_wapdate(api, first) is False
+    assert _show_wapdate(api, second) is True
+    leagues = {
+        league["league_id"]: league for league in api.client.get("/api/v1/me/leagues").json()
+    }
+    assert leagues[first]["show_wapdate"] is False
+    assert leagues[second]["show_wapdate"] is True
+
+
+def test_AC_API_11_request_body_is_strict(api_factory: Callable[..., Api]) -> None:
+    api = api_factory()
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=admin_id, league_id=league_id)
+    _login(api, admin_id)
+
+    missing = api.client.put(f"/api/v1/leagues/{league_id}/display-settings", json={})
+    extra = api.client.put(
+        f"/api/v1/leagues/{league_id}/display-settings",
+        json={"show_wapdate": False, "season": SEASON},
+    )
+    wrong_type = api.client.put(
+        f"/api/v1/leagues/{league_id}/display-settings", json={"show_wapdate": "maybe"}
+    )
+
+    assert missing.status_code == 422
+    assert extra.status_code == 422
+    assert wrong_type.status_code == 422
+    assert all("input" not in error for error in extra.json()["detail"])
+    assert _show_wapdate(api, league_id) is True
 
 
 # ---------------------------------------------------------------------------

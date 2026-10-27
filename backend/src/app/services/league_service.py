@@ -141,6 +141,7 @@ class MembershipView:
     name: str
     owner_id: int | None
     has_credentials: bool
+    show_wapdate: bool
 
 
 @dataclass(frozen=True)
@@ -567,6 +568,29 @@ class LeagueService:
             if owner is None:
                 raise OwnerNotFoundError("owner does not belong to this league")
         membership = self._memberships.set_owner(user.user_id, league_id, owner_id)
+        return self._view(membership)
+
+    def update_display_settings(
+        self,
+        user: LeagueUser,
+        league_id: int,
+        *,
+        show_wapdate: bool,
+    ) -> MembershipView:
+        """Set whether this league's standings page shows the WAPDate section.
+
+        Membership is checked first, so a non-member receives the same 404 as every other
+        league-scoped read and learns nothing about the league. A member who is not a global admin
+        gets a 403. The flag is per league (not per season) and is display-only: it never changes
+        stored scores, VP, rankings, or the standings response, and the caller commits once.
+        """
+        membership = self.require_membership(user, league_id)
+        if user.role != ROLE_ADMIN:
+            raise AdminRequiredError("only an admin may change display settings")
+        league = membership.league
+        if league.show_wapdate != show_wapdate:
+            league.show_wapdate = show_wapdate
+            self._session.flush()
         return self._view(membership)
 
     def get_cup_week(self, user: LeagueUser, league_id: int, season: int) -> CupWeekView:
@@ -1112,4 +1136,5 @@ class LeagueService:
             name=league.name,
             owner_id=membership.owner_id,
             has_credentials=bool(membership.espn_s2_encrypted and membership.espn_swid_encrypted),
+            show_wapdate=league.show_wapdate,
         )

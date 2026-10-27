@@ -437,6 +437,41 @@ test("admin reads the league admin page without blocking accessibility issues", 
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "Delete league permanently" })).toBeDisabled();
 
+  // AC-API-11/AC-FE-20: a league admin hides the WAPDate section from the new Display settings
+  // section; the standings page then drops it and never requests `/wapdate`. The journey restores
+  // the default afterwards so the shared fixture league is unchanged for later tests.
+  const wapdateRequests: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname.endsWith("/wapdate")) {
+      wapdateRequests.push(request.url());
+    }
+  });
+  await expect(page.getByRole("heading", { level: 2, name: "Display settings" })).toBeVisible();
+  const wapdateToggle = page.getByRole("checkbox", { name: "WAPDate standings" });
+  await expect(wapdateToggle).toBeChecked();
+  await wapdateToggle.uncheck();
+  await expect(page.getByText("The standings page hides this section.")).toBeVisible();
+  await page.getByRole("button", { name: "Save display settings" }).click();
+  await expect(page.getByRole("status")).toHaveText(/hidden from the standings page/i);
+
+  await page.getByRole("link", { name: "Standings", exact: true }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole("table", { name: /overall 2026 standings/i })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: "WAPDate standings" })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: /WAPDate standings/i })).toHaveCount(0);
+  expect(wapdateRequests, "a hidden WAPDate section makes no /wapdate request").toEqual([]);
+
+  await page.getByRole("link", { name: "Admin" }).click();
+  await expect(page).toHaveURL(/\/leagues\/\d+\/admin$/);
+  await expect(page.getByRole("checkbox", { name: "WAPDate standings" })).not.toBeChecked();
+  await page.getByRole("checkbox", { name: "WAPDate standings" }).check();
+  await page.getByRole("button", { name: "Save display settings" }).click();
+  await expect(page.getByRole("status")).toHaveText(/shown on the standings page/i);
+  await page.getByRole("link", { name: "Standings", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 2, name: "WAPDate standings" })).toBeVisible();
+  await page.getByRole("link", { name: "Admin" }).click();
+  await expect(page).toHaveURL(/\/leagues\/\d+\/admin$/);
+
   await expectPageDoesNotScrollSideways(page);
   await expectNoBlockingAxeViolations(page, "league admin");
 

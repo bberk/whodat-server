@@ -877,4 +877,5 @@ def test_AC_API_01_openapi_export_is_current() -> None:
     assert "get" in document["paths"]["/api/v1/leagues/{league_id}/elo-history"]
     assert "get" in document["paths"]["/api/v1/leagues/{league_id}/elo-config"]
     assert "put" in document["paths"]["/api/v1/leagues/{league_id}/elo-config"]
+    assert "put" in document["paths"]["/api/v1/leagues/{league_id}/display-settings"]
     assert OPENAPI_PATH.read_text(encoding="utf-8") == expected
