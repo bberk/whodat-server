@@ -234,6 +234,11 @@ and another team can gain at most +3 VP per remaining non-cup week (+2 on the cu
 no head-to-head VP), with at most one win per remaining non-cup week. Points for is ignored by the
 bound. Completed periods show the actual result with no greying.
 
+The WAPDate section is a **per-league display setting**, not scoring data: it is on by default for
+every existing and new league, and a league admin may turn it off. Turning it off hides the section
+from the standings page and stops the page requesting its data; WAPDate itself is still derived from
+the same stored season data and no VP, wins, points for, or ranking change.
+
 ### 4.2 Data storage
 
 Persisted entities (see ARCHITECTURE.md for the schema):
@@ -339,7 +344,9 @@ Pages and views:
      periods (weeks 1-4, 5-8, 9-12) labelled with the week range and complete/in-progress state,
      defaulting to the current period or the latest complete one. The selected period lists the
      worst team first with Team, VP, Wins and PF. Teams safe from last place in the current period
-     are greyed and carry a text/accessible "Safe" marker, never colour alone.
+     are greyed and carry a text/accessible "Safe" marker, never colour alone. The section renders
+     only when the selected league's WAPDate display setting is on (the default); when it is off
+     the page shows no heading or section and requests no WAPDate data.
    - Tapping/clicking a team highlights it in the chart.
 3. **VP chart**: a line chart of cumulative VP over time, x-axis = week, one line per team. Users can highlight a team and toggle teams on and off. Must be legible on a phone.
 4. **History**: a member-visible tab next to Standings and Owner, with its own route
@@ -362,7 +369,8 @@ Pages and views:
    refresh action, and a confirmed per-season delete action) plus a "+" action that adds a season,
    an **Elo settings** section with the five per-league values and an accessible explanation on
    each field, and a **Recalculate Elo history** action that saves the values and invalidates the
-   History view,
+   History view, a **Display settings** section with a per-league WAPDate toggle (on by default)
+   that saves immediately and updates the shared league list so the standings view honours it,
    invite generation (a member invite bound to the league or a league-less admin invite, with the raw
    code shown once and a copy control), and a clearly separated destructive action that deletes the
    league after typing its name to confirm. Cup-week changes save immediately for that row and

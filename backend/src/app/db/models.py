@@ -15,6 +15,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    true,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
@@ -59,6 +60,12 @@ class League(TimestampMixin, Base):
         "metadata", JSON, nullable=False, default=dict
     )
     provider_config_ref: Mapped[str] = mapped_column(Text, nullable=False)
+    #: Whether the standings page shows the WAPDate section for this league. The four-week
+    #: worst-team view is a quirk not every league uses, so a league admin can turn it off. It is a
+    #: per-league display preference, not scoring data, and it defaults to on.
+    show_wapdate: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
     seasons: Mapped[list[LeagueSeason]] = relationship(
         back_populates="league", order_by="LeagueSeason.season"
     )

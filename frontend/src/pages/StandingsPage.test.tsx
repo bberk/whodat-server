@@ -171,6 +171,41 @@ describe("StandingsPage", () => {
     ]);
   });
 
+  it("hides the WAPDate section without requesting it when the league turned it off", async () => {
+    const paths: string[] = [];
+    mockFetch((url) => {
+      const path = requestPath(url);
+      paths.push(path);
+      if (path.endsWith("/standings")) {
+        return jsonResponse(standingsResponse);
+      }
+      if (path.endsWith("/vp-history")) {
+        return jsonResponse(historyResponse);
+      }
+      if (path.endsWith("/playoff-odds")) {
+        return jsonResponse(playoffOddsResponse);
+      }
+      return errorResponse(404, { code: "not_found", message: "Not found" });
+    });
+
+    renderPage(
+      contextValue({
+        leagues: [{ ...leagueAlpha, show_wapdate: false }],
+        selectedLeague: { ...leagueAlpha, show_wapdate: false },
+      }),
+    );
+
+    await screen.findByRole("table", { name: /overall 2026 standings/i });
+    expect(
+      screen.queryByRole("heading", { level: 2, name: "WAPDate standings" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: /WAPDate standings/i })).not.toBeInTheDocument();
+    expect(paths.some((path) => path.endsWith("/wapdate"))).toBe(false);
+    // The other sections stay in place.
+    expect(screen.getByRole("heading", { level: 2, name: "Cumulative VP by week" })).toBeVisible();
+    expect(screen.getByRole("heading", { level: 2, name: "Playoff odds" })).toBeVisible();
+  });
+
   it("hides playoff odds for a prior season without requesting them", async () => {
     const paths: string[] = [];
     mockFetch((url) => {

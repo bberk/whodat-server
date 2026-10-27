@@ -26,6 +26,7 @@ from app.api.schemas_leagues import (
     CreateInviteResponse,
     CupWeekResponse,
     CupWeekUpdateRequest,
+    DisplaySettingsUpdateRequest,
     LeagueMembersResponse,
     LeagueMemberSummary,
     LeagueSummary,
@@ -106,6 +107,7 @@ def _league_summary(view: MembershipView) -> LeagueSummary:
         name=view.name,
         owner_id=view.owner_id,
         has_credentials=view.has_credentials,
+        show_wapdate=view.show_wapdate,
     )
 
 
@@ -501,6 +503,32 @@ def set_my_owner(
     except LeagueServiceError as error:
         _raise(error)
     return OwnerUpdateResponse(league=_league_summary(membership))
+
+
+@router.put("/leagues/{league_id}/display-settings", response_model=LeagueSummary)
+def update_display_settings(
+    league_id: LeagueIdPath,
+    payload: DisplaySettingsUpdateRequest,
+    current_user: CurrentUserDep,
+    service: ServiceDep,
+) -> LeagueSummary:
+    """Set whether this league's standings page shows the WAPDate section.
+
+    Only an admin member may change it: a non-member gets 404 (the league is not confirmed to
+    exist) and a member without the admin role gets 403. The flag is per league and display-only,
+    so no stored scores, VP, or rankings change; the updated league summary is returned so the
+    client can replace its cached league and drop or restore the section immediately.
+    """
+    try:
+        membership = service.update_display_settings(
+            _actor(current_user),
+            league_id,
+            show_wapdate=payload.show_wapdate,
+        )
+        service.commit()
+    except LeagueServiceError as error:
+        _raise(error)
+    return _league_summary(membership)
 
 
 @router.post("/leagues/{league_id}/refresh", response_model=RefreshResponse)

@@ -109,6 +109,20 @@ class LeagueSummary(BaseModel):
     name: str
     owner_id: int | None
     has_credentials: bool
+    #: Whether the standings page shows this league's WAPDate section (per league, default true).
+    show_wapdate: bool
+
+
+class DisplaySettingsUpdateRequest(BaseModel):
+    """Per-league display preferences an admin member can change.
+
+    The body is strict: only the documented field is accepted, so a typo cannot silently hide or
+    show a standings section.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    show_wapdate: bool
 
 
 class AddLeagueResponse(BaseModel):

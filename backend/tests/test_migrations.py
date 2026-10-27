@@ -42,6 +42,7 @@ APPLICATION_TABLES = {
 HEAD_COLUMNS = {
     "score": {"points", "victory_points", "vp_h2h", "vp_top_half", "vp_high", "vp_low"},
     "league_season": {"league_id", "season", "metadata", "cup_week", "last_refreshed_at"},
+    "league": {"provider", "external_id", "name", "show_wapdate"},
     "elo_config": {
         "league_id",
         "starting_rating",
@@ -165,6 +166,55 @@ def _assert_last_refreshed_round_trip(database_url: str) -> None:
     assert _column_is_nullable(database_url, "league_season", "last_refreshed_at") is True
 
 
+def _insert_pre_flag_league(database_url: str) -> None:
+    """Insert one league row at the schema that predates ``league.show_wapdate``."""
+    engine = create_engine(database_url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO league "
+                    "(provider, external_id, name, metadata, provider_config_ref, "
+                    "created_at, updated_at) "
+                    "VALUES ('espn', 'legacy-league', 'Legacy League', '{}', 'membership', "
+                    "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                )
+            )
+    finally:
+        engine.dispose()
+
+
+def _league_show_wapdate_values(database_url: str) -> list[bool]:
+    """Return the stored ``show_wapdate`` values for every league row."""
+    engine = create_engine(database_url)
+    try:
+        with engine.connect() as connection:
+            return [
+                bool(value) for value in connection.scalars(text("SELECT show_wapdate FROM league"))
+            ]
+    finally:
+        engine.dispose()
+
+
+def _assert_show_wapdate_round_trip(database_url: str) -> None:
+    """0009 adds a non-null show_wapdate that defaults every existing league to true."""
+    config = _config(database_url)
+
+    command.upgrade(config, "0008_elo_config")
+    assert "show_wapdate" not in _column_names(database_url, "league")
+    _insert_pre_flag_league(database_url)
+
+    command.upgrade(config, "0009_league_show_wapdate")
+    assert _column_is_nullable(database_url, "league", "show_wapdate") is False
+    assert _league_show_wapdate_values(database_url) == [True]
+
+    command.downgrade(config, "0008_elo_config")
+    assert "show_wapdate" not in _column_names(database_url, "league")
+
+    command.upgrade(config, "0009_league_show_wapdate")
+    assert _league_show_wapdate_values(database_url) == [True]
+
+
 def _assert_migrated_ddl(database_url: str) -> None:
     """Assert the migrated head DDL has the application tables and their required columns."""
     assert _table_names(database_url) >= APPLICATION_TABLES
@@ -230,6 +280,11 @@ def test_cup_week_nullability_round_trips_on_sqlite(tmp_path: Path) -> None:
 def test_last_refreshed_nullability_round_trips_on_sqlite(tmp_path: Path) -> None:
     """0007 adds a nullable league_season.last_refreshed_at and drops it on downgrade."""
     _assert_last_refreshed_round_trip(f"sqlite:///{tmp_path / 'last-refreshed.db'}")
+
+
+def test_show_wapdate_defaults_to_true_and_round_trips_on_sqlite(tmp_path: Path) -> None:
+    """0009 adds a non-null league.show_wapdate, defaulting an existing league to true."""
+    _assert_show_wapdate_round_trip(f"sqlite:///{tmp_path / 'show-wapdate.db'}")
 
 
 def test_migration_chain_is_a_single_linear_head() -> None:
@@ -311,6 +366,17 @@ def test_last_refreshed_nullability_round_trips_on_postgres() -> None:
 
     with _temporary_postgres_database(admin_url) as database_url:
         _assert_last_refreshed_round_trip(database_url)
+
+
+@pytest.mark.postgres
+def test_show_wapdate_defaults_to_true_and_round_trips_on_postgres() -> None:
+    """0009's non-null default and downgrade behave the same on Postgres as on SQLite."""
+    admin_url = _configured_postgres_admin_url()
+    if admin_url is None:
+        pytest.skip("configured DATABASE_URL is not Postgres")
+
+    with _temporary_postgres_database(admin_url) as database_url:
+        _assert_show_wapdate_round_trip(database_url)
 
 
 def test_import_boundary_modules_load() -> None:

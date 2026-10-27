@@ -256,11 +256,14 @@ export function StandingsPage() {
         )}
       </section>
 
-      <WapdateSection
-        leagueId={selectedLeague.league_id}
-        season={season}
-        dataVersion={dataVersion}
-      />
+      {/* A hidden WAPDate section is never mounted, so its hook makes no /wapdate request. */}
+      {selectedLeague.show_wapdate ? (
+        <WapdateSection
+          leagueId={selectedLeague.league_id}
+          season={season}
+          dataVersion={dataVersion}
+        />
+      ) : null}
 
       {/* Odds estimate the season in progress; a prior stored season is hidden and never requested. */}
       {showPlayoffOdds ? (

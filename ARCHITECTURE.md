@@ -98,7 +98,7 @@ credentials.
 All tables have `id` (integer PK) and `created_at`/`updated_at`. Natural keys are enforced with unique constraints so that sync can upsert safely.
 
 ### `league`
-`provider` (text, e.g. `espn`), `external_id` (text), `name`, `metadata` (JSON: provider-level settings; defaults to `{}`), `provider_config_ref` (text; a pointer to environment-level bootstrap credentials, **not** the credentials themselves; per-membership credentials live in `user_league`).
+`provider` (text, e.g. `espn`), `external_id` (text), `name`, `metadata` (JSON: provider-level settings; defaults to `{}`), `provider_config_ref` (text; a pointer to environment-level bootstrap credentials, **not** the credentials themselves; per-membership credentials live in `user_league`), `show_wapdate` (boolean, non-null, default `true`; the per-league display setting from SPEC 4.1 that controls whether the standings page shows the WAPDate section; it is display-only and never affects stored VP).
 Unique: (`provider`, `external_id`).
 
 ### `league_season`
@@ -440,6 +440,7 @@ All endpoints are under `/api/v1`, JSON, cookie-session or bearer-token auth (ba
 | `GET /leagues/{league_id}/elo-history?mode=actual_schedule\|round_robin` | member | Full running Elo series, weeks, boundaries, current/peak/low, unrated teams, and warnings |
 | `GET /leagues/{league_id}/elo-config` | admin member | Saved Elo settings, or the defaults |
 | `PUT /leagues/{league_id}/elo-config` | admin member | Validate and persist the five Elo settings; later history reads use them |
+| `PUT /leagues/{league_id}/display-settings` | admin member | Set `{show_wapdate: bool}` for this league and return its updated summary |
 | `GET /leagues/{league_id}/seasons/{season}/cup-week` | member | Season, cup_week (nullable), and regular_season_length |
 | `PUT /leagues/{league_id}/seasons/{season}/cup-week` | admin member | Set `{cup_week: int\|null}`, persist it, and recompute the season from stored data |
 | `GET /leagues/{league_id}/members` | admin member | Accounts in the league by email, with role, owner association, and whether credentials are stored |
@@ -650,7 +651,10 @@ structured 422s; a non-admin member gets 403; a non-member or unknown league get
   destructive action. The simulation adjustment controls live in the standings `PlayoffOddsSection`,
   not on the admin page. It also hosts `EloSettingsSection`: the five per-league Elo fields with
   accessible tooltips, a "Recalculate Elo history" save that invalidates the shared data version,
-  and its own loading/saving/success/error states. The cup week saves immediately per row through
+  and its own loading/saving/success/error states. `DisplaySettingsSection` sits next to it and
+  toggles the league's `show_wapdate` through `PUT /leagues/{league_id}/display-settings`, updating
+  the shared league context from the response so the standings page hides or restores the WAPDate
+  section without a reload. The cup week saves immediately per row through
   the provider-free cup-week API; refresh and add-season use the caller's stored credentials.
 - **History page**: `/leagues/:leagueId/history` loads `GET /elo-history` for the selected mode
   (`round_robin` by default), keeps the shared weeks/teams arrays aligned, and filters the chart
@@ -667,8 +671,9 @@ structured 422s; a non-admin member gets 403; a non-member or unknown league get
   section below the WAPDate standings with `PlayoffOddsTable`, sortable playoff/bye columns,
   interval text, and unavailable/error/loading states), `WeeklyVPCells`, `VPChart`, `EloChart`,
   `EloRatingsTable`, `InfoTooltip`, `TeamSelector`/legend, `SeasonPicker`, `LeagueSwitcher`,
-  `SeasonsSection`, `EloSettingsSection`, `MembersSection`, `InvitesSection`,
-  `DeleteLeagueSection`, layout/nav, and states (`Loading`, `Empty`, `ErrorState`).
+  `SeasonsSection`, `EloSettingsSection`, `DisplaySettingsSection`, `MembersSection`,
+  `InvitesSection`, `DeleteLeagueSection`, layout/nav, and states (`Loading`, `Empty`,
+  `ErrorState`).
 - **Responsive strategy**: mobile-first. Tables scroll horizontally in a container with a sticky first column. The chart supports tap-to-highlight, legend toggles, and a reduced default of highlighted lines on small screens.
 - **Styling**: Tailwind with design tokens (colors, spacing, radius) defined once; consistent light/dark tokens if dark mode is implemented.
 - **Dev without backend**: an MSW (mock service worker) or fixture-based mock of the API, generated from the OpenAPI contract and `docs/fixtures/`, so frontend work can proceed in parallel with the backend.

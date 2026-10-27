@@ -20,6 +20,8 @@ export type SignupLeague = components["schemas"]["SignupLeague"];
 export type SignupResponse = components["schemas"]["SignupResponse"];
 
 export type LeagueSummary = components["schemas"]["LeagueSummary"];
+/** Per-league display preferences an admin member can change. */
+export type DisplaySettingsUpdateRequest = components["schemas"]["DisplaySettingsUpdateRequest"];
 export type AddLeagueRequest = components["schemas"]["AddLeagueRequest"];
 export type AddLeagueResponse = components["schemas"]["AddLeagueResponse"];
 export type RedeemInviteRequest = components["schemas"]["RedeemInviteRequest"];

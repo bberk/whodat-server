@@ -601,6 +601,35 @@ def test_list_memberships_returns_only_the_callers_leagues(session: Session) -> 
     assert views[0].has_credentials is True
 
 
+def test_AC_API_11_update_display_settings_requires_membership_then_admin(
+    session: Session,
+) -> None:
+    """The flag is per-league, admin-only, and the service never commits on its own."""
+    admin = _create_user(session, "admin@example.com", role="admin")
+    member = _create_user(session, "member@example.com")
+    outsider = _create_user(session, "outsider@example.com")
+    league = _seed_existing_league(session)
+    other = _seed_existing_league(session, external_id="other-league")
+    _seed_membership(session, user=admin, league=league, credentials=False)
+    _seed_membership(session, user=member, league=league, credentials=False)
+    service = LeagueService(session, RecordingFactory({}), provider_id="fake")
+
+    with pytest.raises(NotAMemberError):
+        service.update_display_settings(_actor(outsider), league.id, show_wapdate=False)
+    with pytest.raises(AdminRequiredError):
+        service.update_display_settings(_actor(member), league.id, show_wapdate=False)
+    assert league.show_wapdate is True
+
+    view = service.update_display_settings(_actor(admin), league.id, show_wapdate=False)
+    service.commit()
+
+    assert view.league_id == league.id
+    assert view.show_wapdate is False
+    session.expire_all()
+    assert session.get(League, league.id).show_wapdate is False
+    assert session.get(League, other.id).show_wapdate is True
+
+
 def test_AC_AU_10_list_seasons_and_owners_require_membership(session: Session) -> None:
     member = _create_user(session, "member@example.com")
     outsider = _create_user(session, "outsider@example.com")

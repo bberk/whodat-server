@@ -248,6 +248,21 @@
         "title": "CupWeekUpdateRequest",
         "type": "object"
       },
+      "DisplaySettingsUpdateRequest": {
+        "additionalProperties": false,
+        "description": "Per-league display preferences an admin member can change.\n\nThe body is strict: only the documented field is accepted, so a typo cannot silently hide or\nshow a standings section.",
+        "properties": {
+          "show_wapdate": {
+            "title": "Show Wapdate",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "show_wapdate"
+        ],
+        "title": "DisplaySettingsUpdateRequest",
+        "type": "object"
+      },
       "DivisionStandings": {
         "description": "A division's rows in overall-rank order; each row keeps its overall league rank.",
         "properties": {
@@ -909,6 +924,10 @@
           "provider": {
             "title": "Provider",
             "type": "string"
+          },
+          "show_wapdate": {
+            "title": "Show Wapdate",
+            "type": "boolean"
           }
         },
         "required": [
@@ -917,7 +936,8 @@
           "external_id",
           "name",
           "owner_id",
-          "has_credentials"
+          "has_credentials",
+          "show_wapdate"
         ],
         "title": "LeagueSummary",
         "type": "object"
@@ -2137,6 +2157,60 @@
           }
         },
         "summary": "Delete League",
+        "tags": [
+          "leagues"
+        ]
+      }
+    },
+    "/api/v1/leagues/{league_id}/display-settings": {
+      "put": {
+        "description": "Set whether this league's standings page shows the WAPDate section.\n\nOnly an admin member may change it: a non-member gets 404 (the league is not confirmed to\nexist) and a member without the admin role gets 403. The flag is per league and display-only,\nso no stored scores, VP, or rankings change; the updated league summary is returned so the\nclient can replace its cached league and drop or restore the section immediately.",
+        "operationId": "update_display_settings_api_v1_leagues__league_id__display_settings_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "league_id",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "League Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DisplaySettingsUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeagueSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Display Settings",
         "tags": [
           "leagues"
         ]
