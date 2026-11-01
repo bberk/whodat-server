@@ -98,12 +98,14 @@ def seed_league(
     *,
     weeks: Mapping[int, Sequence[MatchupDTO]] | None = None,
     regular_season_length: int = 2,
+    final_standings: Mapping[str, int] | None = None,
 ) -> int:
     """Sync a two-team fake league and return its stored id."""
     schedule = weeks or {
         1: [matchup(1, "team-a", "120", "team-b", "100")],
         2: [matchup(2, "team-b", "130", "team-a", "90")],
     }
+    ranks = final_standings or {}
     owners = [
         OwnerDTO(external_id="owner-a", display_name="Owner Alpha"),
         OwnerDTO(external_id="owner-b", display_name="Owner Bravo"),
@@ -114,12 +116,14 @@ def seed_league(
             name="Alpha",
             division="East",
             owner_external_id="owner-a",
+            final_standing=ranks.get("team-a"),
         ),
         TeamDTO(
             external_id="team-b",
             name="Bravo",
             division="West",
             owner_external_id="owner-b",
+            final_standing=ranks.get("team-b"),
         ),
     ]
     league = LeagueDTO(
@@ -242,6 +246,26 @@ def test_AC_Elo_43_history_returns_both_modes_with_decimal_strings(
         assert isinstance(team["low"], str)
         assert team["current"] == team["series"][-1]
     assert round_robin.json()["mode"] == "round_robin"
+
+
+def test_history_returns_championships_and_last_place_counts(
+    api_factory: Callable[[], Api],
+) -> None:
+    """The current-scores rows carry all-time titles and last-place regular seasons."""
+    api = api_factory()
+    league_id = seed_league(api, final_standings={"team-a": 2, "team-b": 1})
+    login(api, create_user(api, "member@example.com", league_id=league_id))
+
+    response = api.client.get(history_path(league_id, "actual_schedule"))
+
+    assert response.status_code == 200
+    counts = {
+        team["team_key"]: (team["championships"], team["last_places"])
+        for team in response.json()["teams"]
+    }
+    # Bravo won the final; Alpha and Bravo tie on VP and wins, and Alpha's lower points for
+    # makes it the regular-season last place.
+    assert counts == {"fake:team-a": (0, 1), "fake:team-b": (1, 0)}
 
 
 def test_AC_Elo_44_invalid_mode_and_league_id_are_structured_422(

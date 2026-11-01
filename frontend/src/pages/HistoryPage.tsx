@@ -4,6 +4,7 @@ import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { EmptyState, ErrorState, LoadingState } from "../components/DataStates";
 import { EloChart } from "../components/EloChart";
+import { SeasonRecordsLegend } from "../components/SeasonRecords";
 import { EloRatingsTable } from "../components/EloRatingsTable";
 import { InfoTooltip } from "../components/InfoTooltip";
 import { selectClass } from "../components/formStyles";
@@ -390,6 +391,7 @@ export function HistoryPage() {
                 <p className="mt-1 text-[13px] text-ink-faint">
                   Sorted by current Elo · change this week and this season shown to two decimals
                 </p>
+                <SeasonRecordsLegend />
               </div>
               <span className="rounded-full bg-surface-strong px-2.5 py-1 text-[12px] font-semibold text-ink-muted">
                 {MODE_LABELS[mode]}

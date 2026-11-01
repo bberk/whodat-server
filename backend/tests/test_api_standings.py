@@ -79,7 +79,8 @@ GOLDEN_STANDINGS = json.loads(
           "ties": 0,
           "points_for": "250",
           "weekly_vp": ["3", "3"],
-          "clinch": null
+          "clinch": null,
+          "final_standing": null
         },
         {
           "rank": 2,
@@ -93,7 +94,8 @@ GOLDEN_STANDINGS = json.loads(
           "ties": 0,
           "points_for": "215",
           "weekly_vp": ["2", "0"],
-          "clinch": null
+          "clinch": null,
+          "final_standing": null
         },
         {
           "rank": 3,
@@ -107,7 +109,8 @@ GOLDEN_STANDINGS = json.loads(
           "ties": 0,
           "points_for": "205",
           "weekly_vp": ["-1", "2"],
-          "clinch": null
+          "clinch": null,
+          "final_standing": null
         },
         {
           "rank": 4,
@@ -121,7 +124,8 @@ GOLDEN_STANDINGS = json.loads(
           "ties": 0,
           "points_for": "195",
           "weekly_vp": ["0", "-1"],
-          "clinch": null
+          "clinch": null,
+          "final_standing": null
         }
       ],
       "divisions": [
@@ -140,7 +144,8 @@ GOLDEN_STANDINGS = json.loads(
               "ties": 0,
               "points_for": "250",
               "weekly_vp": ["3", "3"],
-              "clinch": null
+              "clinch": null,
+              "final_standing": null
             },
             {
               "rank": 2,
@@ -154,7 +159,8 @@ GOLDEN_STANDINGS = json.loads(
               "ties": 0,
               "points_for": "215",
               "weekly_vp": ["2", "0"],
-              "clinch": null
+              "clinch": null,
+              "final_standing": null
             }
           ]
         },
@@ -173,7 +179,8 @@ GOLDEN_STANDINGS = json.loads(
               "ties": 0,
               "points_for": "205",
               "weekly_vp": ["-1", "2"],
-              "clinch": null
+              "clinch": null,
+              "final_standing": null
             },
             {
               "rank": 4,
@@ -187,7 +194,8 @@ GOLDEN_STANDINGS = json.loads(
               "ties": 0,
               "points_for": "195",
               "weekly_vp": ["0", "-1"],
-              "clinch": null
+              "clinch": null,
+              "final_standing": null
             }
           ]
         }
@@ -421,6 +429,42 @@ def test_AC_API_02_standings_match_the_golden_json(
 
     assert response.status_code == 200
     assert response.json() == GOLDEN_STANDINGS
+
+
+def test_standings_api_serializes_final_standing_on_overall_and_division_rows(
+    api_factory: Callable[[], Api],
+) -> None:
+    """A provider-reported final position reaches both row collections unchanged."""
+    api = api_factory()
+    league_id = _seed_league(
+        api,
+        team_specs=FOUR_TEAMS,
+        weeks=_fixture_weeks(),
+        regular_season_length=2,
+    )
+    final_by_external = {"team-a": 1, "team-b": 2, "team-c": 4, "team-d": 3}
+    with api.factory() as session:
+        for team in SyncRepository(session).get_teams(league_id, SEASON):
+            team.final_standing = final_by_external[team.external_id]
+        session.commit()
+    user_id = _create_user(api, "member@example.com", league_id=league_id)
+    _login(api, user_id)
+
+    response = api.client.get(_standings_path(league_id))
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert {row["team_name"]: row["final_standing"] for row in payload["overall"]} == {
+        "Alpha": 1,
+        "Bravo": 2,
+        "Delta": 3,
+        "Charlie": 4,
+    }
+    assert {
+        row["team_name"]: row["final_standing"]
+        for division in payload["divisions"]
+        for row in division["standings"]
+    } == {"Alpha": 1, "Bravo": 2, "Delta": 3, "Charlie": 4}
 
 
 def test_AC_PC_11_standings_api_serializes_each_clinch_status(

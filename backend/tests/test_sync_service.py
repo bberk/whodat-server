@@ -377,6 +377,27 @@ def test_AC_DB_02_idempotent_repeat_sync(session: Session) -> None:
     assert scores_first == scores_second
 
 
+def test_sync_persists_provider_reported_final_standings(session: Session) -> None:
+    """A provider's final positions are stored on the season's team rows."""
+    seed = _basic_seed()
+    key = ("league-1", 2026)
+    league, owners, teams, matchups, status = seed[key]
+    ranks = (1, 2, 3, 4)
+    seed[key] = (
+        league,
+        owners,
+        [replace(team, final_standing=rank) for team, rank in zip(teams, ranks, strict=True)],
+        matchups,
+        status,
+    )
+
+    SyncService(_build_provider(seed), session).sync_league(_league_ref(), "fake", 2026)
+    session.commit()
+
+    stored = {team.external_id: team.final_standing for team in session.scalars(select(Team))}
+    assert stored == {"team-1": 1, "team-2": 2, "team-3": 3, "team-4": 4}
+
+
 # ---------------------------------------------------------------------------
 # AC-DB-03: Score correction triggers full-week VP recompute for all teams
 # ---------------------------------------------------------------------------

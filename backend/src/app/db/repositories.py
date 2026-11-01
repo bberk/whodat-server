@@ -144,9 +144,19 @@ class SyncRepository:
         name: str,
         division: str | None,
         owner_id: int | None,
+        *,
+        final_standing: int | None = None,
     ) -> UpsertResult[Team]:
-        """Insert or update a season team by its league, season, and external id."""
-        values = {"name": name, "division": division, "owner_id": owner_id}
+        """Insert or update a season team by its league, season, and external id.
+
+        ``final_standing`` is the provider-reported final position including playoffs. It is
+        never derived from VP or matchups. A positive rank updates it; ``None`` means the provider
+        has not reported one and leaves any already-recorded final position untouched, so a
+        later sync cannot erase a finished season's recorded result.
+        """
+        values: dict[str, object] = {"name": name, "division": division, "owner_id": owner_id}
+        if final_standing is not None:
+            values["final_standing"] = final_standing
         row = self._session.scalar(
             select(Team).where(
                 Team.league_id == league_id,

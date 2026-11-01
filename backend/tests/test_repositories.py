@@ -87,6 +87,35 @@ def test_repository_upserts_are_natural_key_idempotent_and_update_values(
     assert changed_matchup.row.is_playoff and changed_matchup.row.is_complete
 
 
+def test_repository_team_upsert_stores_and_updates_final_standing(session: Session) -> None:
+    """The provider's final position is persisted and a changed rank reports a change."""
+    repository = SyncRepository(session)
+    league = repository.upsert_league("fake", "league-1", "League", {}, "ref").row
+
+    created = repository.upsert_team(
+        league.id, 2025, "team-1", "Home", "East", None, final_standing=1
+    )
+    assert created.changed and created.row.final_standing == 1
+
+    unchanged = repository.upsert_team(
+        league.id, 2025, "team-1", "Home", "East", None, final_standing=1
+    )
+    assert not unchanged.changed
+
+    corrected = repository.upsert_team(
+        league.id, 2025, "team-1", "Home", "East", None, final_standing=2
+    )
+    assert corrected.changed and corrected.row.final_standing == 2
+
+    # A provider that stops reporting a rank (for example an older-season response without one)
+    # must not erase the final position already recorded.
+    unreported = repository.upsert_team(
+        league.id, 2025, "team-1", "Home", "East", None, final_standing=None
+    )
+    assert not unreported.changed
+    assert unreported.row.final_standing == 2
+
+
 def test_repository_score_upsert_reports_score_corrections(session: Session) -> None:
     """A corrected Decimal score updates the existing row and preserves VP for recompute."""
     repository = SyncRepository(session)

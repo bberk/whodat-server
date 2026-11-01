@@ -733,6 +733,82 @@ def test_vp_history_excludes_playoff_and_incomplete_weeks(session: Session) -> N
 
 
 # ---------------------------------------------------------------------------
+# Season records: provider final position and regular-season last place
+# ---------------------------------------------------------------------------
+
+
+def test_standings_rows_carry_provider_reported_final_standing(session: Session) -> None:
+    """The final position including playoffs is exposed, never inferred from regular-season VP."""
+    seeded = _seed(
+        session,
+        team_specs=FOUR_TEAMS,
+        weeks=_four_team_weeks(),
+        regular_season_length=2,
+    )
+    repository = SyncRepository(session)
+    final_by_external = {"team-a": 3, "team-b": 1, "team-c": 4, "team-d": 2}
+    for team in repository.get_teams(seeded.league_id, SEASON):
+        team.final_standing = final_by_external[team.external_id]
+    session.commit()
+
+    standings = StandingsService(session).get_standings(seeded.league_id, SEASON)
+
+    assert {row.team_name: row.final_standing for row in standings.overall} == {
+        "Alpha": 3,
+        "Bravo": 1,
+        "Charlie": 4,
+        "Delta": 2,
+    }
+
+
+def test_last_place_is_the_worst_regular_season_rank(session: Session) -> None:
+    """Last place uses VP and the usual tiebreakers, not the playoff finishing position."""
+    seeded = _seed(
+        session,
+        team_specs=FOUR_TEAMS,
+        weeks=_four_team_weeks(),
+        regular_season_length=2,
+    )
+    repository = SyncRepository(session)
+    for team in repository.get_teams(seeded.league_id, SEASON):
+        team.final_standing = 1 if team.external_id == "team-d" else 4
+    session.commit()
+
+    last = StandingsService(session).get_last_place_team_ids(seeded.league_id, SEASON)
+
+    # Charlie has -1 season VP; Delta's playoff-style final rank is irrelevant to this tally.
+    assert last == (seeded.team_ids["team-c"],)
+
+
+def test_last_place_needs_a_complete_regular_season(session: Session) -> None:
+    """A season in progress never awards a last-place record early."""
+    seeded = _seed(
+        session,
+        team_specs=FOUR_TEAMS,
+        weeks=_four_team_weeks(),
+        regular_season_length=3,
+    )
+
+    last = StandingsService(session).get_last_place_team_ids(seeded.league_id, SEASON)
+
+    assert last == ()
+
+
+def test_last_place_is_shared_by_fully_tied_teams(session: Session) -> None:
+    """When the usual tiebreakers leave teams equal at the bottom, each shares last place."""
+    seeded = _seed(
+        session,
+        team_specs=(("team-a", "Alpha", None), ("team-b", "Bravo", None)),
+        weeks={1: [_m(1, "team-a", "100.00", "team-b", "100.00")]},
+        regular_season_length=1,
+    )
+
+    last = StandingsService(session).get_last_place_team_ids(seeded.league_id, SEASON)
+
+    assert last == tuple(sorted(seeded.team_ids.values()))
+
+
+# ---------------------------------------------------------------------------
 # Empty season and typed errors
 # ---------------------------------------------------------------------------
 
@@ -754,6 +830,7 @@ def test_empty_season_returns_no_rows_and_no_weeks(session: Session) -> None:
     assert standings.divisions == ()
     assert history.weeks == ()
     assert history.teams == ()
+    assert service.get_last_place_team_ids(seeded.league_id, SEASON) == ()
 
 
 def test_missing_league_raises_typed_error(session: Session) -> None:

@@ -32,12 +32,18 @@ class OwnerDTO:
 
 @dataclass(frozen=True)
 class TeamDTO:
-    """Represent a normalized team and its optional owner and division."""
+    """Represent a normalized team and its optional owner and division.
+
+    ``final_standing`` is the provider's final finishing position for the season, including
+    playoffs (1 = champion). It is ``None`` while the provider has not reported one, so a season
+    in progress never produces a champion or a podium.
+    """
 
     external_id: str
     name: str
     division: str | None
     owner_external_id: str | None
+    final_standing: int | None = None
 
 
 @dataclass(frozen=True)

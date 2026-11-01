@@ -99,6 +99,20 @@ describe("EloRatingsTable", () => {
     expect(within(rows()[0]).getByRole("rowheader")).toHaveTextContent("1");
   });
 
+  it("shows each franchise's championship and last-place records beside its name", () => {
+    renderTable();
+    const alphaRow = rows()[0];
+    const bravoRow = rows()[2];
+    const charlieRow = rows()[1];
+    expect(within(alphaRow).getByRole("img", { name: "1 championship" })).toHaveTextContent("🏆");
+    expect(within(bravoRow).getByRole("img", { name: "1 last-place finish" })).toHaveTextContent(
+      "💩",
+    );
+    expect(within(charlieRow).getByRole("img", { name: "2 championships" })).toHaveTextContent(
+      "2️⃣🏆",
+    );
+  });
+
   it("selects a team through the row button", async () => {
     const onSelectTeam = vi.fn();
     const user = userEvent.setup();

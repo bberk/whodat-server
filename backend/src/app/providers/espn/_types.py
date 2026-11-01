@@ -29,6 +29,7 @@ class ESPNTeamProto(Protocol):
     owners: Sequence[Mapping[str, Any]]
     scores: Sequence[float]
     outcomes: Sequence[str]
+    final_standing: int | None
 
 
 class ESPNMatchupProto(Protocol):

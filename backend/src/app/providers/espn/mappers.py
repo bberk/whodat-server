@@ -69,11 +69,24 @@ def map_owners(league: ESPNLeagueProto) -> list[OwnerDTO]:
     return owners
 
 
+def _final_standing(value: object) -> int | None:
+    """Return a usable final finishing position, or None when ESPN has not reported one.
+
+    ``espn_api`` exposes ``rankFinal`` (falling back to ``rankCalculatedFinal``) as
+    ``Team.final_standing``. A zero, a boolean, or a non-integer means "not final yet", so no
+    champion or podium is claimed from it.
+    """
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        return None
+    return value
+
+
 def map_teams(league: ESPNLeagueProto) -> list[TeamDTO]:
     """Map ESPN teams to normalized TeamDTOs.
 
     Division name is mapped to None if empty string.
     Owner linking uses the first owner in the team's owners list.
+    The provider's final rank, when reported, is carried through for the season records.
     """
     teams: list[TeamDTO] = []
     for team in league.teams:
@@ -90,6 +103,7 @@ def map_teams(league: ESPNLeagueProto) -> list[TeamDTO]:
                 name=name,
                 division=division,
                 owner_external_id=owner_id,
+                final_standing=_final_standing(getattr(team, "final_standing", None)),
             )
         )
     return teams

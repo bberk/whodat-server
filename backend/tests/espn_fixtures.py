@@ -49,6 +49,8 @@ class FakeTeam:
         # Scores and outcomes per week (1-indexed, stored as 0-indexed list)
         self.scores: list[float] = []
         self.outcomes: list[str] = week_outcomes
+        # espn_api falls back from rankFinal to rankCalculatedFinal, and 0 means "not final".
+        self.final_standing: int | None = data.get("rankFinal") or data.get("rankCalculatedFinal")
 
 
 class FakeMatchup:
