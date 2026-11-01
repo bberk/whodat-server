@@ -113,6 +113,9 @@ export const standingsResponse: StandingsResponse = {
   league_id: 1,
   season: 2026,
   completed_weeks: 4,
+  weeks: [1, 2, 3, 4],
+  active_week: null,
+  projection: null,
   overall: [
     {
       rank: 1,
@@ -263,17 +266,29 @@ export const historyResponse: VpHistoryResponse = {
       cumulative: ["-1", "-2", "-2.5", "-3.5"],
     },
   ],
+  projected_weeks: [],
+  active_week: null,
+  projection: null,
 };
 
 export const emptyStandingsResponse: StandingsResponse = {
   league_id: 1,
   season: 2026,
   completed_weeks: 0,
+  weeks: [],
+  active_week: null,
+  projection: null,
   overall: [],
   divisions: [],
 };
 
-export const emptyHistoryResponse: VpHistoryResponse = { weeks: [], teams: [] };
+export const emptyHistoryResponse: VpHistoryResponse = {
+  weeks: [],
+  teams: [],
+  projected_weeks: [],
+  active_week: null,
+  projection: null,
+};
 
 export const playoffOddsResponse: PlayoffOddsResponse = {
   league_id: 1,
@@ -296,6 +311,8 @@ export const playoffOddsResponse: PlayoffOddsResponse = {
   remaining_weeks: [5, 6],
   playoff_field: 4,
   division_count: 2,
+  projected_week: null,
+  projection_reason: null,
   teams: [
     {
       team_id: 7,
@@ -370,6 +387,8 @@ export const wapdateResponse: WapdateResponse = {
   league_id: 1,
   season: 2026,
   highest_completed_week: 6,
+  projected_week: null,
+  projection: null,
   periods: [
     {
       period: 1,

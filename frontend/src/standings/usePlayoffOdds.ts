@@ -31,6 +31,7 @@ export function usePlayoffOdds(
   dataVersion: number,
   request: PlayoffOddsRequest,
   runId: number,
+  includeProjected = false,
 ): PlayoffOddsData {
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<PlayoffOddsState>({ status: "loading" });
@@ -46,6 +47,7 @@ export function usePlayoffOdds(
       .playoffOdds(leagueId, season, {
         iterations: request.iterations,
         strengthWeight: request.strengthWeight,
+        includeProjected,
         ...(request.seed === undefined ? {} : { seed: request.seed }),
         signal: controller.signal,
       })
@@ -82,6 +84,7 @@ export function usePlayoffOdds(
     request.iterations,
     request.strengthWeight,
     request.seed,
+    includeProjected,
   ]);
 
   const reload = useCallback(() => {

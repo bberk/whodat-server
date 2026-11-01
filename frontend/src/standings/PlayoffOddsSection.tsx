@@ -29,6 +29,7 @@ export interface PlayoffOddsSectionProps {
   leagueId: number;
   season: number;
   dataVersion: number;
+  includeProjected?: boolean;
 }
 
 /**
@@ -41,7 +42,12 @@ export interface PlayoffOddsSectionProps {
  * reason), error, and ready states are all handled here, and the calculation never delays the
  * standings tables or chart.
  */
-export function PlayoffOddsSection({ leagueId, season, dataVersion }: PlayoffOddsSectionProps) {
+export function PlayoffOddsSection({
+  leagueId,
+  season,
+  dataVersion,
+  includeProjected = false,
+}: PlayoffOddsSectionProps) {
   const { user } = useAuth();
   const maxIterations = maxIterationsForRole(user?.role);
   const [iterationsText, setIterationsText] = useState(String(DEFAULT_ITERATIONS));
@@ -54,7 +60,14 @@ export function PlayoffOddsSection({ leagueId, season, dataVersion }: PlayoffOdd
   }));
   const [runId, setRunId] = useState(0);
   const [sort, setSort] = useState<SortState>({ key: "playoff", direction: "desc" });
-  const { state, reload } = usePlayoffOdds(leagueId, season, dataVersion, request, runId);
+  const { state, reload } = usePlayoffOdds(
+    leagueId,
+    season,
+    dataVersion,
+    request,
+    runId,
+    includeProjected,
+  );
 
   const busy = state.status === "loading";
   const handleSort = (key: string, initialDirection: SortDirection) => {
@@ -181,6 +194,18 @@ export function PlayoffOddsSection({ leagueId, season, dataVersion }: PlayoffOdd
             {state.odds.iterations.toLocaleString()} simulated seasons · 95% range shown ·{" "}
             {sortLabel(sort)}
           </p>
+          {state.odds.projected_week !== null ? (
+            <p className="mt-2 rounded-lg border border-line bg-surface-muted px-3 py-2 text-[13px] text-ink-muted">
+              Week {state.odds.projected_week} is included from the stored ESPN projection. The
+              team-strength model still uses completed weeks only, and Elo is unchanged.
+            </p>
+          ) : null}
+          {state.odds.projection_reason !== null ? (
+            <p className="mt-2 rounded-lg border border-warning-line bg-warning-surface px-3 py-2 text-[13px] text-warning-ink">
+              Projected results were requested but are unavailable ({state.odds.projection_reason});
+              these odds use actual completed weeks.
+            </p>
+          ) : null}
           {state.odds.confidence === "low" ? (
             <p className="mt-2 rounded-lg border border-warning-line bg-warning-surface px-3 py-2 text-[13px] text-warning-ink">
               Based on {state.odds.completed_weeks} completed{" "}

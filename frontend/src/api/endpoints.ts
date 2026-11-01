@@ -132,24 +132,43 @@ export const api = {
     });
   },
 
-  standings(leagueId: number, season: number, signal?: AbortSignal): Promise<StandingsResponse> {
+  standings(
+    leagueId: number,
+    season: number,
+    signal?: AbortSignal,
+    includeProjected = false,
+  ): Promise<StandingsResponse> {
+    const query = includeProjected ? "?include_projected=true" : "";
     return apiRequest<StandingsResponse>(
-      `/api/v1/leagues/${leagueId}/seasons/${season}/standings`,
+      `/api/v1/leagues/${leagueId}/seasons/${season}/standings${query}`,
       { signal },
     );
   },
 
-  vpHistory(leagueId: number, season: number, signal?: AbortSignal): Promise<VpHistoryResponse> {
+  vpHistory(
+    leagueId: number,
+    season: number,
+    signal?: AbortSignal,
+    includeProjected = false,
+  ): Promise<VpHistoryResponse> {
+    const query = includeProjected ? "?include_projected=true" : "";
     return apiRequest<VpHistoryResponse>(
-      `/api/v1/leagues/${leagueId}/seasons/${season}/vp-history`,
+      `/api/v1/leagues/${leagueId}/seasons/${season}/vp-history${query}`,
       { signal },
     );
   },
 
-  wapdate(leagueId: number, season: number, signal?: AbortSignal): Promise<WapdateResponse> {
-    return apiRequest<WapdateResponse>(`/api/v1/leagues/${leagueId}/seasons/${season}/wapdate`, {
-      signal,
-    });
+  wapdate(
+    leagueId: number,
+    season: number,
+    signal?: AbortSignal,
+    includeProjected = false,
+  ): Promise<WapdateResponse> {
+    const query = includeProjected ? "?include_projected=true" : "";
+    return apiRequest<WapdateResponse>(
+      `/api/v1/leagues/${leagueId}/seasons/${season}/wapdate${query}`,
+      { signal },
+    );
   },
 
   playoffOdds(
@@ -159,6 +178,7 @@ export const api = {
       iterations?: number;
       seed?: number;
       strengthWeight?: string;
+      includeProjected?: boolean;
       signal?: AbortSignal;
     } = {},
   ): Promise<PlayoffOddsResponse> {
@@ -171,6 +191,9 @@ export const api = {
     }
     if (options.strengthWeight !== undefined) {
       params.set("strength_weight", options.strengthWeight);
+    }
+    if (options.includeProjected === true) {
+      params.set("include_projected", "true");
     }
     const query = params.toString();
     return apiRequest<PlayoffOddsResponse>(

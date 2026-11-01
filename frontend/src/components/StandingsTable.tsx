@@ -23,6 +23,8 @@ export interface StandingsTableProps {
   rows: StandingsRow[];
   /** Weekly VP columns to render; empty for division tables, which keep the overall-only detail. */
   weeks: number[];
+  /** The one week whose values are an ESPN projection rather than a completed result. */
+  projectedWeek?: number | null;
   showTies: boolean;
   selectedTeamId: number | null;
   onSelectTeam: (teamId: number) => void;
@@ -84,6 +86,7 @@ export function StandingsTable({
   ariaLabel,
   rows,
   weeks,
+  projectedWeek = null,
   showTies,
   selectedTeamId,
   onSelectTeam,
@@ -148,8 +151,10 @@ export function StandingsTable({
               {weeks.map((week) => (
                 <SortableHeader
                   key={week}
-                  label={`W${week}`}
-                  headerLabel={`Week ${week} VP`}
+                  label={projectedWeek === week ? `W${week} (proj)` : `W${week}`}
+                  headerLabel={
+                    projectedWeek === week ? `Week ${week} VP, ESPN projection` : `Week ${week} VP`
+                  }
                   buttonLabel={`W${week} — sort by week ${week} VP`}
                   sortKey={`week:${week}`}
                   state={sort}
@@ -228,7 +233,8 @@ export function StandingsTable({
                         key={`week-${weeks[index]}`}
                         className={`${numCell} ${BODY_CELL_DIVIDER} font-medium ${vpToneClass(
                           vpTone(vp),
-                        )}`}
+                        )} ${projectedWeek === weeks[index] ? "bg-surface-muted" : ""}`}
+                        title={projectedWeek === weeks[index] ? "ESPN projection" : undefined}
                       >
                         {formatVP(vp)}
                       </td>

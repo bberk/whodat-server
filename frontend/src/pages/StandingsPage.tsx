@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { ClinchLegend } from "../components/ClinchBadge";
 import { DataState, EmptyState, ErrorState, LoadingState } from "../components/DataStates";
@@ -15,6 +15,7 @@ import {
   seriesIndexByTeamId,
 } from "../standings/model";
 import { PlayoffOddsSection } from "../standings/PlayoffOddsSection";
+import { ProjectedWeekToggle } from "../standings/ProjectedWeekToggle";
 import { useStandingsData } from "../standings/useStandingsData";
 import { WapdateSection } from "../standings/WapdateSection";
 
@@ -37,14 +38,21 @@ export function StandingsPage() {
     season,
     dataVersion,
   } = useLeague();
+  const [includeProjected, setIncludeProjected] = useState(false);
   const { state, reload } = useStandingsData(
     selectedLeague?.league_id ?? null,
     season,
     dataVersion,
+    includeProjected,
   );
   const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null);
   const [hiddenTeamIds, setHiddenTeamIds] = useState<ReadonlySet<number>>(() => new Set<number>());
   const compact = useMediaQuery("(max-width: 767px)");
+
+  // Projected reads are current-season only, so switching seasons must not carry the switch over.
+  useEffect(() => {
+    setIncludeProjected(false);
+  }, [season]);
 
   if (leaguesStatus === "loading") {
     return (
@@ -101,12 +109,24 @@ export function StandingsPage() {
   }
 
   const bundle = state.status === "ready" ? state : null;
-  const weeks = bundle === null ? [] : bundle.history.weeks;
+  const tableWeeks = bundle === null ? [] : bundle.standings.weeks;
+  const chartWeeks = bundle === null ? [] : bundle.history.weeks;
+  const projectedWeeks = bundle === null ? [] : bundle.history.projected_weeks;
   const series = bundle === null ? [] : buildHistorySeries(bundle.history);
   const teamStyles = bundle === null ? EMPTY_STYLES : seriesIndexByTeamId(bundle.history);
   const showTies = bundle === null ? false : seasonHasHeadToHeadTies(bundle.standings.overall);
   const currentSeason = latestSeason(seasons);
   const showPlayoffOdds = currentSeason !== null && season === currentSeason;
+  const activeWeek = bundle === null ? null : bundle.standings.active_week;
+  const projection = bundle === null ? null : bundle.standings.projection;
+  const appliedProjectedWeek = projection?.week ?? null;
+  const canProject = showPlayoffOdds;
+  const projectionReason =
+    activeWeek === null
+      ? "This season has no active week to project (it is complete, or the schedule is incomplete)."
+      : includeProjected && projection?.status === "unavailable"
+        ? `Projected results are unavailable (${projection.reason ?? "not synced"}); showing completed weeks.`
+        : null;
   const visibleTeamIds = series
     .filter((entry) => !hiddenTeamIds.has(entry.teamId))
     .map((entry) => entry.teamId);
@@ -145,7 +165,9 @@ export function StandingsPage() {
   const meta =
     bundle === null
       ? `${season} season`
-      : `${bundle.standings.season} season · ${bundle.standings.overall.length} teams · ${bundle.standings.divisions.length} divisions · ${bundle.standings.completed_weeks} completed weeks`;
+      : `${bundle.standings.season} season · ${bundle.standings.overall.length} teams · ${bundle.standings.divisions.length} divisions · ${bundle.standings.completed_weeks} completed weeks${
+          appliedProjectedWeek === null ? "" : ` · projecting week ${appliedProjectedWeek}`
+        }`;
 
   return (
     <div className="flex min-h-full flex-col">
@@ -161,6 +183,14 @@ export function StandingsPage() {
           </h2>
           <VPRulesTooltip />
         </div>
+        {canProject ? (
+          <ProjectedWeekToggle
+            week={activeWeek}
+            checked={includeProjected}
+            reason={projectionReason}
+            onChange={setIncludeProjected}
+          />
+        ) : null}
         {bundle === null ? (
           <DataState
             state={state}
@@ -176,10 +206,11 @@ export function StandingsPage() {
               <FinalPlaceLegend />
             ) : null}
             <StandingsTable
-              caption={`Overall ${bundle.standings.season} standings: rank, team, final placing, playoff designation, owner, season victory points, head-to-head record, points for, and victory points for each completed week.`}
+              caption={`Overall ${bundle.standings.season} standings: rank, team, final placing, playoff designation, owner, season victory points, head-to-head record, points for, and victory points for each counted week.`}
               ariaLabel="Overall standings, scrollable horizontally"
               rows={bundle.standings.overall}
-              weeks={weeks}
+              weeks={tableWeeks}
+              projectedWeek={appliedProjectedWeek}
               showTies={showTies}
               selectedTeamId={selectedTeamId}
               onSelectTeam={selectTeam}
@@ -242,20 +273,21 @@ export function StandingsPage() {
             emptyDetail="The cumulative VP chart appears after the first completed week."
             onRetry={reload}
           />
-        ) : weeks.length === 0 ? (
+        ) : chartWeeks.length === 0 ? (
           <EmptyState
             title="No chart yet"
             detail="The cumulative VP chart appears after the first completed week."
           />
         ) : (
           <VPChart
-            weeks={weeks}
+            weeks={chartWeeks}
             series={series}
             visibleTeamIds={visibleTeamIds}
             selectedTeamId={selectedTeamId}
             onToggleTeam={toggleSeries}
             onIsolateTeam={isolateSeries}
             compact={compact}
+            projectedWeeks={projectedWeeks}
           />
         )}
       </section>
@@ -266,6 +298,7 @@ export function StandingsPage() {
           leagueId={selectedLeague.league_id}
           season={season}
           dataVersion={dataVersion}
+          includeProjected={includeProjected}
         />
       ) : null}
 
@@ -275,6 +308,7 @@ export function StandingsPage() {
           leagueId={selectedLeague.league_id}
           season={season}
           dataVersion={dataVersion}
+          includeProjected={includeProjected}
         />
       ) : null}
     </div>

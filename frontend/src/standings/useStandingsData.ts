@@ -23,6 +23,7 @@ export function useStandingsData(
   leagueId: number | null,
   season: number | null,
   dataVersion: number,
+  includeProjected = false,
 ): StandingsData {
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<StandingsState>({ status: "loading" });
@@ -35,8 +36,8 @@ export function useStandingsData(
     const controller = new AbortController();
     setState({ status: "loading" });
     Promise.all([
-      api.standings(leagueId, season, controller.signal),
-      api.vpHistory(leagueId, season, controller.signal),
+      api.standings(leagueId, season, controller.signal, includeProjected),
+      api.vpHistory(leagueId, season, controller.signal, includeProjected),
     ]).then(
       ([standings, history]) => {
         if (controller.signal.aborted) {
@@ -61,7 +62,7 @@ export function useStandingsData(
     return () => {
       controller.abort();
     };
-  }, [leagueId, season, dataVersion, attempt]);
+  }, [leagueId, season, dataVersion, attempt, includeProjected]);
 
   const reload = useCallback(() => {
     setAttempt((current) => current + 1);

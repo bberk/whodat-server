@@ -54,6 +54,10 @@ export type CreateInviteResponse = components["schemas"]["CreateInviteResponse"]
 
 export type StandingsRow = components["schemas"]["StandingsRow"];
 export type DivisionStandings = components["schemas"]["DivisionStandings"];
+/** One team's provider-projected points and the VP/record they would earn. */
+export type ProjectedTeam = components["schemas"]["ProjectedTeam"];
+/** The active week's projection applied to a read, or why it was unavailable. */
+export type ProjectionResponse = components["schemas"]["ProjectionResponse"];
 export type StandingsResponse = components["schemas"]["StandingsResponse"];
 export type TeamVpHistory = components["schemas"]["TeamVpHistory"];
 export type VpHistoryResponse = components["schemas"]["VpHistoryResponse"];
