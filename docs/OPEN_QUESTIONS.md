@@ -37,12 +37,14 @@ Follow the format used below. Newest entries at the top.
 - **Recommendation:** option 2. It matches "view on the same local network", keeps the public
   surface unchanged, and avoids adding an authenticated path to the internet-facing origin.
 - **In the meantime:** Grafana publishes `${GRAFANA_PORT:-3000}` bound only to the server's
-  reserved LAN address in `GRAFANA_BIND_ADDRESS` (a required setting), never `0.0.0.0`; anonymous
-  access and sign-ups are disabled, and the runbook forbids forwarding 3000. Prometheus binds
-  loopback only (`127.0.0.1:9090`). The root development Compose file also publishes the backend on
-  loopback only (`127.0.0.1:8000`), so `/metrics` is never reachable from another host there. The
-  runbook wording now says Caddy is the only *internet* ingress instead of the only published port,
-  and explains that Docker-published ports can bypass UFW's INPUT rules.
+  reserved LAN address in `GRAFANA_BIND_ADDRESS` (a required setting), never `0.0.0.0`;
+  `deploy/server/validate-env.sh` runs from `manage.sh` before the stack starts and rejects a
+  missing, wildcard, IPv6, hostname, or non-RFC 1918 value. Anonymous access and sign-ups are
+  disabled, and the runbook forbids forwarding 3000. Prometheus binds loopback only
+  (`127.0.0.1:9090`). The root development Compose file also publishes the backend on loopback
+  only (`127.0.0.1:8000`), so `/metrics` is never reachable from another host there. The runbook
+  wording now says Caddy is the only *internet* ingress instead of the only published port, and
+  explains that Docker-published ports can bypass UFW's INPUT rules.
 
 ---
 

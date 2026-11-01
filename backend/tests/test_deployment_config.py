@@ -9,9 +9,12 @@ proxies the two intended backend paths. No test needs Docker or a network.
 
 from __future__ import annotations
 
+import os
 import re
+import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -89,3 +92,52 @@ def test_prometheus_keeps_size_retention_with_the_pinned_image() -> None:
     services = _compose("deploy/server/docker-compose.yml")["services"]
     assert services["prometheus"]["image"] == "prom/prometheus:v3.15.1"
     assert "--storage.tsdb.wal-compression" in services["prometheus"]["command"]
+
+
+def _validate_env(
+    tmp_path: Path, text: str, *, override: str | None = None
+) -> subprocess.CompletedProcess[str]:
+    """Run the deploy preflight against a temporary env file."""
+    env_file = tmp_path / ".env"
+    env_file.write_text(text, encoding="utf-8")
+    environment = {key: value for key, value in os.environ.items() if key != "GRAFANA_BIND_ADDRESS"}
+    if override is not None:
+        environment["GRAFANA_BIND_ADDRESS"] = override
+    return subprocess.run(
+        ["bash", str(REPO_ROOT / "deploy/server/validate-env.sh"), str(env_file)],
+        capture_output=True,
+        env=environment,
+        check=False,
+        text=True,
+    )
+
+
+@pytest.mark.parametrize("address", ["192.168.1.50", "10.0.0.5", "172.16.4.9", "172.31.255.254"])
+def test_validate_env_accepts_private_lan_addresses(tmp_path: Path, address: str) -> None:
+    """Every RFC 1918 range is valid for the LAN-only Grafana bind."""
+    result = _validate_env(tmp_path, f"GRAFANA_BIND_ADDRESS={address}\n")
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "address",
+    ["0.0.0.0", "8.8.8.8", "172.32.0.1", "192.168.1.999", "::", "grafana.example.com"],
+)
+def test_validate_env_rejects_wildcard_and_public_addresses(tmp_path: Path, address: str) -> None:
+    """A wildcard, public, IPv6, hostname, or malformed bind must fail before Compose starts."""
+    result = _validate_env(tmp_path, f"GRAFANA_BIND_ADDRESS={address}\n")
+    assert result.returncode != 0
+    assert "GRAFANA_BIND_ADDRESS" in result.stderr
+
+
+def test_validate_env_rejects_a_missing_address(tmp_path: Path) -> None:
+    """An env file without the bind address fails closed instead of publishing everywhere."""
+    result = _validate_env(tmp_path, "GRAFANA_ADMIN_USER=admin\n")
+    assert result.returncode != 0
+    assert "required" in result.stderr
+
+
+def test_validate_env_prefers_the_environment_over_the_file(tmp_path: Path) -> None:
+    """Compose gives the exported variable precedence, so the preflight must too."""
+    result = _validate_env(tmp_path, "GRAFANA_BIND_ADDRESS=8.8.8.8\n", override="192.168.1.50")
+    assert result.returncode == 0, result.stderr

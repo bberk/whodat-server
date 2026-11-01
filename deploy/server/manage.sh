@@ -66,6 +66,8 @@ require_context() {
 require_env() {
   [[ -f "${script_dir}/.env" ]] ||
     fail "copy deploy/server/.env.example to deploy/server/.env and replace its placeholders"
+  # Fail before Compose publishes anything if the Grafana bind would leave the LAN.
+  "${script_dir}/validate-env.sh" "${script_dir}/.env"
 }
 
 compose() {

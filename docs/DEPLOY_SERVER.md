@@ -591,8 +591,10 @@ The stack includes a self-hosted Prometheus + Grafana pair plus `node_exporter`.
 - **Grafana** serves the dashboards on the LAN at `http://<server-lan-ip>:3000` (override with
   `GRAFANA_PORT`). It binds only the server's reserved LAN address from `GRAFANA_BIND_ADDRESS`
   (section 3.3), never every interface, so it cannot listen on a public interface even if one
-  exists. Sign in with `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` from `deploy/server/.env`.
-  Anonymous access and sign-ups are disabled.
+  exists. `manage.sh` runs `deploy/server/validate-env.sh` before starting anything and rejects a
+  missing value, `0.0.0.0`, IPv6, hostnames, and any address outside RFC 1918. Sign in with
+  `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` from `deploy/server/.env`. Anonymous access and
+  sign-ups are disabled.
 
 The provisioned **Victory Points** folder contains three dashboards:
 
