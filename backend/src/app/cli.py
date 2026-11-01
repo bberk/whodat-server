@@ -28,6 +28,7 @@ from app.db.auth_repositories import InviteRepository, MembershipRepository, Use
 from app.db.models import ROLE_ADMIN, ROLE_MEMBER, VALID_ROLES
 from app.db.repositories import SyncRepository
 from app.db.session import get_session_factory
+from app.projection_refresh import refresh_active_weeks
 from app.providers.base import LeagueRef
 from app.providers.espn.credentials import create_espn_provider
 from app.security.crypto import CredentialCryptoError
@@ -139,6 +140,17 @@ def build_parser() -> argparse.ArgumentParser:
     recompute = sub.add_parser("recompute", help="recompute VP without provider calls")
     recompute.add_argument("--league", required=True, help="league external id")
     recompute.add_argument("--season", type=int, required=True, help="season year")
+
+    active_week = sub.add_parser(
+        "sync-active-week",
+        help="refresh the active week's scores and provider projections",
+    )
+    active_week.add_argument(
+        "--league",
+        action="append",
+        default=None,
+        help="league external id (repeatable; default: every stored league)",
+    )
 
     create_invite = sub.add_parser("create-invite", help="create an invite code")
     create_invite.add_argument(
@@ -300,6 +312,41 @@ def _run_recompute(
     return 0
 
 
+def _run_sync_active_week(
+    args: argparse.Namespace,
+    session_factory: sessionmaker[Session],
+    provider_id: str,
+    provider_factory: ProviderFactory,
+) -> int:
+    """Run ``sync-active-week`` and return a process exit code.
+
+    The command is the manual counterpart of the in-process scheduler. It refreshes only the
+    league's latest stored season's active week, rotates credential holders on an authentication
+    failure, and reports fixed status codes. It prints no emails, cookies, or ciphertext.
+    """
+    results = refresh_active_weeks(
+        session_factory=session_factory,
+        provider_factory=provider_factory,
+        league_external_ids=tuple(args.league) if args.league else None,
+        provider_id=provider_id,
+    )
+    for result in results:
+        summary = result.summary
+        detail = ""
+        if summary is not None:
+            detail = (
+                f" active_week={summary.active_week or '-'}"
+                f" completed_week={summary.completed_week or '-'}"
+                f" projections_stored={summary.projections_stored}"
+            )
+        print(
+            f"sync-active-week: league={result.league_id} "
+            f"external_id={result.external_id} status={result.status}{detail}"
+        )
+    failed = any(result.status in {"failed", "auth_failed", "no_credentials"} for result in results)
+    return 1 if failed else 0
+
+
 def _utc_now() -> datetime:
     """Return the current UTC wall-clock time (the production invite clock)."""
     return datetime.now(UTC)
@@ -367,6 +414,9 @@ def main(
 
     if args.command == "sync":
         return _run_sync(args, factory, provider_id, provider_factory)
+
+    if args.command == "sync-active-week":
+        return _run_sync_active_week(args, factory, provider_id, provider_factory)
 
     if args.command == "recompute":
         return _run_recompute(args, factory, provider_id)

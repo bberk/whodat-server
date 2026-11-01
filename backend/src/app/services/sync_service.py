@@ -14,11 +14,24 @@ from time import perf_counter
 
 from sqlalchemy.orm import Session
 
+from app.db.models import Matchup
 from app.db.repositories import SyncRepository, WeeklyVPValues
 from app.domain.types import TeamWeek
 from app.domain.vp_engine import compute_week_vp
-from app.metrics import PROVIDER_FETCH_DURATION_SECONDS, PROVIDER_FETCH_TOTAL
-from app.providers.base import LeagueProvider, LeagueRef, MatchupDTO
+from app.metrics import (
+    PROJECTION_REFRESH_LAST_SUCCESS,
+    PROVIDER_FETCH_DURATION_SECONDS,
+    PROVIDER_FETCH_TOTAL,
+    WEEK_REFRESH_DURATION_SECONDS,
+    WEEK_REFRESH_TOTAL,
+)
+from app.providers.base import (
+    LeagueProvider,
+    LeagueRef,
+    MatchupDTO,
+    ProjectionDTO,
+    ProviderLeagueNotFound,
+)
 from app.validation import normalize_display_text
 
 #: Fixed non-secret value stored in ``league.provider_config_ref``. The column is a legacy pointer:
@@ -37,6 +50,24 @@ class SyncSummary:
     league_changed: bool
     owners_changed: int
     teams_changed: int
+
+
+@dataclass(frozen=True)
+class ActiveWeekSyncSummary:
+    """Report what one unattended active-week refresh persisted.
+
+    ``completed_week`` is set when the previously active week finalized during this run;
+    ``active_week`` is the week whose projections were stored, or ``None`` when the season has no
+    active week (complete, missing schedule, or a playoff week inside the regular season).
+    ``projections_stored`` is the number of team-week projection rows written; an incomplete set
+    is reported as zero rows because the service clears rather than partially fills the week.
+    """
+
+    league_id: int
+    season: int
+    active_week: int | None
+    completed_week: int | None
+    projections_stored: int
 
 
 @dataclass(frozen=True)
@@ -177,6 +208,12 @@ class SyncService:
                 f"provider {provider_id!r} has no league {league_ref.external_id!r} "
                 f"for season {season}"
             ) from exc
+        except ProviderLeagueNotFound as exc:
+            fetch_outcome = "not_found"
+            raise LeagueNotFoundError(
+                f"provider {provider_id!r} has no league {league_ref.external_id!r} "
+                f"for season {season}"
+            ) from exc
         else:
             fetch_outcome = "ok"
         finally:
@@ -283,6 +320,7 @@ class SyncService:
             weeks_with_vp_recomputed.append(week)
 
         self._repository.set_league_season_last_refreshed(league_id, season, self._clock())
+        self._prune_projections(league_id, season, regular_season_length)
         return SyncSummary(
             league_id=league_id,
             season=season,
@@ -292,6 +330,164 @@ class SyncService:
             owners_changed=owners_changed,
             teams_changed=teams_changed,
         )
+
+    def sync_active_week(
+        self,
+        league_ref: LeagueRef,
+        provider_id: str,
+        season: int,
+    ) -> ActiveWeekSyncSummary:
+        """Refresh only the active week: its schedule, any just-completed week, and projections.
+
+        This is the unattended 15-minute path. It never re-ingests the whole season. It:
+        finalizes the week that just completed (storing its final scores and recomputing its VP),
+        syncs the new active week's schedule, then stores that week's provider projections.
+        Projections for every other week are removed, so a read can never pair projections with
+        the wrong week. A missing, partial, or non-numeric projection clears the active week
+        instead of storing a guess.
+
+        Raises :class:`MissingRegularSeasonLengthError` when the season has no usable length and
+        :class:`LeagueNotFoundError` when the league is not stored. Provider failures propagate so
+        the caller can rotate credentials or report a failure; the repository work is left to the
+        caller's transaction boundary.
+        """
+        provider = self._require_provider()
+        league = self._repository.get_league(provider_id, league_ref.external_id)
+        if league is None:
+            raise LeagueNotFoundError(
+                f"league {league_ref.external_id!r} for provider {provider_id!r} is not stored"
+            )
+        league_season = self._repository.get_league_season(league.id, season)
+        if league_season is None:
+            raise MissingRegularSeasonLengthError(
+                f"league {league_ref.external_id!r} season {season} has no stored league_season row"
+            )
+        regular_season_length = _regular_season_length(league_season.league_season_metadata)
+        if regular_season_length is None:
+            raise MissingRegularSeasonLengthError(
+                f"league {league_ref.external_id!r} season {season} has no usable "
+                "regular_season_length in its stored league-season metadata"
+            )
+        teams = self._repository.get_teams(league.id, season)
+        if not teams:
+            raise SyncError(f"league {league_ref.external_id!r} season {season} has no teams")
+        team_external_to_id = {team.external_id: team.id for team in teams}
+        team_id_to_external = {team.id: team.external_id for team in teams}
+
+        started = perf_counter()
+        try:
+            active = self._active_week(league.id, season, regular_season_length)
+            completed_week: int | None = None
+            if active is None:
+                self._clear_all_projections(league.id, season)
+                self._repository.set_league_season_projections_refreshed(
+                    league.id, season, self._clock()
+                )
+                WEEK_REFRESH_TOTAL.labels("projection", "no_active_week").inc()
+                return ActiveWeekSyncSummary(
+                    league_id=league.id,
+                    season=season,
+                    active_week=None,
+                    completed_week=None,
+                    projections_stored=0,
+                )
+
+            matchups_dto = provider.fetch_matchups(league_ref, season, active)
+            self._sync_week(league.id, season, active, matchups_dto, team_external_to_id)
+            rows = self._repository.get_week_matchups(league.id, season, active)
+            if rows and all(row.is_complete and not row.is_playoff for row in rows):
+                # The active week just finished: store its result, recompute its VP, and move to
+                # the next week. The job may therefore touch two weeks in one run.
+                self._recompute_week_vp(league.id, season, active)
+                completed_week = active
+                active = self._active_week(league.id, season, regular_season_length)
+                if active is None:
+                    self._clear_all_projections(league.id, season)
+                    self._repository.set_league_season_projections_refreshed(
+                        league.id, season, self._clock()
+                    )
+                    WEEK_REFRESH_TOTAL.labels("projection", "no_active_week").inc()
+                    self._repository.set_league_season_last_refreshed(
+                        league.id, season, self._clock()
+                    )
+                    return ActiveWeekSyncSummary(
+                        league_id=league.id,
+                        season=season,
+                        active_week=None,
+                        completed_week=completed_week,
+                        projections_stored=0,
+                    )
+                matchups_dto = provider.fetch_matchups(league_ref, season, active)
+                self._sync_week(league.id, season, active, matchups_dto, team_external_to_id)
+                rows = self._repository.get_week_matchups(league.id, season, active)
+
+            if not rows or any(row.is_playoff for row in rows):
+                self._clear_all_projections(league.id, season)
+                self._repository.set_league_season_projections_refreshed(
+                    league.id, season, self._clock()
+                )
+                WEEK_REFRESH_TOTAL.labels("projection", "no_active_week").inc()
+                return ActiveWeekSyncSummary(
+                    league_id=league.id,
+                    season=season,
+                    active_week=None,
+                    completed_week=completed_week,
+                    projections_stored=0,
+                )
+
+            projections = provider.fetch_projections(league_ref, season, active)
+            points_by_team = self._validated_projection_points(
+                projections, rows, team_id_to_external
+            )
+            if points_by_team is None:
+                self._clear_all_projections(league.id, season)
+                self._repository.set_league_season_projections_refreshed(
+                    league.id, season, self._clock()
+                )
+                WEEK_REFRESH_TOTAL.labels("projection", "incomplete").inc()
+                return ActiveWeekSyncSummary(
+                    league_id=league.id,
+                    season=season,
+                    active_week=active,
+                    completed_week=completed_week,
+                    projections_stored=0,
+                )
+
+            stored_team_ids: list[int] = []
+            for external_id, points in points_by_team.items():
+                team_id = team_external_to_id.get(external_id)
+                if team_id is None:
+                    self._clear_all_projections(league.id, season)
+                    WEEK_REFRESH_TOTAL.labels("projection", "incomplete").inc()
+                    return ActiveWeekSyncSummary(
+                        league_id=league.id,
+                        season=season,
+                        active_week=active,
+                        completed_week=completed_week,
+                        projections_stored=0,
+                    )
+                self._repository.upsert_projected_score(league.id, season, active, team_id, points)
+                stored_team_ids.append(team_id)
+            self._repository.delete_projections_for_teams(
+                league.id, season, active, stored_team_ids
+            )
+            self._repository.delete_projections_except_week(league.id, season, active)
+            refreshed_at = self._clock()
+            self._repository.set_league_season_projections_refreshed(
+                league.id, season, refreshed_at
+            )
+            self._repository.set_league_season_last_refreshed(league.id, season, refreshed_at)
+            WEEK_REFRESH_TOTAL.labels("projection", "ok").inc()
+            PROJECTION_REFRESH_LAST_SUCCESS.set(refreshed_at.timestamp())
+            return ActiveWeekSyncSummary(
+                league_id=league.id,
+                season=season,
+                active_week=active,
+                completed_week=completed_week,
+                projections_stored=len(stored_team_ids),
+            )
+        finally:
+            WEEK_REFRESH_DURATION_SECONDS.labels("projection").observe(perf_counter() - started)
 
     def recompute_league(
         self,
@@ -356,6 +552,79 @@ class SyncService:
             weeks_recomputed=tuple(weeks_recomputed),
             weeks_skipped=tuple(weeks_skipped),
         )
+
+    def _active_week(self, league_id: int, season: int, regular_season_length: int) -> int | None:
+        """Return the first incomplete regular-season week, or None when there is none.
+
+        A missing stored schedule for any week before the end, or a playoff week inside the
+        regular season, is inconsistent data: the caller then reports no active week rather than
+        skipping ahead to a later week.
+        """
+        for week in range(1, regular_season_length + 1):
+            matchups = self._repository.get_week_matchups(league_id, season, week)
+            if not matchups:
+                return None
+            if any(matchup.is_playoff for matchup in matchups):
+                return None
+            if any(not matchup.is_complete for matchup in matchups):
+                return week
+        return None
+
+    @staticmethod
+    def _validated_projection_points(
+        projections: Sequence[ProjectionDTO],
+        matchups: Sequence[Matchup],
+        team_id_to_external: Mapping[int, str],
+    ) -> dict[str, Decimal] | None:
+        """Return one projection per participating team, or None when the set is incomplete.
+
+        Every team in the active week's stored matchups must have exactly one non-negative
+        projection. A missing side, a ``None`` projection, a duplicate, or an unknown team means
+        the week is not projected: partial data would silently distort every VP component, so the
+        caller clears the week instead of filling it.
+        """
+        expected: set[str] = set()
+        for matchup in matchups:
+            home_external = team_id_to_external.get(matchup.home_team_id)
+            if home_external is None:
+                return None
+            expected.add(home_external)
+            if matchup.away_team_id is not None:
+                away_external = team_id_to_external.get(matchup.away_team_id)
+                if away_external is None:
+                    return None
+                expected.add(away_external)
+
+        provided: dict[str, Decimal] = {}
+        for projection in projections:
+            if projection.is_playoff:
+                return None
+            for side in (projection.home, projection.away):
+                if side is None:
+                    continue
+                if side.points is None or side.team_external_id in provided:
+                    return None
+                provided[side.team_external_id] = side.points
+        if set(provided) != expected:
+            return None
+        return provided
+
+    def _clear_all_projections(self, league_id: int, season: int) -> None:
+        """Remove every stored projection for the season."""
+        self._repository.delete_projections_except_week(league_id, season, -1)
+
+    def _prune_projections(
+        self, league_id: int, season: int, regular_season_length: int | None
+    ) -> None:
+        """Keep only the active week's projections after a full-season sync."""
+        if regular_season_length is None:
+            self._clear_all_projections(league_id, season)
+            return
+        active = self._active_week(league_id, season, regular_season_length)
+        if active is None:
+            self._clear_all_projections(league_id, season)
+        else:
+            self._repository.delete_projections_except_week(league_id, season, active)
 
     def _sync_week(
         self,
@@ -515,3 +784,5 @@ class SyncService:
 
         # Persist all components in the same transaction.
         self._repository.persist_week_vp(league_id, season, week, values_by_team)
+        # One event per completed week, on every sync/recompute path (AC-PW-* metrics).
+        WEEK_REFRESH_TOTAL.labels("completed", "ok").inc()

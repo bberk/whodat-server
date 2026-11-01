@@ -16,6 +16,7 @@ The caller owns the session and its transaction.
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from fractions import Fraction
 from typing import Literal
@@ -34,6 +35,7 @@ from app.domain.clinch import (
 from app.domain.predictions import (
     CountedScore,
     CountedWeek,
+    FixedWeek,
     RemainingMatchup,
     RemainingWeek,
     TeamSeasonTotals,
@@ -144,6 +146,48 @@ class DivisionStandings:
     standings: tuple[StandingRow, ...]
 
 
+type ProjectionReason = Literal[
+    "no_active_week",
+    "projections_not_synced",
+    "projections_incomplete",
+    "incomplete_schedule",
+]
+
+
+@dataclass(frozen=True)
+class ProjectedTeamWeek:
+    """One team's provider-projected points and the VP and record they would earn."""
+
+    team_id: int
+    opponent_team_id: int | None
+    points: Decimal
+    victory_points: Fraction
+    wins: int
+    losses: int
+    ties: int
+
+
+@dataclass(frozen=True)
+class Projection:
+    """The active week's provider projection, or why the projected view is unavailable.
+
+    A ``week`` means the projection is applied: the standings, chart, WAPDate, clinch, and odds
+    treat the week as played with these scores. ``reason`` is set only when ``week`` is ``None``.
+    ``as_of`` is the last successful projection fetch for the season, never the request time.
+    """
+
+    week: int | None
+    reason: ProjectionReason | None
+    as_of: datetime | None
+    is_cup_week: bool
+    teams: tuple[ProjectedTeamWeek, ...]
+
+    @property
+    def applied(self) -> bool:
+        """Return whether this projection can be included in a read."""
+        return self.week is not None
+
+
 @dataclass(frozen=True)
 class Standings:
     """Overall and per-division standings for one league season."""
@@ -153,6 +197,14 @@ class Standings:
     completed_weeks: int
     overall: tuple[StandingRow, ...]
     divisions: tuple[DivisionStandings, ...]
+    #: The weeks that ``weekly_vp`` aligns to. It equals the completed weeks, plus the projected
+    #: week when the projected view is applied.
+    weeks: tuple[int, ...] = ()
+    #: The active week even when no projected read was requested, so a client can enable or
+    #: disable its switch without a second request. ``None`` means the season has no active week.
+    active_week: int | None = None
+    #: Present only when the caller asked for the projected view; ``None`` otherwise.
+    projection: Projection | None = None
 
 
 @dataclass(frozen=True)
@@ -171,6 +223,10 @@ class VpHistory:
 
     weeks: tuple[int, ...]
     teams: tuple[TeamVpHistory, ...]
+    #: Weeks in ``weeks`` that came from the active week's provider projection.
+    projected_weeks: tuple[int, ...] = ()
+    active_week: int | None = None
+    projection: Projection | None = None
 
 
 @dataclass(frozen=True)
@@ -193,6 +249,8 @@ class Wapdate:
     season: int
     highest_completed_week: int | None
     periods: tuple[WapdatePeriod, ...]
+    projected_week: int | None = None
+    projection: Projection | None = None
 
 
 @dataclass(frozen=True)
@@ -213,6 +271,12 @@ class PredictionSnapshot:
     teams: tuple[TeamSeasonTotals, ...]
     counted_weeks: tuple[CountedWeek, ...]
     remaining_weeks: tuple[RemainingWeek, ...]
+    #: The active week whose provider projection is fixed into the simulation, or ``None``.
+    projected_week: int | None = None
+    #: The deterministic projected week passed to the simulator, excluded from ``remaining_weeks``.
+    fixed_weeks: tuple[FixedWeek, ...] = ()
+    #: Why the projected view is unavailable when ``projected_week`` is ``None``.
+    projection: Projection | None = None
 
 
 @dataclass(frozen=True)
@@ -262,27 +326,41 @@ class StandingsService:
         self._session = session
         self._repository = SyncRepository(session)
 
-    def get_standings(self, league_id: int, season: int) -> Standings:
+    def get_standings(
+        self, league_id: int, season: int, *, include_projected: bool = False
+    ) -> Standings:
         """Return overall standings plus divisions that group the same overall-ranked rows.
 
         Division rows are the same :class:`StandingRow` objects as ``overall`` and therefore
         carry the team's overall league rank (AC-ST-06). Divisions are ordered alphabetically
         by name, with the no-division group last. With no completed regular-season weeks the
         result has no rows, no divisions, and ``completed_weeks == 0``.
+
+        ``include_projected`` adds the active week's stored provider projection as a played week:
+        its VP, W/L/T, and points for are included, ``weeks`` and ``weekly_vp`` gain the week, and
+        clinch designations are recomputed from the projected totals with that week removed from
+        the remaining schedule. ``active_week`` is always reported so a client can offer the
+        switch without a projected request. A missing or incomplete projection never partially
+        fills a week; ``projection.reason`` explains why it was not applied.
         """
         context = self._load_context(league_id, season)
         weeks = self._completed_weeks(context)
-        if not weeks:
+        active_week, projection = self._projection(context, include_projected)
+        applied = projection if projection is not None and projection.applied else None
+        if not weeks and applied is None:
             return Standings(
                 league_id=league_id,
                 season=season,
                 completed_weeks=0,
                 overall=(),
                 divisions=(),
+                weeks=(),
+                active_week=active_week,
+                projection=projection,
             )
 
-        aggregate = self._aggregate(context, weeks)
-        clinch = self._clinch_statuses(context, weeks, aggregate)
+        aggregate = self._aggregate(context, weeks, projection=applied)
+        clinch = self._clinch_statuses(context, weeks, aggregate, projection=applied)
         teams_by_id = {team.id: team for team in context.teams}
         season_rows = self._season_rows(context, aggregate)
 
@@ -310,12 +388,18 @@ class StandingsService:
                 )
             )
 
+        display_weeks = weeks
+        if applied is not None and applied.week is not None:
+            display_weeks = weeks + (applied.week,)
         return Standings(
             league_id=league_id,
             season=season,
             completed_weeks=len(weeks),
             overall=tuple(overall),
             divisions=self._group_divisions(overall),
+            weeks=display_weeks,
+            active_week=active_week,
+            projection=projection,
         )
 
     def get_last_place_team_ids(self, league_id: int, season: int) -> tuple[int, ...]:
@@ -419,18 +503,29 @@ class StandingsService:
 
         return result
 
-    def get_vp_history(self, league_id: int, season: int) -> VpHistory:
+    def get_vp_history(
+        self, league_id: int, season: int, *, include_projected: bool = False
+    ) -> VpHistory:
         """Return counted weeks plus each team's exact weekly and cumulative VP series.
 
         Teams are ordered by id for a stable chart legend. With no completed regular-season
-        weeks both ``weeks`` and ``teams`` are empty.
+        weeks and no applied projection both ``weeks`` and ``teams`` are empty. When the projected
+        view is applied, the active week is appended to ``weeks`` and every series, and
+        ``projected_weeks`` marks it so the chart can draw a distinct projected segment.
         """
         context = self._load_context(league_id, season)
         weeks = self._completed_weeks(context)
-        if not weeks:
-            return VpHistory(weeks=(), teams=())
+        active_week, projection = self._projection(context, include_projected)
+        applied = projection if projection is not None and projection.applied else None
+        if not weeks and applied is None:
+            return VpHistory(
+                weeks=(),
+                teams=(),
+                active_week=active_week,
+                projection=projection,
+            )
 
-        aggregate = self._aggregate(context, weeks)
+        aggregate = self._aggregate(context, weeks, projection=applied)
         teams = tuple(
             TeamVpHistory(
                 team_id=team.id,
@@ -440,9 +535,22 @@ class StandingsService:
             )
             for team in sorted(context.teams, key=lambda stored_team: stored_team.id)
         )
-        return VpHistory(weeks=weeks, teams=teams)
+        display_weeks = weeks
+        projected_weeks: tuple[int, ...] = ()
+        if applied is not None and applied.week is not None:
+            display_weeks = weeks + (applied.week,)
+            projected_weeks = (applied.week,)
+        return VpHistory(
+            weeks=display_weeks,
+            teams=teams,
+            projected_weeks=projected_weeks,
+            active_week=active_week,
+            projection=projection,
+        )
 
-    def get_wapdate(self, league_id: int, season: int) -> Wapdate:
+    def get_wapdate(
+        self, league_id: int, season: int, *, include_projected: bool = False
+    ) -> Wapdate:
         """Return the offered WAPDate periods with lowest-first rows.
 
         Periods are fixed and independent: weeks 1-4, 5-8 and 9-12 only, with no VP, wins, or
@@ -450,14 +558,28 @@ class StandingsService:
         the standings use, so a cup week keeps its cup-week VP and points for while adding no
         wins. Only offered periods are returned; with no completed regular-season weeks the
         result has no periods.
+
+        With ``include_projected`` the active week joins the period that contains it (weeks 13
+        and later belong to no period). The period's safe-from-last bound treats the projected
+        week as played, so its remaining-week count starts the week after it.
         """
         context = self._load_context(league_id, season)
         weeks = self._completed_weeks(context)
         highest = weeks[-1] if weeks else None
+        _, projection = self._projection(context, include_projected)
+        applied = projection if projection is not None and projection.applied else None
 
         periods: list[WapdatePeriod] = []
         for window in offered_periods(weeks):
-            aggregate = self._aggregate(context, window.weeks)
+            in_period_week: int | None = None
+            if (
+                applied is not None
+                and applied.week is not None
+                and window.period.start_week <= applied.week <= window.period.end_week
+            ):
+                in_period_week = applied.week
+            period_projection = applied if in_period_week is not None else None
+            aggregate = self._aggregate(context, window.weeks, projection=period_projection)
             stats = tuple(
                 TeamPeriodStats(
                     team_id=team.id,
@@ -468,19 +590,23 @@ class StandingsService:
                 )
                 for team in context.teams
             )
+            effective_highest = in_period_week if in_period_week is not None else highest
             rows = build_wapdate_rows(
                 stats,
                 window,
-                highest_completed_week=highest,
+                highest_completed_week=effective_highest,
                 cup_week=context.cup_week,
             )
+            period_weeks = window.weeks
+            if in_period_week is not None:
+                period_weeks = window.weeks + (in_period_week,)
             periods.append(
                 WapdatePeriod(
                     period=window.period.number,
                     start_week=window.period.start_week,
                     end_week=window.period.end_week,
                     status=window.status,
-                    weeks=window.weeks,
+                    weeks=period_weeks,
                     rows=rows,
                 )
             )
@@ -490,6 +616,8 @@ class StandingsService:
             season=season,
             highest_completed_week=highest,
             periods=tuple(periods),
+            projected_week=applied.week if applied is not None else None,
+            projection=projection,
         )
 
     def require_current_season(self, league_id: int, season: int) -> None:
@@ -509,13 +637,21 @@ class StandingsService:
         if season != latest:
             raise SeasonNotCurrentError(league_id, season)
 
-    def get_prediction_snapshot(self, league_id: int, season: int) -> PredictionSnapshot:
+    def get_prediction_snapshot(
+        self, league_id: int, season: int, *, include_projected: bool = False
+    ) -> PredictionSnapshot:
         """Return current exact totals, counted raw scores, and every remaining pairing.
 
         The current totals reuse the same completed-week definition and aggregation as
         :meth:`get_standings`. An invalid cup week is a season-settings fault and raises
         :class:`SeasonSettingsError`; a missing playoff field is left as ``None`` so the simulator
         can return its documented unavailable reason instead of a guessed field size.
+
+        With ``include_projected`` the active week's provider projection becomes a
+        :class:`~app.domain.predictions.FixedWeek`: it is applied deterministically by the
+        simulator and removed from ``remaining_weeks``. It is never added to ``counted_weeks``, so
+        the estimated team strength is unchanged. ``teams`` therefore stays the actual current
+        total and the simulation applies the projected week exactly once.
         """
         context = self._load_context(league_id, season)
         if context.cup_week is not None and (
@@ -530,6 +666,8 @@ class StandingsService:
 
         weeks = self._completed_weeks(context)
         aggregate = self._aggregate(context, weeks) if weeks else None
+        _, projection = self._projection(context, include_projected)
+        applied = projection if projection is not None and projection.applied else None
 
         teams = tuple(
             TeamSeasonTotals(
@@ -555,11 +693,30 @@ class StandingsService:
             for week in weeks
         )
         completed = frozenset(weeks)
+        fixed_weeks: list[FixedWeek] = []
         remaining_weeks: list[RemainingWeek] = []
         for week in range(1, context.regular_season_length + 1):
             if week in completed:
                 continue
             matchups = self._repository.get_week_matchups(context.league_id, context.season, week)
+            if applied is not None and week == applied.week:
+                fixed_weeks.append(
+                    FixedWeek(
+                        week=week,
+                        scores=tuple(
+                            CountedScore(team_id=team.team_id, points=team.points)
+                            for team in applied.teams
+                        ),
+                        matchups=tuple(
+                            RemainingMatchup(
+                                home_team_id=matchup.home_team_id,
+                                away_team_id=matchup.away_team_id,
+                            )
+                            for matchup in matchups
+                        ),
+                    )
+                )
+                continue
             remaining_weeks.append(
                 RemainingWeek(
                     week=week,
@@ -582,6 +739,149 @@ class StandingsService:
             teams=teams,
             counted_weeks=counted,
             remaining_weeks=tuple(remaining_weeks),
+            projected_week=applied.week if applied is not None else None,
+            fixed_weeks=tuple(fixed_weeks),
+            projection=projection,
+        )
+
+    def _active_week(self, context: _SeasonContext) -> int | None:
+        """Return the first incomplete regular-season week, or None when there is none.
+
+        A missing stored schedule for any week, or a playoff week inside the regular season, is
+        inconsistent data: the projected view is then unavailable rather than skipping ahead.
+        """
+        for week in range(1, context.regular_season_length + 1):
+            matchups = self._repository.get_week_matchups(context.league_id, context.season, week)
+            if not matchups:
+                return None
+            if any(matchup.is_playoff for matchup in matchups):
+                return None
+            if any(not matchup.is_complete for matchup in matchups):
+                return week
+        return None
+
+    def _projection(
+        self, context: _SeasonContext, include_projected: bool
+    ) -> tuple[int | None, Projection | None]:
+        """Return the active week and, when requested, its applied provider projection.
+
+        The result is ``(active_week, None)`` for an ordinary read: the active week is still
+        reported so a client can enable its switch. With ``include_projected`` the projection is
+        computed from stored ``projected_score`` rows and the real VP engine. Any missing team,
+        missing row, or non-regular-season schedule returns an explicit reason and no partial
+        week.
+        """
+        active = self._active_week(context)
+        if not include_projected:
+            return active, None
+
+        league_season = self._repository.get_league_season(context.league_id, context.season)
+        as_of = league_season.projections_refreshed_at if league_season is not None else None
+        if active is None:
+            return None, Projection(
+                week=None,
+                reason="no_active_week",
+                as_of=as_of,
+                is_cup_week=False,
+                teams=(),
+            )
+
+        matchups = self._repository.get_week_matchups(context.league_id, context.season, active)
+        if not matchups or any(matchup.is_playoff for matchup in matchups):
+            return active, Projection(
+                week=None,
+                reason="incomplete_schedule",
+                as_of=as_of,
+                is_cup_week=False,
+                teams=(),
+            )
+
+        roster_ids = {team.id for team in context.teams}
+        participants: list[int] = []
+        for matchup in matchups:
+            participants.append(matchup.home_team_id)
+            if matchup.away_team_id is not None:
+                participants.append(matchup.away_team_id)
+        if len(participants) != len(set(participants)) or set(participants) != roster_ids:
+            return active, Projection(
+                week=None,
+                reason="incomplete_schedule",
+                as_of=as_of,
+                is_cup_week=False,
+                teams=(),
+            )
+
+        projection_rows = self._repository.get_week_projections(
+            context.league_id, context.season, active
+        )
+        points_by_team = {row.team_id: row.points for row in projection_rows}
+        if not roster_ids.issubset(points_by_team):
+            reason: ProjectionReason = (
+                "projections_not_synced" if not projection_rows else "projections_incomplete"
+            )
+            return active, Projection(
+                week=None,
+                reason=reason,
+                as_of=as_of,
+                is_cup_week=False,
+                teams=(),
+            )
+
+        opponent_by_team: dict[int, int | None] = {}
+        for matchup in matchups:
+            opponent_by_team[matchup.home_team_id] = matchup.away_team_id
+            if matchup.away_team_id is not None:
+                opponent_by_team[matchup.away_team_id] = matchup.home_team_id
+
+        is_cup_week = context.cup_week == active
+        team_weeks = [
+            TeamWeek(
+                team_id=team_id,
+                points=points_by_team[team_id],
+                opponent_id=opponent_by_team.get(team_id),
+            )
+            for team_id in sorted(roster_ids)
+        ]
+        week_values = compute_week_vp(team_weeks, h2h=not is_cup_week)
+
+        wins = {team_id: 0 for team_id in roster_ids}
+        losses = {team_id: 0 for team_id in roster_ids}
+        ties = {team_id: 0 for team_id in roster_ids}
+        if not is_cup_week:
+            for matchup in matchups:
+                away_id = matchup.away_team_id
+                if away_id is None:
+                    continue
+                home_points = points_by_team[matchup.home_team_id]
+                away_points = points_by_team[away_id]
+                if home_points > away_points:
+                    wins[matchup.home_team_id] += 1
+                    losses[away_id] += 1
+                elif home_points < away_points:
+                    losses[matchup.home_team_id] += 1
+                    wins[away_id] += 1
+                else:
+                    ties[matchup.home_team_id] += 1
+                    ties[away_id] += 1
+
+        teams = tuple(
+            ProjectedTeamWeek(
+                team_id=team_id,
+                opponent_team_id=opponent_by_team.get(team_id),
+                points=points_by_team[team_id],
+                victory_points=week_values[team_id].total,
+                wins=wins[team_id],
+                losses=losses[team_id],
+                ties=ties[team_id],
+            )
+            for team_id in sorted(roster_ids)
+        )
+        return active, Projection(
+            week=active,
+            reason=None,
+            as_of=as_of,
+            is_cup_week=is_cup_week,
+            teams=teams,
         )
 
     def _load_context(self, league_id: int, season: int) -> _SeasonContext:
@@ -627,17 +927,21 @@ class StandingsService:
         context: _SeasonContext,
         completed_weeks: Sequence[int],
         aggregate: _SeasonAggregate,
+        projection: Projection | None = None,
     ) -> dict[int, ClinchStatus | None]:
         """Compute proven designations from exact totals and every stored future pairing.
 
         A regular-season week flagged as a playoff week is inconsistent stored data, so no team
         receives a designation. Missing future weeks are rejected by the pure calculator rather
-        than filled from current standings.
+        than filled from current standings. When a projection is applied, its week is treated as
+        already played: it is removed from the remaining matchups and added to the completed
+        weeks, so the conservative search does not count it twice.
         """
         remaining_matchups: list[ClinchMatchup] = []
         completed = frozenset(completed_weeks)
+        projected_week = projection.week if projection is not None else None
         for week in range(1, context.regular_season_length + 1):
-            if week in completed:
+            if week in completed or week == projected_week:
                 continue
             for matchup in self._repository.get_week_matchups(
                 context.league_id, context.season, week
@@ -652,6 +956,9 @@ class StandingsService:
                     )
                 )
 
+        effective_completed = tuple(completed_weeks) + (
+            (projected_week,) if projected_week is not None else ()
+        )
         return compute_clinch_statuses(
             [
                 ClinchTeam(
@@ -663,7 +970,7 @@ class StandingsService:
                 for team in context.teams
             ],
             remaining_matchups,
-            completed_weeks=completed_weeks,
+            completed_weeks=effective_completed,
             regular_season_length=context.regular_season_length,
             playoff_team_count=context.playoff_team_count,
             cup_week=context.cup_week,
@@ -692,7 +999,13 @@ class StandingsService:
             weeks.append(week)
         return tuple(weeks)
 
-    def _aggregate(self, context: _SeasonContext, weeks: Sequence[int]) -> _SeasonAggregate:
+    def _aggregate(
+        self,
+        context: _SeasonContext,
+        weeks: Sequence[int],
+        *,
+        projection: Projection | None = None,
+    ) -> _SeasonAggregate:
         """Aggregate a season's counted weeks by loading each week from the repository."""
         return self._aggregate_from(
             context,
@@ -701,6 +1014,7 @@ class StandingsService:
                 context.league_id, context.season, week
             ),
             lambda week: self._repository.get_week_scores(context.league_id, context.season, week),
+            projection=projection,
         )
 
     @staticmethod
@@ -709,11 +1023,15 @@ class StandingsService:
         weeks: Sequence[int],
         matchups_for: Callable[[int], Sequence[Matchup]],
         scores_for: Callable[[int], Sequence[Score]],
+        *,
+        projection: Projection | None = None,
     ) -> _SeasonAggregate:
         """Recompute weekly VP and W-L-T from caller-supplied week loaders.
 
         A cup week (``context.cup_week``) still counts for points for and its VP, but its
-        matchups never change the W-L-T record and every team gets zero head-to-head VP.
+        matchups never change the W-L-T record and every team gets zero head-to-head VP. An
+        applied projection is appended after the counted weeks, so its weekly VP aligns with the
+        extra week in ``Standings.weeks`` and it contributes its own record and points for.
         """
         roster_ids = {team.id for team in context.teams}
         weekly_by_team: dict[int, list[Fraction]] = {team_id: [] for team_id in roster_ids}
@@ -792,6 +1110,20 @@ class StandingsService:
                 weekly_by_team[team_id].append(
                     week_vp.total if week_vp is not None else Fraction(0)
                 )
+
+        if projection is not None:
+            for projected in projection.teams:
+                if projected.team_id not in roster_ids:
+                    raise TeamDataError(
+                        context.league_id,
+                        context.season,
+                        f"projected week {projection.week} references a team outside the roster",
+                    )
+                weekly_by_team[projected.team_id].append(projected.victory_points)
+                wins[projected.team_id] += projected.wins
+                losses[projected.team_id] += projected.losses
+                ties[projected.team_id] += projected.ties
+                points_for[projected.team_id] += projected.points
 
         season_vp = {
             team_id: sum(series, Fraction(0)) for team_id, series in weekly_by_team.items()

@@ -4,6 +4,7 @@ These functions contain NO side effects and NO HTTP calls. They convert
 espn_api objects into the normalized DTOs defined in providers.base.
 """
 
+from collections.abc import Iterable, Sized
 from decimal import Decimal, InvalidOperation
 
 from app.providers.base import (
@@ -11,6 +12,8 @@ from app.providers.base import (
     MatchupDTO,
     MatchupSideDTO,
     OwnerDTO,
+    ProjectionDTO,
+    ProjectionSideDTO,
     TeamDTO,
 )
 from app.providers.espn._types import (
@@ -167,3 +170,77 @@ def map_matchups(league: ESPNLeagueProto, week: int) -> list[MatchupDTO]:
         )
 
     return matchups
+
+
+def _team_external_id(value: object) -> str | None:
+    """Return a stable external team id from an ESPN id or Team-like object.
+
+    ``League.box_scores`` replaces the numeric team ids with ``Team`` objects before returning,
+    while a unit-test double may keep the raw id. Both forms resolve here; ``0`` and ``None``
+    mean a bye.
+    """
+    if value is None:
+        return None
+    team_id = getattr(value, "team_id", value)
+    text = str(team_id)
+    return None if text in {"", "0"} else text
+
+
+def _projected_points(value: object, lineup: object) -> Decimal | None:
+    """Return an exact two-decimal projection, or None when ESPN has no usable value.
+
+    An empty lineup means ESPN returned no players to project, so a zero-looking value is not a
+    real projection. Any negative sentinel, non-finite value, or unparseable text is also
+    ``None``: a projection is either supplied by the provider or absent, never filled in.
+    """
+    if isinstance(lineup, Sized) and len(lineup) == 0:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int | float | Decimal | str):
+        return None
+    try:
+        number = Decimal(str(value))
+    except InvalidOperation:
+        return None
+    if not number.is_finite() or number < 0:
+        return None
+    return number.quantize(Decimal("0.01"))
+
+
+def map_box_score(box_score: object, week: int) -> ProjectionDTO | None:
+    """Map one ESPN box score to a projected matchup, or None when it has no home team."""
+    home_team = _team_external_id(getattr(box_score, "home_team", None))
+    if home_team is None:
+        return None
+    home = ProjectionSideDTO(
+        team_external_id=home_team,
+        points=_projected_points(
+            getattr(box_score, "home_projected", None),
+            getattr(box_score, "home_lineup", None),
+        ),
+    )
+    away_team = _team_external_id(getattr(box_score, "away_team", None))
+    away = None
+    if away_team is not None:
+        away = ProjectionSideDTO(
+            team_external_id=away_team,
+            points=_projected_points(
+                getattr(box_score, "away_projected", None),
+                getattr(box_score, "away_lineup", None),
+            ),
+        )
+    return ProjectionDTO(
+        week=week,
+        home=home,
+        away=away,
+        is_playoff=bool(getattr(box_score, "is_playoff", False)),
+    )
+
+
+def map_box_scores(box_scores: Iterable[object], week: int) -> list[ProjectionDTO]:
+    """Map a sequence of ESPN box scores into projected matchups for one week."""
+    projections: list[ProjectionDTO] = []
+    for box_score in box_scores:
+        mapped = map_box_score(box_score, week)
+        if mapped is not None:
+            projections.append(mapped)
+    return projections

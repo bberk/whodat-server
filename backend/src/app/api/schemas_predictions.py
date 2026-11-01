@@ -8,7 +8,7 @@ the string. ``strength_weight`` echoes the exact team-strength weight the simula
 from __future__ import annotations
 
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Literal
+from typing import Literal, cast
 
 from pydantic import BaseModel
 
@@ -22,6 +22,13 @@ from app.services.prediction_service import (
 )
 
 _FOUR_PLACES = Decimal("0.0001")
+
+type ProjectionReason = Literal[
+    "no_active_week",
+    "projections_not_synced",
+    "projections_incomplete",
+    "incomplete_schedule",
+]
 
 
 class ProbabilityInterval(BaseModel):
@@ -81,6 +88,10 @@ class PlayoffOddsResponse(BaseModel):
     playoff_field: int | None
     division_count: int
     teams: list[TeamPlayoffOdds]
+    #: The active week whose provider projection was fixed into the simulation, when applied.
+    projected_week: int | None = None
+    #: Why a requested projection was not applied; None when it was applied or not requested.
+    projection_reason: ProjectionReason | None = None
 
 
 def format_probability(value: Decimal) -> str:
@@ -120,6 +131,8 @@ def to_playoff_odds_response(odds: ServicePlayoffOdds) -> PlayoffOddsResponse:
         remaining_weeks=list(odds.remaining_weeks),
         playoff_field=odds.playoff_field,
         division_count=odds.division_count,
+        projected_week=odds.projected_week,
+        projection_reason=cast("ProjectionReason | None", odds.projection_reason),
         teams=[
             TeamPlayoffOdds(
                 team_id=team.team_id,

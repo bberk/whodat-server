@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -66,6 +67,9 @@ GOLDEN_STANDINGS = json.loads(
       "league_id": 1,
       "season": 2026,
       "completed_weeks": 2,
+      "weeks": [1, 2],
+      "active_week": null,
+      "projection": null,
       "overall": [
         {
           "rank": 1,
@@ -775,6 +779,8 @@ def test_AC_WD_07_empty_season_has_no_wapdate_periods(api_factory: Callable[[], 
         "season": SEASON,
         "highest_completed_week": None,
         "periods": [],
+        "projected_week": None,
+        "projection": None,
     }
 
 
@@ -847,11 +853,20 @@ def test_empty_season_returns_empty_standings_and_history(
         "league_id": league_id,
         "season": SEASON,
         "completed_weeks": 0,
+        "weeks": [],
+        "active_week": None,
+        "projection": None,
         "overall": [],
         "divisions": [],
     }
     assert history.status_code == 200
-    assert history.json() == {"weeks": [], "teams": []}
+    assert history.json() == {
+        "weeks": [],
+        "teams": [],
+        "projected_weeks": [],
+        "active_week": None,
+        "projection": None,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -923,3 +938,144 @@ def test_AC_API_01_openapi_export_is_current() -> None:
     assert "put" in document["paths"]["/api/v1/leagues/{league_id}/elo-config"]
     assert "put" in document["paths"]["/api/v1/leagues/{league_id}/display-settings"]
     assert OPENAPI_PATH.read_text(encoding="utf-8") == expected
+
+
+# ---------------------------------------------------------------------------
+# Projected active week (AC-PW-*)
+# ---------------------------------------------------------------------------
+
+
+def _scheduled_matchup(week: int, home: str, away: str) -> MatchupDTO:
+    """Build one incomplete regular-season matchup with no points."""
+    return MatchupDTO(
+        week=week,
+        home=MatchupSideDTO(team_external_id=home, points=None),
+        away=MatchupSideDTO(team_external_id=away, points=None),
+        is_playoff=False,
+        is_complete=False,
+    )
+
+
+def _seed_projections(
+    api: Api,
+    league_id: int,
+    season: int,
+    week: int,
+    points_by_external: Mapping[str, str],
+) -> None:
+    """Store provider projections and the season's as-of instant for one active week."""
+    with api.factory() as session:
+        repository = SyncRepository(session)
+        teams = {team.external_id: team.id for team in repository.get_teams(league_id, season)}
+        for external_id, points in points_by_external.items():
+            repository.upsert_projected_score(
+                league_id, season, week, teams[external_id], Decimal(points)
+            )
+        repository.set_league_season_projections_refreshed(
+            league_id, season, datetime(2026, 11, 1, 18, 0, tzinfo=UTC)
+        )
+        session.commit()
+
+
+def _projected_season(api: Api) -> tuple[int, int]:
+    """Seed one completed week and an incomplete active week, then its projections."""
+    league_id = _seed_league(
+        api,
+        team_specs=FOUR_TEAMS,
+        weeks={
+            1: [
+                _matchup(1, "team-a", "120.00", "team-d", "90.00"),
+                _matchup(1, "team-b", "110.00", "team-c", "100.00"),
+            ],
+            2: [
+                _scheduled_matchup(2, "team-a", "team-c"),
+                _scheduled_matchup(2, "team-b", "team-d"),
+            ],
+        },
+        regular_season_length=2,
+        playoff_team_count=4,
+    )
+    user_id = _create_user(api, "projected@example.com", league_id=league_id)
+    _login(api, user_id)
+    _seed_projections(
+        api,
+        league_id,
+        SEASON,
+        2,
+        {"team-a": "130.00", "team-b": "90.00", "team-c": "100.00", "team-d": "80.00"},
+    )
+    return league_id, user_id
+
+
+def test_AC_PW_01_standings_include_the_projected_active_week(
+    api_factory: Callable[[], Api],
+) -> None:
+    """The projected view adds exact VP, record, points, and the week alignment."""
+    api = api_factory()
+    league_id, _ = _projected_season(api)
+
+    response = api.client.get(f"{_standings_path(league_id)}?include_projected=true")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["completed_weeks"] == 1
+    assert body["weeks"] == [1, 2]
+    assert body["active_week"] == 2
+    assert body["projection"]["status"] == "ok"
+    assert body["projection"]["week"] == 2
+    assert body["projection"]["is_cup_week"] is False
+    assert body["projection"]["as_of"] is not None
+    by_team = {row["team_name"]: row for row in body["overall"]}
+    assert by_team["Alpha"]["victory_points"] == "6"
+    assert by_team["Bravo"]["victory_points"] == "3"
+    assert by_team["Charlie"]["victory_points"] == "1"
+    assert by_team["Delta"]["victory_points"] == "-2"
+    assert by_team["Alpha"]["weekly_vp"] == ["3", "3"]
+    assert by_team["Alpha"]["wins"] == 2
+    assert by_team["Delta"]["rank"] == 4
+
+
+def test_AC_PW_02_projected_view_is_current_season_only(
+    api_factory: Callable[[], Api],
+) -> None:
+    """A prior stored season rejects the projected query with the documented 409."""
+    api = api_factory()
+    _seed_league(
+        api,
+        team_specs=FOUR_TEAMS,
+        weeks={1: [_matchup(1, "team-a", "120.00", "team-d", "90.00")]},
+        regular_season_length=1,
+        season=2025,
+    )
+    current = _seed_league(
+        api,
+        team_specs=FOUR_TEAMS,
+        weeks={1: [_matchup(1, "team-a", "120.00", "team-d", "90.00")]},
+        regular_season_length=1,
+        season=SEASON,
+    )
+    user_id = _create_user(api, "prior@example.com", league_id=current)
+    _login(api, user_id)
+
+    response = api.client.get(
+        f"/api/v1/leagues/{current}/seasons/2025/standings?include_projected=true"
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "season_not_current"
+
+
+def test_AC_PW_03_projected_view_requires_membership(
+    api_factory: Callable[[], Api],
+) -> None:
+    """Unauthenticated requests are 401 and non-members see the same 404 as any league read."""
+    api = api_factory()
+    league_id, _ = _projected_season(api)
+
+    api.client.cookies.clear()
+    unauthenticated = api.client.get(f"{_standings_path(league_id)}?include_projected=true")
+    assert unauthenticated.status_code == 401
+
+    _login(api, _create_user(api, "outsider@example.com"))
+    forbidden = api.client.get(f"{_standings_path(league_id)}?include_projected=true")
+    assert forbidden.status_code == 404

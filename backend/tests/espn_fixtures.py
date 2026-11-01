@@ -66,12 +66,37 @@ class FakeMatchup:
         self.is_playoff: bool = data.get("matchupPeriodId", 1) > 14  # Simple heuristic
 
 
+class FakeBoxScore:
+    """Fake ESPN box score carrying projected team totals.
+
+    A side without a ``projectedPoints`` fixture value has an empty lineup, which the mapper
+    treats as "no projection" rather than a zero. This mirrors the real ``espn_api`` shape: only
+    a populated lineup produces a usable projection.
+    """
+
+    def __init__(self, data: dict[str, Any]) -> None:
+        home = data.get("home", {})
+        away = data.get("away", {})
+        self.home_team: int = home.get("teamId", 0)
+        self.away_team: int | None = away.get("teamId") or None
+        self.home_projected: float = home.get("projectedPoints", 0.0)
+        self.away_projected: float = away.get("projectedPoints", 0.0)
+        self.home_lineup: list[object] = (
+            [object()] if home.get("projectedPoints") is not None else []
+        )
+        self.away_lineup: list[object] = (
+            [object()] if away.get("projectedPoints") is not None else []
+        )
+        self.is_playoff: bool = data.get("matchupPeriodId", 1) > 14
+
+
 class FakeLeague:
     """Fake ESPN league object for testing."""
 
     def __init__(self, data: dict[str, Any]) -> None:
         self.league_id: int = data["league_id"]
         self.currentMatchupPeriod: int = data["status"]["currentMatchupPeriod"]
+        self.current_week: int = data["status"].get("currentWeek", self.currentMatchupPeriod)
         self.settings: FakeSettings = FakeSettings(data["settings"])
         self.members: list[dict[str, Any]] = data["members"]
 
@@ -131,6 +156,14 @@ class FakeLeague:
         """Return matchups for a given week."""
         return [
             FakeMatchup(matchup) for matchup in self._schedule if matchup["matchupPeriodId"] == week
+        ]
+
+    def box_scores(self, week: int) -> list[FakeBoxScore]:
+        """Return box scores carrying each side's fixture ``projectedPoints`` for a week."""
+        return [
+            FakeBoxScore(matchup)
+            for matchup in self._schedule
+            if matchup["matchupPeriodId"] == week
         ]
 
 

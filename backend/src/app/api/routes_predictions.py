@@ -116,6 +116,15 @@ StrengthWeightQuery = Annotated[
     ),
     AfterValidator(normalize_strength_weight),
 ]
+IncludeProjectedQuery = Annotated[
+    bool,
+    Query(
+        description=(
+            "Fix the active week's stored provider projection into the simulation. The estimated "
+            "team strength still uses completed weeks only. Only the current season is accepted."
+        ),
+    ),
+]
 
 
 @router.get(
@@ -141,6 +150,7 @@ def get_playoff_odds(
     iterations: IterationsQuery = DEFAULT_ITERATIONS,
     seed: SeedQuery = None,
     strength_weight: StrengthWeightQuery = DEFAULT_STRENGTH_WEIGHT,
+    include_projected: IncludeProjectedQuery = False,
 ) -> PlayoffOddsResponse:
     """Return per-team playoff, bye, division-title, and championship probabilities.
 
@@ -167,6 +177,7 @@ def get_playoff_odds(
             iterations=iterations,
             seed=seed,
             strength_weight=strength_weight,
+            include_projected=include_projected,
         )
     except StandingsServiceError as error:
         _raise_standings_error(error)

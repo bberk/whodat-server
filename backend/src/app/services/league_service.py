@@ -48,6 +48,7 @@ from app.db.models import (
     LeagueSeason,
     Matchup,
     Owner,
+    ProjectedScore,
     Score,
     Team,
     UserLeague,
@@ -798,7 +799,7 @@ class LeagueService:
         self._require_admin(user)
         league_season = self._require_league_season(league_id, season)
         with self._session.begin_nested():
-            for model in (Score, Matchup, Team):
+            for model in (ProjectedScore, Score, Matchup, Team):
                 self._session.execute(
                     delete(model).where(model.league_id == league_id, model.season == season)
                 )
@@ -915,6 +916,7 @@ class LeagueService:
         self._require_admin(user)
         with self._session.begin_nested():
             for model in (
+                ProjectedScore,
                 Score,
                 Matchup,
                 Team,

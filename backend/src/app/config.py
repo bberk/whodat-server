@@ -41,6 +41,15 @@ class Settings(BaseSettings):
     season_refresh_user_limit: int = Field(default=60, ge=1)
     season_refresh_user_window_seconds: float = Field(default=3600.0, gt=0)
 
+    # Active-week projection refresh. Disabled by default so tests and local development never
+    # start a scheduler thread or call a provider unaided. Production turns it on in
+    # deploy/server/.env. The schedule itself is fixed in app.projection_refresh: Sundays
+    # 13:00-24:00 and Mondays 20:00-24:00 in this timezone, every 15 minutes.
+    projection_refresh_enabled: bool = False
+    projection_refresh_timezone: str = "America/New_York"
+    #: Comma-separated provider external league ids. Empty means every stored league.
+    projection_refresh_leagues: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

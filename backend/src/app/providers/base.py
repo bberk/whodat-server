@@ -70,6 +70,48 @@ class MatchupDTO:
 
 
 @dataclass(frozen=True)
+class ProjectionSideDTO:
+    """Represent one team's provider-projected score for a week.
+
+    ``points`` is ``None`` when the provider has no usable projection (a missing lineup, a
+    sentinel such as ``-1``, or an unparseable value). A projection is provider-supplied data,
+    never a result and never a zero fill.
+    """
+
+    team_external_id: str
+    points: Decimal | None
+
+
+@dataclass(frozen=True)
+class ProjectionDTO:
+    """Represent one matchup's projected team scores for a single week.
+
+    An absent away side denotes a bye; its projection is irrelevant for that team.
+    """
+
+    week: int
+    home: ProjectionSideDTO
+    away: ProjectionSideDTO | None
+    is_playoff: bool
+
+
+class ProviderError(Exception):
+    """Base class for a provider call that failed for a reason a caller may report."""
+
+
+class ProviderAuthError(ProviderError):
+    """The provider rejected the supplied credentials.
+
+    The unattended refresh job rotates to a different credential-holding membership on this
+    error. Never include cookie values, ciphertext, or an email in the message.
+    """
+
+
+class ProviderLeagueNotFound(ProviderError):
+    """The provider does not know the requested league (or the caller cannot see it)."""
+
+
+@dataclass(frozen=True)
 class WeekStatus:
     """Identify the latest completed week, or None when none has completed."""
 
@@ -95,6 +137,16 @@ class LeagueProvider(Protocol):
 
     def fetch_matchups(self, league_ref: LeagueRef, season: int, week: int) -> list[MatchupDTO]:
         """Return normalized matchups for one week."""
+        ...
+
+    def fetch_projections(
+        self, league_ref: LeagueRef, season: int, week: int
+    ) -> list[ProjectionDTO]:
+        """Return provider-projected team scores for one week.
+
+        Providers that cannot expose projections return an empty list rather than inventing
+        scores. A projection is not a result and never substitutes for a stored score.
+        """
         ...
 
     def current_week(self, league_ref: LeagueRef, season: int) -> WeekStatus:

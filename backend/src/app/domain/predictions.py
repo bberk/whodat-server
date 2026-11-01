@@ -42,6 +42,8 @@ from typing import Literal, Protocol
 from app.domain.vp_engine import week_h2h_ticks, week_rank_component_ticks
 
 #: Model version. Any change to sampling, parameters, or draw order must bump this value.
+#: Adding a deterministic fixed week does not change the score model or the sampled draw order,
+#: so the version stays at the series used by the current projection model.
 MODEL_VERSION = "vp-mc-3"
 
 #: Pseudo-games of shrinkage applied to a team's raw deviation from the league mean.
@@ -126,6 +128,20 @@ class RemainingWeek:
 
 
 @dataclass(frozen=True)
+class FixedWeek:
+    """A week whose scores are already known or projected rather than sampled.
+
+    The simulator applies a fixed week once, before the random remaining weeks, with the same VP
+    engine and cup-week rule. The week is excluded from ``counted_weeks`` so it never changes the
+    estimated team strength, and excluded from ``remaining_weeks`` so it is never drawn twice.
+    """
+
+    week: int
+    scores: tuple[CountedScore, ...]
+    matchups: tuple[RemainingMatchup, ...]
+
+
+@dataclass(frozen=True)
 class SeasonPredictionInputs:
     """Everything the simulator needs for one league season.
 
@@ -141,6 +157,9 @@ class SeasonPredictionInputs:
     playoff_team_count: int | None
     cup_week: int | None
     strength_weight: Decimal = DEFAULT_STRENGTH_WEIGHT
+    #: Weeks whose scores are fixed (for example the active week's provider projections). They
+    #: are applied deterministically and never sampled or used to estimate team strength.
+    fixed_weeks: tuple[FixedWeek, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -177,6 +196,8 @@ class SeasonSimulation:
     observation_counts: tuple[int, ...]
     uses_two_way_residuals: bool
     pooled_residual_count: int
+    #: Weeks whose scores were fixed rather than sampled (applied before the random weeks).
+    projected_weeks: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -284,6 +305,15 @@ class _SimulatedWeek:
 
 
 @dataclass(frozen=True)
+class _FixedWeekPrepared:
+    """A fixed week's scores in integer cents aligned with the team order."""
+
+    week: int
+    scores_cents: tuple[int, ...]
+    opponents: tuple[int | None, ...]
+
+
+@dataclass(frozen=True)
 class _Prepared:
     """Validated simulation inputs and the estimated score model."""
 
@@ -309,6 +339,7 @@ class _Prepared:
     completed_weeks: int
     base_points: tuple[Decimal, ...]
     uses_two_way_residuals: bool
+    projected_weeks: tuple[int, ...] = ()
 
 
 def simulate_season(
@@ -401,11 +432,35 @@ def _prepare(inputs: SeasonPredictionInputs) -> _Prepared | PredictionUnavailabl
     if weeks is None:
         return PredictionUnavailable("incomplete_schedule")
 
+    fixed_weeks = _prepare_fixed_weeks(inputs, index_by_id, len(team_ids))
+    if fixed_weeks is None:
+        return PredictionUnavailable("incomplete_schedule")
+
     model = _estimate_model(inputs.counted_weeks, team_ids, weight)
     scale = _tick_scale(team_ids, inputs.teams)
-    start_vp_ticks = tuple(_vp_ticks(team.vp, scale) for team in inputs.teams)
-    wins = tuple(team.wins for team in inputs.teams)
-    points_for_cents = tuple(_cents(team.points_for) for team in inputs.teams)
+    start_vp_ticks = [_vp_ticks(team.vp, scale) for team in inputs.teams]
+    wins = [team.wins for team in inputs.teams]
+    points_for_cents = [_cents(team.points_for) for team in inputs.teams]
+    for fixed in fixed_weeks:
+        top_half, high, low = week_rank_component_ticks(fixed.scores_cents, scale)
+        is_cup_week = fixed.week == inputs.cup_week
+        if is_cup_week:
+            for index in range(len(team_ids)):
+                start_vp_ticks[index] += top_half[index] + high[index] + low[index]
+        else:
+            h2h = week_h2h_ticks(team_ids, fixed.scores_cents, fixed.opponents, scale)
+            for index in range(len(team_ids)):
+                start_vp_ticks[index] += top_half[index] + high[index] + low[index] + h2h[index]
+            for index, opponent in enumerate(fixed.opponents):
+                if opponent is None or index >= opponent:
+                    continue
+                if fixed.scores_cents[index] > fixed.scores_cents[opponent]:
+                    wins[index] += 1
+                elif fixed.scores_cents[index] < fixed.scores_cents[opponent]:
+                    wins[opponent] += 1
+        for index in range(len(team_ids)):
+            points_for_cents[index] += fixed.scores_cents[index]
+
     confidence: Confidence = (
         "low"
         if len(inputs.counted_weeks) < LOW_CONFIDENCE_WEEKS
@@ -416,9 +471,9 @@ def _prepare(inputs: SeasonPredictionInputs) -> _Prepared | PredictionUnavailabl
         team_ids=team_ids,
         team_names=tuple(team.team_name for team in inputs.teams),
         divisions=tuple(divisions),
-        start_vp_ticks=start_vp_ticks,
-        wins=wins,
-        points_for_cents=points_for_cents,
+        start_vp_ticks=tuple(start_vp_ticks),
+        wins=tuple(wins),
+        points_for_cents=tuple(points_for_cents),
         base_cents=model.base_cents,
         own_residuals=model.own_residuals,
         pooled_residuals=model.pooled_residuals,
@@ -433,17 +488,20 @@ def _prepare(inputs: SeasonPredictionInputs) -> _Prepared | PredictionUnavailabl
         completed_weeks=len(inputs.counted_weeks),
         base_points=tuple(_points(cents) for cents in model.base_cents),
         uses_two_way_residuals=model.uses_two_way,
+        projected_weeks=tuple(fixed.week for fixed in fixed_weeks),
     )
 
 
 def _valid_week_coverage(inputs: SeasonPredictionInputs) -> bool:
-    """Require counted and remaining weeks to partition the regular season exactly once."""
+    """Require counted, fixed, and remaining weeks to partition the regular season exactly once."""
     counted = [week.week for week in inputs.counted_weeks]
+    fixed = [week.week for week in inputs.fixed_weeks]
     remaining = [week.week for week in inputs.remaining_weeks]
-    if len(set(counted)) != len(counted) or len(set(remaining)) != len(remaining):
+    all_weeks = counted + fixed + remaining
+    if len(set(all_weeks)) != len(all_weeks):
         return False
     expected = set(range(1, inputs.regular_season_length + 1))
-    return set(counted) | set(remaining) == expected
+    return set(all_weeks) == expected
 
 
 def _remaining_weeks(
@@ -485,6 +543,58 @@ def _remaining_weeks(
             )
         )
     return tuple(weeks)
+
+
+def _prepare_fixed_weeks(
+    inputs: SeasonPredictionInputs, index_by_id: dict[int, int], team_count: int
+) -> tuple[_FixedWeekPrepared, ...] | None:
+    """Validate fixed weeks and align their scores and opponents with the team order.
+
+    A fixed week must list every team exactly once in both its scores and its pairings. An
+    explicit bye is a home slot with no away team. The week must be inside the regular season and
+    must not be a cup week's H2H source (the cup-week rule is applied when the totals are updated).
+    """
+    all_indices = frozenset(range(team_count))
+    prepared: list[_FixedWeekPrepared] = []
+    for fixed in sorted(inputs.fixed_weeks, key=lambda item: item.week):
+        if len(fixed.scores) != team_count:
+            return None
+        scores_cents = [0] * team_count
+        seen_scores: set[int] = set()
+        for score in fixed.scores:
+            index = index_by_id.get(score.team_id)
+            if index is None or index in seen_scores:
+                return None
+            seen_scores.add(index)
+            cents = _cents(score.points)
+            if cents < 0:
+                return None
+            scores_cents[index] = cents
+
+        opponents: list[int | None] = [None] * team_count
+        participants: list[int] = []
+        for matchup in fixed.matchups:
+            home = index_by_id.get(matchup.home_team_id)
+            away = None if matchup.away_team_id is None else index_by_id.get(matchup.away_team_id)
+            if home is None or (matchup.away_team_id is not None and away is None):
+                return None
+            if away == home:
+                return None
+            participants.append(home)
+            opponents[home] = away
+            if away is not None:
+                participants.append(away)
+                opponents[away] = home
+        if len(participants) != team_count or frozenset(participants) != all_indices:
+            return None
+        prepared.append(
+            _FixedWeekPrepared(
+                week=fixed.week,
+                scores_cents=tuple(scores_cents),
+                opponents=tuple(opponents),
+            )
+        )
+    return tuple(prepared)
 
 
 @dataclass(frozen=True)
@@ -824,6 +934,7 @@ def _result(prepared: _Prepared, counts: list[list[int]], *, iterations: int) ->
         observation_counts=prepared.observation_counts,
         uses_two_way_residuals=prepared.uses_two_way_residuals,
         pooled_residual_count=len(prepared.pooled_residuals),
+        projected_weeks=prepared.projected_weeks,
     )
 
 
