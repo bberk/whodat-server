@@ -135,8 +135,11 @@ sudo ufw status verbose
 ```
 
 Port 80 is optional and only redirects to HTTPS. Omit that rule if you do not want the redirect.
-Docker can interact directly with firewall rules; this kit limits published ports to Caddy's 80
-and 443. Re-audit `docker ps` and the firewall if other stacks run on the host.
+Docker publishes container ports through its own iptables chains, which can bypass UFW's INPUT
+rules. This kit therefore publishes only two non-Caddy ports: Grafana on the server's reserved LAN
+address (`GRAFANA_BIND_ADDRESS` on port 3000), and Prometheus on loopback (`127.0.0.1:9090`).
+Never change the Grafana bind address to `0.0.0.0`; that would listen on every interface,
+including a public one. Re-audit `docker ps` and the firewall if other stacks run on the host.
 
 In the router, forward **external TCP 443 to TCP 443 on the server's LAN address**. Optionally
 forward TCP 80 the same way for redirects. Do not forward any other port, and do not enable a DMZ
@@ -586,8 +589,10 @@ The stack includes a self-hosted Prometheus + Grafana pair plus `node_exporter`.
 - **node_exporter** reads the host's `/proc`, `/sys`, and root filesystem for CPU, memory, disk,
   and network metrics. It publishes no port.
 - **Grafana** serves the dashboards on the LAN at `http://<server-lan-ip>:3000` (override with
-  `GRAFANA_PORT`). Sign in with `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` from
-  `deploy/server/.env`. Anonymous access and sign-ups are disabled.
+  `GRAFANA_PORT`). It binds only the server's reserved LAN address from `GRAFANA_BIND_ADDRESS`
+  (section 3.3), never every interface, so it cannot listen on a public interface even if one
+  exists. Sign in with `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` from `deploy/server/.env`.
+  Anonymous access and sign-ups are disabled.
 
 The provisioned **Victory Points** folder contains three dashboards:
 
