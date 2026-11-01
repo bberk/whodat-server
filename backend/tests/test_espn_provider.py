@@ -565,3 +565,135 @@ class TestESPNProjections:
 
         with pytest.raises(ProviderAuthError):
             provider.fetch_matchups(LeagueRef(external_id="1"), 2024, 1)
+
+
+class TestESPNProviderErrorsAndProjectionEdges:
+    """Every adapter method translates ESPN failures and rejects unusable projections."""
+
+    def test_every_method_translates_access_denied(self) -> None:
+        """A denied request becomes ProviderAuthError from every public method."""
+        from espn_api.requests.espn_requests import ESPNAccessDenied
+
+        from app.providers.base import ProviderAuthError
+
+        class DeniedSettings:
+            @property
+            def reg_season_count(self) -> int:
+                raise ESPNAccessDenied("no access")
+
+        class DeniedLeague:
+            league_id = 1
+            currentMatchupPeriod = 1
+
+            @property
+            def current_week(self) -> int:
+                raise ESPNAccessDenied("no access")
+
+            @property
+            def settings(self) -> DeniedSettings:
+                raise ESPNAccessDenied("no access")
+
+            @property
+            def teams(self) -> list[object]:
+                raise ESPNAccessDenied("no access")
+
+            @property
+            def members(self) -> list[object]:
+                raise ESPNAccessDenied("no access")
+
+            def scoreboard(self, week: int) -> list[object]:
+                raise ESPNAccessDenied("no access")
+
+            def box_scores(self, week: int) -> list[object]:
+                raise ESPNAccessDenied("no access")
+
+        provider = ESPNLeagueProvider(league_factory=lambda *args, **kwargs: DeniedLeague())
+        ref = LeagueRef(external_id="1")
+        calls = (
+            lambda: provider.fetch_league(ref, 2024),
+            lambda: provider.fetch_owners(ref, 2024),
+            lambda: provider.fetch_teams(ref, 2024),
+            lambda: provider.fetch_matchups(ref, 2024, 1),
+            lambda: provider.fetch_projections(ref, 2024, 1),
+            lambda: provider.current_week(ref, 2024),
+        )
+        for call in calls:
+            with pytest.raises(ProviderAuthError):
+                call()
+
+    def test_invalid_league_and_unknown_error_are_classified(self) -> None:
+        """A missing league is not-found and an unknown failure is a provider error."""
+        from espn_api.requests.espn_requests import ESPNInvalidLeague, ESPNUnknownError
+
+        from app.providers.base import ProviderError, ProviderLeagueNotFound
+
+        class InvalidLeague:
+            league_id = 1
+            currentMatchupPeriod = 1
+            current_week = 1
+
+            @property
+            def settings(self) -> object:
+                raise ESPNInvalidLeague("missing")
+
+        provider = ESPNLeagueProvider(league_factory=lambda *args, **kwargs: InvalidLeague())
+        with pytest.raises(ProviderLeagueNotFound):
+            provider.fetch_league(LeagueRef(external_id="1"), 2024)
+
+        class UnknownLeague:
+            league_id = 1
+            currentMatchupPeriod = 1
+            current_week = 1
+
+            @property
+            def settings(self) -> object:
+                raise ESPNUnknownError("boom")
+
+        provider = ESPNLeagueProvider(league_factory=lambda *args, **kwargs: UnknownLeague())
+        with pytest.raises(ProviderError):
+            provider.fetch_league(LeagueRef(external_id="1"), 2024)
+
+    def test_projection_mapper_rejects_unusable_values(self) -> None:
+        """Missing sides, negative, non-finite, unparseable, and empty lineups map to None."""
+        from decimal import Decimal
+
+        from app.providers.espn.mappers import map_box_score
+
+        class Box:
+            home_team = 1
+            away_team = 2
+            home_projected = 100.0
+            away_projected = 90.0
+            home_lineup = [object()]
+            away_lineup = [object()]
+            is_playoff = False
+
+        cases = [
+            ("home", -1.0),
+            ("home", float("nan")),
+            ("home", "not-a-number"),
+            ("home", True),
+        ]
+        for attribute, value in cases:
+            box = Box()
+            setattr(box, f"{attribute}_projected", value)
+            mapped = map_box_score(box, 1)
+            assert mapped is not None
+            assert getattr(mapped, attribute).points is None
+
+        empty = Box()
+        empty.home_lineup = []
+        mapped = map_box_score(empty, 1)
+        assert mapped is not None
+        assert mapped.home.points is None
+
+        no_home = Box()
+        no_home.home_team = None
+        assert map_box_score(no_home, 1) is None
+
+        bye = Box()
+        bye.away_team = None
+        mapped = map_box_score(bye, 1)
+        assert mapped is not None
+        assert mapped.away is None
+        assert mapped.home.points == Decimal("100.00")

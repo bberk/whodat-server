@@ -392,3 +392,30 @@ def test_repository_rejects_partial_week_vp_and_leaves_transaction_to_caller(
     session.rollback()
 
     assert repository.get_week_scores(league_id, 2025, 1)[0].victory_points == Decimal("0.000000")
+
+
+def test_projected_scores_upsert_list_and_delete(session: Session) -> None:
+    """Projection rows are idempotent, replaceable, listable, and prunable by week and team."""
+    repository = SyncRepository(session)
+    league_id, home_id, away_id = _seed_week(repository)
+
+    first = repository.upsert_projected_score(league_id, 2025, 2, home_id, Decimal("100.00"))
+    same = repository.upsert_projected_score(league_id, 2025, 2, home_id, Decimal("100.00"))
+    changed = repository.upsert_projected_score(league_id, 2025, 2, home_id, Decimal("110.00"))
+    repository.upsert_projected_score(league_id, 2025, 2, away_id, Decimal("90.00"))
+    repository.upsert_projected_score(league_id, 2025, 3, home_id, Decimal("95.00"))
+
+    assert first.changed
+    assert not same.changed
+    assert changed.changed
+    assert len(repository.get_week_projections(league_id, 2025, 2)) == 2
+    assert len(repository.list_projections(league_id, 2025)) == 3
+
+    repository.delete_projected_score(first.row)
+    assert len(repository.get_week_projections(league_id, 2025, 2)) == 1
+    repository.delete_projections_for_teams(league_id, 2025, 2, [away_id])
+    assert [row.team_id for row in repository.get_week_projections(league_id, 2025, 2)] == [away_id]
+    repository.delete_projections_for_teams(league_id, 2025, 2, [])
+    assert repository.get_week_projections(league_id, 2025, 2) == []
+    repository.delete_projections_except_week(league_id, 2025, 3)
+    assert [row.week for row in repository.list_projections(league_id, 2025)] == [3]

@@ -26,7 +26,7 @@ from app.cli import (
 from app.config import get_settings
 from app.db.auth_repositories import MembershipRepository, UserRepository
 from app.db.base import Base
-from app.db.models import ROLE_MEMBER, Invite, League, Score
+from app.db.models import ROLE_MEMBER, Invite, League, ProjectedScore, Score
 from app.db.repositories import SyncRepository
 from app.providers.base import (
     LeagueDTO,
@@ -34,6 +34,8 @@ from app.providers.base import (
     MatchupDTO,
     MatchupSideDTO,
     OwnerDTO,
+    ProjectionDTO,
+    ProjectionSideDTO,
     TeamDTO,
     WeekStatus,
 )
@@ -1054,3 +1056,99 @@ def test_main_defaults_to_the_espn_credential_factory() -> None:
 
     assert DEFAULT_PROVIDER_ID == "espn"
     assert default is create_espn_provider
+
+
+def test_cli_sync_active_week_refreshes_only_the_active_week(
+    session_factory: sessionmaker[Session], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The manual command stores the active week's projections and reports its summary."""
+    _seed_sync_member(session_factory)
+    seed = {
+        (LEAGUE_EXTERNAL_ID, SEASON): (
+            LeagueDTO(
+                external_id=LEAGUE_EXTERNAL_ID,
+                name="CLI League",
+                metadata={"regular_season_length": 2, "playoff_team_count": 2},
+            ),
+            [
+                OwnerDTO(external_id="owner-1", display_name="Alice"),
+                OwnerDTO(external_id="owner-2", display_name="Bob"),
+            ],
+            [
+                TeamDTO(
+                    external_id="team-1",
+                    name="A Team",
+                    division="East",
+                    owner_external_id="owner-1",
+                ),
+                TeamDTO(
+                    external_id="team-2",
+                    name="B Team",
+                    division="West",
+                    owner_external_id="owner-2",
+                ),
+            ],
+            {
+                1: [
+                    MatchupDTO(
+                        week=1,
+                        home=MatchupSideDTO("team-1", Decimal("120.00")),
+                        away=MatchupSideDTO("team-2", Decimal("100.00")),
+                        is_playoff=False,
+                        is_complete=True,
+                    )
+                ],
+                2: [
+                    MatchupDTO(
+                        week=2,
+                        home=MatchupSideDTO("team-1", None),
+                        away=MatchupSideDTO("team-2", None),
+                        is_playoff=False,
+                        is_complete=False,
+                    )
+                ],
+            },
+            WeekStatus(last_completed_week=1),
+        )
+    }
+    provider = FakeProvider(
+        seed,
+        projections={
+            (LEAGUE_EXTERNAL_ID, SEASON): {
+                2: [
+                    ProjectionDTO(
+                        week=2,
+                        home=ProjectionSideDTO("team-1", Decimal("110.00")),
+                        away=ProjectionSideDTO("team-2", Decimal("90.00")),
+                        is_playoff=False,
+                    )
+                ]
+            }
+        },
+    )
+    assert (
+        main(
+            _sync_argv(weeks="1-2"),
+            provider_factory=lambda **_: provider,
+            session_factory=session_factory,
+            provider_id=SYNC_PROVIDER,
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    code = main(
+        ["sync-active-week", "--league", LEAGUE_EXTERNAL_ID],
+        provider_factory=lambda **_: provider,
+        session_factory=session_factory,
+        provider_id=SYNC_PROVIDER,
+    )
+
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "status=ok" in out
+    assert "active_week=2" in out
+    assert "projections_stored=2" in out
+    with session_factory() as session:
+        rows = session.scalars(select(ProjectedScore)).all()
+        assert {row.points for row in rows} == {Decimal("110.00"), Decimal("90.00")}
