@@ -2597,6 +2597,28 @@ def test_metrics_attribute_requests_to_the_user_and_league(
     )
 
 
+def test_delete_league_removes_its_attribution_series(
+    api_factory: Callable[..., Api],
+) -> None:
+    """Deleting a league drops its counter children instead of leaking them for the process life."""
+    api = api_factory()
+    admin_id = _create_user(api, "admin@example.com", role="admin")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=admin_id, league_id=league_id)
+    _login(api, admin_id)
+
+    read_labels = {"league_id": str(league_id), "method": "GET", "status": "200"}
+    assert api.client.get(f"/api/v1/leagues/{league_id}/seasons").status_code == 200
+    assert REGISTRY.get_sample_value("app_league_requests_total", read_labels) is not None
+
+    assert api.client.delete(f"/api/v1/leagues/{league_id}").status_code == 204
+
+    assert REGISTRY.get_sample_value("app_league_requests_total", read_labels) is None
+    # The DELETE itself is not attributed, so cleanup cannot be undone by its own response.
+    delete_labels = {"league_id": str(league_id), "method": "DELETE", "status": "204"}
+    assert REGISTRY.get_sample_value("app_league_requests_total", delete_labels) is None
+
+
 def test_metrics_do_not_attribute_rejected_league_requests(
     api_factory: Callable[..., Api],
 ) -> None:

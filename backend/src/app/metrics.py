@@ -10,6 +10,8 @@ below are the deliberate, bounded exception: they carry numeric account and leag
 nothing else is labeled with those ids.
 """
 
+from threading import Lock
+
 from prometheus_client import Counter, Histogram, Info
 
 #: Build and runtime identity, set once when the application is created.
@@ -48,3 +50,32 @@ LEAGUE_REQUESTS = Counter(
     "Requests attributed to the league in the request path, by numeric league id.",
     ("league_id", "method", "status"),
 )
+
+#: Label sets currently present on :data:`LEAGUE_REQUESTS`. A labeled counter child lives for the
+#: process lifetime, so this set exists to remove the children when a league is deleted.
+_LEAGUE_LABEL_SETS: set[tuple[str, str, str]] = set()
+_LEAGUE_LABEL_SETS_LOCK = Lock()
+
+
+def observe_league_request(league_id: int, method: str, status: str) -> None:
+    """Count one successful league-scoped request and remember its label set for cleanup."""
+    labels = (str(league_id), method, status)
+    with _LEAGUE_LABEL_SETS_LOCK:
+        _LEAGUE_LABEL_SETS.add(labels)
+    LEAGUE_REQUESTS.labels(*labels).inc()
+
+
+def forget_league(league_id: int) -> None:
+    """Drop every attribution series for a deleted league.
+
+    Without this, a deleted league would keep appearing on every scrape because a labeled
+    counter child is never garbage-collected, and an admin could grow the registry by creating
+    and deleting leagues. A request still in flight can re-create one child, but the next request
+    for a deleted league returns 404 and is not attributed.
+    """
+    prefix = str(league_id)
+    with _LEAGUE_LABEL_SETS_LOCK:
+        stale = [labels for labels in _LEAGUE_LABEL_SETS if labels[0] == prefix]
+        for labels in stale:
+            LEAGUE_REQUESTS.remove(*labels)
+            _LEAGUE_LABEL_SETS.discard(labels)
