@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import type { StandingsRow } from "../api/types";
 import { ClinchBadge } from "./ClinchBadge";
+import { FinalPlaceBadge } from "./FinalPlaceBadge";
 import { formatPoints, formatRecord, formatVP, vpTone, vpToneClass } from "./format";
 import { seriesStyle } from "./series";
 import { SortableHeader } from "./SortableHeader";
@@ -198,6 +199,7 @@ export function StandingsTable({
                         </span>
                         <span>{row.team_name}</span>
                       </button>
+                      <FinalPlaceBadge place={row.final_standing} />
                       <ClinchBadge status={row.clinch} />
                     </div>
                   </td>

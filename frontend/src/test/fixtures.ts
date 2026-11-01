@@ -127,6 +127,7 @@ export const standingsResponse: StandingsResponse = {
       points_for: "495",
       weekly_vp: ["2.5", "3", "3", "2.33"],
       clinch: "Z",
+      final_standing: 1,
     },
     {
       rank: 2,
@@ -141,6 +142,7 @@ export const standingsResponse: StandingsResponse = {
       points_for: "475",
       weekly_vp: ["2.5", "2", "2", "2.33"],
       clinch: "X",
+      final_standing: 2,
     },
     {
       rank: 3,
@@ -155,6 +157,7 @@ export const standingsResponse: StandingsResponse = {
       points_for: "405",
       weekly_vp: ["2", "1.5", "2", "0"],
       clinch: "E",
+      final_standing: 3,
     },
     {
       rank: 4,
@@ -169,6 +172,7 @@ export const standingsResponse: StandingsResponse = {
       points_for: "355",
       weekly_vp: ["0", "0", "-0.5", "2.33"],
       clinch: "X",
+      final_standing: 4,
     },
     {
       rank: 5,
@@ -183,6 +187,7 @@ export const standingsResponse: StandingsResponse = {
       points_for: "370",
       weekly_vp: ["0", "0.5", "0", "0"],
       clinch: "Y",
+      final_standing: 5,
     },
     {
       rank: 6,
@@ -197,6 +202,7 @@ export const standingsResponse: StandingsResponse = {
       points_for: "300",
       weekly_vp: ["-1", "-1", "-0.5", "-1"],
       clinch: "E",
+      final_standing: 6,
     },
   ],
   divisions: [
@@ -567,6 +573,8 @@ export const eloHistoryResponse: EloHistoryResponse = {
       low: "1500",
       low_at: null,
       rated_weeks: 2,
+      championships: 1,
+      last_places: 0,
     },
     {
       team_key: "espn:2",
@@ -601,6 +609,8 @@ export const eloHistoryResponse: EloHistoryResponse = {
       low: "1474.8",
       low_at: { season: 2026, week: 1 },
       rated_weeks: 2,
+      championships: 0,
+      last_places: 1,
     },
     {
       team_key: "espn:3",
@@ -628,6 +638,8 @@ export const eloHistoryResponse: EloHistoryResponse = {
       low: "1500",
       low_at: null,
       rated_weeks: 1,
+      championships: 2,
+      last_places: 0,
     },
   ],
   unrated_teams: [{ team_key: "espn:4", name: "Delta", reason: "No rated matchups yet" }],

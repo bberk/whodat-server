@@ -141,6 +141,10 @@ class Team(TimestampMixin, Base):
     owner_id: Mapped[int | None] = mapped_column(
         ForeignKey("owner.id", name="fk_team_owner_id_owner"), nullable=True
     )
+    #: The team's final finishing position for the season, including playoffs (1 = champion).
+    #: ``None`` means the provider has not reported a final rank yet, so no champion, podium, or
+    #: all-time record is claimed for it. This is provider-reported, not derived from VP.
+    final_standing: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class Matchup(TimestampMixin, Base):

@@ -73,6 +73,19 @@ class TestESPNLeagueProviderTeams:
         assert teams[0].division == "Division 1"
         assert teams[0].owner_external_id == "owner-1"
 
+    def test_final_standing_is_mapped_only_when_reported(self) -> None:
+        """A positive final rank is carried through; zero or missing means "not final yet"."""
+        league = create_fake_league("league_basic.json")
+        league.teams[0].final_standing = 1
+        league.teams[1].final_standing = 0
+        league.teams[2].final_standing = None
+        del league.teams[3].final_standing
+        provider = ESPNLeagueProvider(league_factory=lambda *args, **kwargs: league)
+
+        teams = provider.fetch_teams(LeagueRef(external_id="12345"), 2024)
+
+        assert [team.final_standing for team in teams] == [1, None, None, None]
+
 
 class TestESPNLeagueProviderMatchups:
     """Test fetch_matchups returns correct matchup data with exact Decimal points."""

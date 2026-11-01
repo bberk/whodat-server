@@ -8,6 +8,35 @@ Follow the format used below. Newest entries at the top.
 
 ---
 
+## OQ-0019 — Season final standings and all-time franchise records
+
+- **Found:** `SPEC.md`/`ACCEPTANCE.md`/`ARCHITECTURE.md` describe regular-season VP, playoff
+  clinch/odds, and Elo history, but not a stored final finishing position after the playoffs, a
+  champion/podium on the season standings, or all-time championship and last-place counts on the
+  History page. The human requested all four.
+- **Decision taken:** store the provider's final finishing position on each season team row
+  (`team.final_standing`, nullable). ESPN exposes it as `Team.final_standing` (its `rankFinal`,
+  falling back to `rankCalculatedFinal`), which already includes playoff results, so no playoff
+  bracket is reconstructed and no playoff matchups are synced or scored. A non-positive, boolean,
+  or missing value means "not final yet" and is stored as null; the UI then shows no champion or
+  podium. The season standings expose `final_standing` on each row; first, second, and third
+  render 🏆, 🥈, and 🥉 with spelled-out accessible names and a text legend.
+- **Last place:** defined with the same regular-season ranking the standings use (season VP, then
+  H2H wins, then points for). Fully equal teams share the rank, so a genuine tie for last counts
+  for each tied team rather than being broken arbitrarily by name. Playoff results never affect
+  this tally. The History response carries per-franchise `championships` and `last_places`;
+  one record renders as the bare emoji, several use a keycap count (`3️⃣🏆`, `2️⃣💩`), and zero
+  renders nothing.
+- **Options:** (1) reconstruct final positions from stored playoff matchups; (2) trust the
+  provider's reported final rank. Option 2 is chosen because ESPN's final rank is authoritative
+  across every bracket/consolation shape and avoids guessing a league-specific bracket.
+- **Follow-up:** at the next governance edit, add the new `team.final_standing` column, the
+  `final_standing` standings field, and the two Elo-history record fields to SPEC/ACCEPTANCE/
+  ARCHITECTURE. Existing seasons keep null until they are synced again after the playoffs are
+  final; no champion is claimed retroactively from regular-season VP.
+
+---
+
 ## OQ-0018 — The Elo chart no longer marks cup weeks
 
 - **Found:** `ACCEPTANCE.md` AC-Elo-09/17/20, `ARCHITECTURE.md`, and `SPEC.md` described

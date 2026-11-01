@@ -65,6 +65,7 @@ EXPECTED_COLUMNS = {
         "name",
         "division",
         "owner_id",
+        "final_standing",
         "created_at",
         "updated_at",
     },
@@ -246,6 +247,10 @@ def test_AC_DB_01_model_metadata_matches_the_schema_contract() -> None:
     assert isinstance(last_refreshed_at.type, DateTime)
     assert last_refreshed_at.type.timezone is True
     assert last_refreshed_at.nullable is True
+    # A team's final position including playoffs is a nullable integer: NULL means not reported.
+    final_standing = Team.__table__.c.final_standing
+    assert isinstance(final_standing.type, Integer)
+    assert final_standing.nullable is True
 
     # Accounts carry a validated role and no owner link; owner associations live on user_league.
     app_user_role = AppUser.__table__.c.role

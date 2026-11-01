@@ -851,12 +851,16 @@ export interface components {
     EloTeam: {
       /** Aliases */
       aliases: string[];
+      /** Championships */
+      championships: number;
       /** Current */
       current: string;
       /** First Season */
       first_season: number;
       /** Last Change */
       last_change: string;
+      /** Last Places */
+      last_places: number;
       /** Last Season */
       last_season: number;
       /** Low */
@@ -1287,6 +1291,8 @@ export interface components {
       clinch: ("X" | "Y" | "Z" | "E") | null;
       /** Division */
       division: string | null;
+      /** Final Standing */
+      final_standing: number | null;
       /** Losses */
       losses: number;
       /** Owner Name */

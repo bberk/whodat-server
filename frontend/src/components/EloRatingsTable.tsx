@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import type { EloTeam } from "../api/types";
 import { formatEloChange, formatEloValue, formatEloWhole } from "./format";
+import { SeasonRecords } from "./SeasonRecords";
 import { sortedEloTeams, teamDisplayName } from "../history/model";
 import { SortableHeader } from "./SortableHeader";
 import {
@@ -166,19 +167,23 @@ export function EloRatingsTable({ teams, selectedTeamKey, onSelectTeam }: EloRat
                 <td
                   className={`${BODY_CELL_DIVIDER_SUBTLE} ${TEAM_CELL} ${PINNED_SHADOW} px-3 py-2 ${pinnedBackground}`}
                 >
-                  <button
-                    type="button"
-                    onClick={() => onSelectTeam(team.team_key)}
-                    aria-pressed={selected}
-                    className={`text-left font-semibold hover:text-brand-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-ink ${
-                      selected ? "text-brand-ink" : "text-ink"
-                    }`}
-                  >
-                    {name}
-                  </button>
-                  {selected ? (
-                    <span className="ml-1 text-[11px] text-brand-ink">selected</span>
-                  ) : null}
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <button
+                      type="button"
+                      onClick={() => onSelectTeam(team.team_key)}
+                      aria-pressed={selected}
+                      className={`min-w-0 text-left font-semibold hover:text-brand-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-ink ${
+                        selected ? "text-brand-ink" : "text-ink"
+                      }`}
+                    >
+                      {name}
+                    </button>
+                    <SeasonRecords
+                      championships={team.championships}
+                      lastPlaces={team.last_places}
+                    />
+                    {selected ? <span className="text-[11px] text-brand-ink">selected</span> : null}
+                  </div>
                 </td>
                 <td
                   className={`${BODY_CELL_DIVIDER_SUBTLE} whitespace-nowrap px-3 py-2 text-right text-[15px] font-bold tabular-nums`}

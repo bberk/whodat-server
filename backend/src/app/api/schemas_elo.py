@@ -122,6 +122,10 @@ class EloTeam(BaseModel):
     low: str
     low_at: EloWeekReference | None
     rated_weeks: int
+    #: All-time championships (provider-reported final position 1, including playoffs).
+    championships: int
+    #: All-time last-place regular-season finishes by VP and the usual tiebreakers.
+    last_places: int
 
 
 class EloUnratedTeam(BaseModel):
@@ -210,6 +214,8 @@ def _team(view: EloTeamView) -> EloTeam:
         low=format_rating(history.low),
         low_at=_week_ref(history.low_at),
         rated_weeks=history.rated_weeks,
+        championships=view.championships,
+        last_places=view.last_places,
     )
 
 

@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { ClinchLegend } from "../components/ClinchBadge";
 import { DataState, EmptyState, ErrorState, LoadingState } from "../components/DataStates";
+import { FinalPlaceLegend } from "../components/FinalPlaceBadge";
 import { StandingsTable } from "../components/StandingsTable";
 import { VPRulesTooltip } from "../components/VPRulesTooltip";
 import { useMediaQuery } from "../components/useMediaQuery";
@@ -171,8 +172,11 @@ export function StandingsPage() {
         ) : (
           <>
             <ClinchLegend />
+            {bundle.standings.overall.some((row) => row.final_standing !== null) ? (
+              <FinalPlaceLegend />
+            ) : null}
             <StandingsTable
-              caption={`Overall ${bundle.standings.season} standings: rank, team, playoff designation, owner, season victory points, head-to-head record, points for, and victory points for each completed week.`}
+              caption={`Overall ${bundle.standings.season} standings: rank, team, final placing, playoff designation, owner, season victory points, head-to-head record, points for, and victory points for each completed week.`}
               ariaLabel="Overall standings, scrollable horizontally"
               rows={bundle.standings.overall}
               weeks={weeks}
@@ -210,7 +214,7 @@ export function StandingsPage() {
                 <div key={`${division.name ?? "division"}-${index}`} className="min-w-0">
                   <h3 className="text-sm font-semibold text-ink-muted">{name}</h3>
                   <StandingsTable
-                    caption={`${name} division standings, ${bundle.standings.season}: rank, team, owner, season victory points, head-to-head record, and points for. Ranks are overall league ranks; weekly VP columns stay on the overall table.`}
+                    caption={`${name} division standings, ${bundle.standings.season}: rank, team, final placing, owner, season victory points, head-to-head record, and points for. Ranks are overall league ranks; weekly VP columns stay on the overall table.`}
                     ariaLabel={`${name} division standings, scrollable horizontally`}
                     rows={division.standings}
                     weeks={[]}

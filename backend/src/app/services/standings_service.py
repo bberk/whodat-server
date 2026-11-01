@@ -113,6 +113,8 @@ class StandingRow:
 
     ``victory_points`` is the exact sum of ``weekly_vp`` as a Fraction. ``points_for`` is the
     exact sum of stored scores as a Decimal. The API layer serializes both as strings.
+    ``final_standing`` is the provider-reported final position including playoffs (1 = champion),
+    or ``None`` while the provider has not reported one.
     """
 
     rank: int
@@ -127,6 +129,7 @@ class StandingRow:
     points_for: Decimal
     weekly_vp: tuple[Fraction, ...]
     clinch: ClinchStatus | None
+    final_standing: int | None
 
 
 @dataclass(frozen=True)
@@ -281,17 +284,7 @@ class StandingsService:
         aggregate = self._aggregate(context, weeks)
         clinch = self._clinch_statuses(context, weeks, aggregate)
         teams_by_id = {team.id: team for team in context.teams}
-        season_rows = [
-            SeasonRow(
-                team_id=team.id,
-                team_name=team.name,
-                vp=aggregate.season_vp[team.id],
-                h2h_wins=aggregate.wins[team.id],
-                points_for=aggregate.points_for[team.id],
-                division=team.division,
-            )
-            for team in context.teams
-        ]
+        season_rows = self._season_rows(context, aggregate)
 
         overall: list[StandingRow] = []
         for ranked in rank_teams(season_rows):
@@ -313,6 +306,7 @@ class StandingsService:
                     points_for=ranked.points_for,
                     weekly_vp=aggregate.weekly_vp[ranked.team_id],
                     clinch=clinch[ranked.team_id],
+                    final_standing=team.final_standing,
                 )
             )
 
@@ -323,6 +317,28 @@ class StandingsService:
             overall=tuple(overall),
             divisions=self._group_divisions(overall),
         )
+
+    def get_last_place_team_ids(self, league_id: int, season: int) -> tuple[int, ...]:
+        """Return the team id(s) ranked last by regular-season VP and the usual tiebreakers.
+
+        The ranking is the same one the standings table uses: season VP, then head-to-head wins,
+        then points for, with fully equal teams sharing a rank. Every team at the highest (worst)
+        rank is returned, so a genuine tie for last place counts for each tied team rather than
+        being broken arbitrarily.
+
+        A last-place finish exists only once the whole regular season is stored and complete, so
+        a season in progress (or one with a missing/incomplete week) returns an empty tuple rather
+        than awarding the record early. This never looks at playoff results, which earn no VP.
+        """
+        context = self._load_context(league_id, season)
+        weeks = self._completed_weeks(context)
+        if len(weeks) < context.regular_season_length:
+            return ()
+
+        aggregate = self._aggregate(context, weeks)
+        ranked = rank_teams(self._season_rows(context, aggregate))
+        last_rank = max(row.rank for row in ranked)
+        return tuple(sorted(row.team_id for row in ranked if row.rank == last_rank))
 
     def get_vp_history(self, league_id: int, season: int) -> VpHistory:
         """Return counted weeks plus each team's exact weekly and cumulative VP series.
@@ -693,6 +709,21 @@ class StandingsService:
             points_for=points_for,
             weekly_vp=weekly_series,
         )
+
+    @staticmethod
+    def _season_rows(context: _SeasonContext, aggregate: _SeasonAggregate) -> list[SeasonRow]:
+        """Build the ranking inputs for every team from exact regular-season totals."""
+        return [
+            SeasonRow(
+                team_id=team.id,
+                team_name=team.name,
+                vp=aggregate.season_vp[team.id],
+                h2h_wins=aggregate.wins[team.id],
+                points_for=aggregate.points_for[team.id],
+                division=team.division,
+            )
+            for team in context.teams
+        ]
 
     @staticmethod
     def _group_divisions(overall: Sequence[StandingRow]) -> tuple[DivisionStandings, ...]:

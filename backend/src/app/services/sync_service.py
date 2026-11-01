@@ -222,6 +222,7 @@ class SyncService:
                 # not a group with an empty name.
                 normalize_display_text(team_dto.division or "") or None,
                 owner_id,
+                final_standing=team_dto.final_standing,
             )
             team_external_to_id[team_dto.external_id] = team_result.row.id
             if team_result.changed:

@@ -583,6 +583,10 @@
             "title": "Aliases",
             "type": "array"
           },
+          "championships": {
+            "title": "Championships",
+            "type": "integer"
+          },
           "current": {
             "title": "Current",
             "type": "string"
@@ -594,6 +598,10 @@
           "last_change": {
             "title": "Last Change",
             "type": "string"
+          },
+          "last_places": {
+            "title": "Last Places",
+            "type": "integer"
           },
           "last_season": {
             "title": "Last Season",
@@ -697,7 +705,9 @@
           "peak_at",
           "low",
           "low_at",
-          "rated_weeks"
+          "rated_weeks",
+          "championships",
+          "last_places"
         ],
         "title": "EloTeam",
         "type": "object"
@@ -1634,6 +1644,17 @@
             ],
             "title": "Division"
           },
+          "final_standing": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Final Standing"
+          },
           "losses": {
             "title": "Losses",
             "type": "integer"
@@ -1697,7 +1718,8 @@
           "ties",
           "points_for",
           "weekly_vp",
-          "clinch"
+          "clinch",
+          "final_standing"
         ],
         "title": "StandingsRow",
         "type": "object"

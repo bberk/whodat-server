@@ -65,6 +65,8 @@ class SeasonSeed:
     teams: tuple[tuple[str, str, str], ...]  # (external_id, name, owner_external_id)
     weeks: Mapping[int, Sequence[MatchupDTO]]
     regular_season_length: int
+    #: Provider-reported final position (including playoffs) keyed by external team id.
+    final_standings: Mapping[str, int] | None = None
 
 
 @dataclass(frozen=True)
@@ -128,6 +130,7 @@ def seed_league(
                     name=name,
                     division=None,
                     owner_external_id=owner_external_id,
+                    final_standing=(spec.final_standings or {}).get(external_id),
                 )
             )
         provider_seed[(LEAGUE_EXTERNAL, season)] = (
@@ -264,6 +267,41 @@ def test_AC_Elo_31_service_uses_the_latest_name_owner_and_aliases(session: Sessi
     # The franchise keeps its rating across the rename: the 2025 baseline is a regression of the
     # 2024 result, not a fresh 1500.
     assert alpha.history.seasons[1].start_rating > Decimal("1500")
+
+
+def test_service_counts_championships_and_last_places_per_franchise(
+    session: Session,
+) -> None:
+    """Final position 1 is a championship; the worst regular-season rank is one last place.
+
+    A second-place finish is not a championship, and the last-place count uses regular-season VP
+    (the loser of each stored head-to-head week here), not the playoff finishing position.
+    """
+    seeded = seed_league(
+        session,
+        {
+            2024: SeasonSeed(
+                teams=(("team-a", "Alpha", "owner-a"), ("team-b", "Bravo", "owner-b")),
+                weeks={1: [matchup(1, "team-a", "120", "team-b", "100")]},
+                regular_season_length=1,
+                final_standings={"team-a": 1, "team-b": 2},
+            ),
+            2025: SeasonSeed(
+                teams=(("team-a", "Alpha", "owner-a"), ("team-b", "Bravo", "owner-b")),
+                weeks={1: [matchup(1, "team-a", "120", "team-b", "100")]},
+                regular_season_length=1,
+                final_standings={"team-a": 2, "team-b": 1},
+            ),
+        },
+    )
+
+    history = EloService(session).get_history(seeded.league_id, "actual_schedule")
+    by_key = {team.team_key: team for team in history.teams}
+
+    assert by_key["fake:team-a"].championships == 1
+    assert by_key["fake:team-a"].last_places == 0
+    assert by_key["fake:team-b"].championships == 1
+    assert by_key["fake:team-b"].last_places == 2
 
 
 def test_AC_Elo_32_service_marks_cup_weeks_and_mode_differences(session: Session) -> None:

@@ -133,6 +133,10 @@ describe("HistoryPage", () => {
     expect(within(rows[1]).getByText("+16.80")).toBeInTheDocument();
     expect(within(rows[3]).getByText("1475")).toBeInTheDocument();
     expect(within(rows[3]).getByText("-12.60")).toBeInTheDocument();
+    // Records appear beside the team name and are explained in text below the section subtitle.
+    expect(within(rows[1]).getByRole("img", { name: "1 championship" })).toBeInTheDocument();
+    expect(within(rows[3]).getByRole("img", { name: "1 last-place finish" })).toBeInTheDocument();
+    expect(screen.getByText(/last-place regular-season finishes/i)).toBeInTheDocument();
 
     // The data-table alternative carries the exact values and the gap.
     await userEvent.setup().click(screen.getByText("View chart data as a table"));

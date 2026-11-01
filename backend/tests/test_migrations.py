@@ -43,6 +43,7 @@ HEAD_COLUMNS = {
     "score": {"points", "victory_points", "vp_h2h", "vp_top_half", "vp_high", "vp_low"},
     "league_season": {"league_id", "season", "metadata", "cup_week", "last_refreshed_at"},
     "league": {"provider", "external_id", "name", "show_wapdate"},
+    "team": {"final_standing"},
     "elo_config": {
         "league_id",
         "starting_rating",
@@ -215,6 +216,21 @@ def _assert_show_wapdate_round_trip(database_url: str) -> None:
     assert _league_show_wapdate_values(database_url) == [True]
 
 
+def _assert_final_standing_round_trip(database_url: str) -> None:
+    """0010 adds a nullable team.final_standing and its downgrade removes the column again."""
+    config = _config(database_url)
+
+    command.upgrade(config, "0010_team_final_standing")
+    assert _column_is_nullable(database_url, "team", "final_standing") is True
+    assert "final_standing" in _column_names(database_url, "team")
+
+    command.downgrade(config, "0009_league_show_wapdate")
+    assert "final_standing" not in _column_names(database_url, "team")
+
+    command.upgrade(config, "0010_team_final_standing")
+    assert _column_is_nullable(database_url, "team", "final_standing") is True
+
+
 def _assert_migrated_ddl(database_url: str) -> None:
     """Assert the migrated head DDL has the application tables and their required columns."""
     assert _table_names(database_url) >= APPLICATION_TABLES
@@ -285,6 +301,11 @@ def test_last_refreshed_nullability_round_trips_on_sqlite(tmp_path: Path) -> Non
 def test_show_wapdate_defaults_to_true_and_round_trips_on_sqlite(tmp_path: Path) -> None:
     """0009 adds a non-null league.show_wapdate, defaulting an existing league to true."""
     _assert_show_wapdate_round_trip(f"sqlite:///{tmp_path / 'show-wapdate.db'}")
+
+
+def test_final_standing_nullability_round_trips_on_sqlite(tmp_path: Path) -> None:
+    """0010 adds a nullable team.final_standing and drops it on downgrade."""
+    _assert_final_standing_round_trip(f"sqlite:///{tmp_path / 'final-standing.db'}")
 
 
 def test_migration_chain_is_a_single_linear_head() -> None:
@@ -377,6 +398,17 @@ def test_show_wapdate_defaults_to_true_and_round_trips_on_postgres() -> None:
 
     with _temporary_postgres_database(admin_url) as database_url:
         _assert_show_wapdate_round_trip(database_url)
+
+
+@pytest.mark.postgres
+def test_final_standing_nullability_round_trips_on_postgres() -> None:
+    """0010's nullable column and downgrade behave the same on Postgres as on SQLite."""
+    admin_url = _configured_postgres_admin_url()
+    if admin_url is None:
+        pytest.skip("configured DATABASE_URL is not Postgres")
+
+    with _temporary_postgres_database(admin_url) as database_url:
+        _assert_final_standing_round_trip(database_url)
 
 
 def test_import_boundary_modules_load() -> None:

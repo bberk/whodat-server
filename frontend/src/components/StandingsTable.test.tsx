@@ -113,7 +113,15 @@ describe("StandingsTable", () => {
 
   it("omits the designation badge for a team with no proven status", () => {
     renderTable({ rows: [{ ...rows[0], clinch: null }] });
-    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: /—/ })).not.toBeInTheDocument();
+  });
+
+  it("marks the final podium for first, second, and third without claiming fourth", () => {
+    renderTable();
+    expect(screen.getByRole("img", { name: "Champion" })).toHaveTextContent("🏆");
+    expect(screen.getByRole("img", { name: "Runner-up" })).toHaveTextContent("🥈");
+    expect(screen.getByRole("img", { name: "Third place" })).toHaveTextContent("🥉");
+    expect(screen.getAllByRole("img", { name: /place|Champion|Runner-up/ })).toHaveLength(3);
   });
 
   it("selects a team through a keyboard-operable button", async () => {

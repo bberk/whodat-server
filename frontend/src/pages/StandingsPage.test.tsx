@@ -120,6 +120,10 @@ describe("StandingsPage", () => {
       screen.getByText(/2026 season · 6 teams · 2 divisions · 4 completed weeks/i),
     ).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Playoff designation legend" })).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Final placing legend" })).toBeInTheDocument();
+    expect(screen.getAllByRole("img", { name: "Champion" })).toHaveLength(3);
+    expect(screen.getAllByRole("img", { name: "Runner-up" })).toHaveLength(3);
+    expect(screen.getAllByRole("img", { name: "Third place" })).toHaveLength(3);
     expect(screen.getAllByRole("img", { name: "Z — top seed" })).toHaveLength(3);
     expect(screen.getAllByRole("img", { name: "Y — division winner" })).toHaveLength(3);
     expect(screen.getAllByRole("img", { name: "X — clinched playoff berth" })).toHaveLength(5);

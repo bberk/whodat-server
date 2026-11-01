@@ -37,6 +37,7 @@ from app.domain.elo import (
     compute_elo_history,
 )
 from app.services.league_service import AdminRequiredError, LeagueUser, NotAMemberError
+from app.services.standings_service import StandingsService, StandingsServiceError
 
 
 class EloLeagueNotFoundError(LookupError):
@@ -71,7 +72,12 @@ class EloWarning:
 
 @dataclass(frozen=True)
 class EloTeamView:
-    """One franchise's domain history plus its latest stored display identity."""
+    """One franchise's domain history plus its latest stored display identity.
+
+    ``championships`` and ``last_places`` are all-time franchise records across the league's
+    stored seasons. A championship is a provider-reported final position of 1 (including the
+    playoffs); a last place is the worst regular-season rank by VP and the usual tiebreakers.
+    """
 
     team_key: str
     team_id: int
@@ -79,6 +85,8 @@ class EloTeamView:
     owner_name: str | None
     aliases: tuple[str, ...]
     history: EloTeamHistory
+    championships: int
+    last_places: int
 
 
 @dataclass(frozen=True)
@@ -257,6 +265,14 @@ class EloService:
         season_infos: list[SeasonInfo] = []
         domain_weeks: list[EloWeek] = []
         valid_seasons: list[int] = []
+        championships_by_key: dict[str, int] = {}
+        last_places_by_key: dict[str, int] = {}
+        standings = StandingsService(self._session)
+
+        for team in team_rows:
+            if team.final_standing == 1:
+                key = _team_key(league.provider, team.external_id)
+                championships_by_key[key] = championships_by_key.get(key, 0) + 1
 
         for season_row in season_rows:
             season = season_row.season
@@ -290,6 +306,18 @@ class EloService:
             roster_keys = tuple(sorted(team_key_by_id.values()))
             season_infos.append(SeasonInfo(season=season, team_keys=roster_keys))
             valid_seasons.append(season)
+
+            try:
+                last_ids = standings.get_last_place_team_ids(league_id, season)
+            except StandingsServiceError:
+                # A season whose scores cannot produce a ranking already has an Elo warning (or is
+                # otherwise unusable); leave its last-place record uncounted rather than fail the
+                # whole history page for a secondary all-time tally.
+                last_ids = ()
+            for team_id in last_ids:
+                franchise_key = team_key_by_id.get(team_id)
+                if franchise_key is not None:
+                    last_places_by_key[franchise_key] = last_places_by_key.get(franchise_key, 0) + 1
 
             completed_weeks = self._completed_weeks(season, regular_season_length, matchups_by_week)
             for week in completed_weeks:
@@ -325,6 +353,8 @@ class EloService:
                 owner_name=identities[team.team_key].owner_name,
                 aliases=identities[team.team_key].aliases,
                 history=team,
+                championships=championships_by_key.get(team.team_key, 0),
+                last_places=last_places_by_key.get(team.team_key, 0),
             )
             for team in history.teams
             if team.team_key in identities
