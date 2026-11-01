@@ -70,3 +70,22 @@ def test_caddy_proxies_only_api_and_health_to_the_backend() -> None:
     handlers = re.findall(r"^\s*handle\s+(/[^\s{]*)\s*\{", caddyfile, flags=re.MULTILINE)
     assert handlers == ["/api/*", "/health"]
     assert "/metrics" not in caddyfile
+
+
+def test_prometheus_keeps_size_retention_with_the_pinned_image() -> None:
+    """The config-file retention block needs an image that supports it.
+
+    Prometheus v3.15.1 accepts this block (verified with ``promtool check config`` and a real
+    server start that logged ``size=64GiB``). Pinning the image here makes a downgrade to a
+    version without the block fail loudly instead of at container start on the server.
+    """
+    config = yaml.safe_load(
+        (REPO_ROOT / "deploy/server/monitoring/prometheus/prometheus.yml").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert config["storage"]["tsdb"]["retention"]["size"] == "64GB"
+
+    services = _compose("deploy/server/docker-compose.yml")["services"]
+    assert services["prometheus"]["image"] == "prom/prometheus:v3.15.1"
+    assert "--storage.tsdb.wal-compression" in services["prometheus"]["command"]

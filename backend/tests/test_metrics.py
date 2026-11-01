@@ -54,6 +54,10 @@ def test_metrics_is_absent_from_the_public_openapi_schema() -> None:
     assert "/metrics" not in create_app().openapi()["paths"]
 
 
+# Attribution (app_user_requests_total / app_league_requests_total) is asserted end to end in
+# tests/test_api_leagues.py::test_metrics_attribute_requests_to_the_user_and_league and
+# ::test_metrics_do_not_attribute_rejected_league_requests, where the authenticated HTTP
+# fixture lives.
 def test_base_request_counter_keeps_attribution_labels_off() -> None:
     """User and league ids live on their dedicated counters, not on every request series."""
     client = TestClient(create_app())
