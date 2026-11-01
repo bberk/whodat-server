@@ -621,21 +621,15 @@ The backend also exposes `app_provider_fetch_total` and `app_provider_fetch_dura
 defined in `backend/src/app/metrics.py`. Add a metric there with a small, fixed label set and query
 it in a dashboard panel.
 
-Retention is size-based, configured in `deploy/server/monitoring/prometheus/prometheus.yml`:
-
-```yaml
-storage:
-  tsdb:
-    retention:
-      size: 64GB
-```
-
-`storage.tsdb.retention.size` is a **cap**, not a reservation: Prometheus deletes the oldest
-blocks once the stored blocks would exceed it, and WAL compression is on. The 30 GiB disk guidance
-in section 2 is smaller than this cap, so either give the server a larger disk or lower the value.
-Keep at least 10 GiB free on the host so Postgres, images, and the head/WAL have room; the Host
-dashboard shows filesystem use, and the Prometheus UI reports the current TSDB size. Monitoring
-data is not a backup and does not need to be backed up.
+Retention is size-based and set from `PROMETHEUS_RETENTION_SIZE` (default `64GB`) in
+`deploy/server/.env`; the Compose command passes it as `--storage.tsdb.retention.size`. It is a
+**cap**, not a reservation: Prometheus deletes the oldest blocks once the stored blocks reach it,
+and WAL compression is on. The 30 GiB disk guidance in section 2 is smaller than the default cap,
+so on a 30 GiB disk set `PROMETHEUS_RETENTION_SIZE` to a value that leaves at least 10 GiB free
+(for example `15GB`), or give the server a larger disk. Keep at least 10 GiB free on the host so
+Postgres, images, and the head/WAL have room; the Host dashboard shows filesystem use, and the
+Prometheus UI reports the current TSDB size. Monitoring data is not a backup and does not need to
+be backed up.
 
 Grafana and Prometheus volumes survive `manage.sh down`; `manage.sh update` pulls the pinned
 monitoring images along with Postgres. Deleting `prometheus_data` or `grafana_data` discards

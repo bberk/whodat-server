@@ -13,7 +13,7 @@ from prometheus_client import REGISTRY
 
 from app import metrics as metrics_module
 from app.api.main import create_app
-from app.metrics import forget_league, observe_league_request
+from app.metrics import forget_league, observe_league_request, observe_user_request
 
 
 def _scrape() -> str:
@@ -106,3 +106,21 @@ def test_league_attribution_label_sets_are_capped(monkeypatch: pytest.MonkeyPatc
     assert sample(league_ids[2]) is not None
     for league_id in league_ids:
         forget_league(league_id)
+
+
+def test_user_attribution_label_sets_are_capped(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Account growth cannot make the user series unbounded."""
+    monkeypatch.setattr(metrics_module, "MAX_USER_LABEL_SETS", 2)
+    user_ids = (987660, 987661, 987662)
+    for user_id in user_ids:
+        observe_user_request(user_id, "GET", "200")
+
+    def sample(user_id: int) -> float | None:
+        return REGISTRY.get_sample_value(
+            "app_user_requests_total",
+            {"user_id": str(user_id), "method": "GET", "status": "200"},
+        )
+
+    assert sample(user_ids[0]) is None
+    assert sample(user_ids[1]) is not None
+    assert sample(user_ids[2]) is not None

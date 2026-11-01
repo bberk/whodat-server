@@ -18,12 +18,13 @@ Follow the format used below. Newest entries at the top.
 - **Options:** (1) keep 64 GB and require a larger disk; (2) lower the cap to a value that fits the
   current 30 GiB guidance; (3) keep 64 GB as a configurable start value, document the conflict, and
   monitor free space.
-- **Recommendation:** option 3 for now. The value is one line in
-  `deploy/server/monitoring/prometheus/prometheus.yml`, the host dashboard shows filesystem use,
+- **Recommendation:** option 3 for now. The value is one environment setting
+  (`PROMETHEUS_RETENTION_SIZE`) in `deploy/server/.env`, the host dashboard shows filesystem use,
   and a dedicated alert should be added before the disk is upgraded.
-- **In the meantime:** the cap is 64 GB as requested, the runbook documents that the host must keep
-  at least 10 GiB free (or the cap must be lowered), and the Grafana host dashboard surfaces root
-  disk use. WAL compression is enabled explicitly.
+- **In the meantime:** the cap defaults to 64 GB as requested and is overridable without editing
+  the Prometheus config; the runbook tells a 30 GiB host to set it to about 15 GB and keep at least
+  10 GiB free. The Grafana host dashboard surfaces root disk use. WAL compression is enabled
+  explicitly.
 
 ---
 
