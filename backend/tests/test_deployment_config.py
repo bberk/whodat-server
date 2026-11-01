@@ -91,9 +91,40 @@ def test_prometheus_retention_is_configurable_with_the_pinned_image() -> None:
 
     services = _compose("deploy/server/docker-compose.yml")["services"]
     command = services["prometheus"]["command"]
-    assert services["prometheus"]["image"] == "prom/prometheus:v3.15.1"
+    dockerfile = (REPO_ROOT / "deploy/server/monitoring/prometheus/Dockerfile").read_text(
+        encoding="utf-8"
+    )
+    assert "FROM prom/prometheus:v3.15.1" in dockerfile
     assert "--storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-64GB}" in command
     assert "--storage.tsdb.wal-compression" in command
+
+
+def test_monitoring_config_is_baked_into_images_not_bind_mounted() -> None:
+    """The remote daemon cannot see a laptop path, so config must come from the build context.
+
+    This is the failure a bind mount produced in the field: Docker created a directory at the
+    laptop path on the server and the container failed with "not a directory".
+    """
+    services = _compose("deploy/server/docker-compose.yml")["services"]
+
+    for name in ("prometheus", "grafana"):
+        assert "build" in services[name]
+        mounts = [str(mount) for mount in services[name]["volumes"]]
+        assert all(not mount.startswith(("./", "/")) for mount in mounts)
+
+    prometheus_dockerfile = (
+        REPO_ROOT / "deploy/server/monitoring/prometheus/Dockerfile"
+    ).read_text(encoding="utf-8")
+    grafana_dockerfile = (REPO_ROOT / "deploy/server/monitoring/grafana/Dockerfile").read_text(
+        encoding="utf-8"
+    )
+    assert "COPY prometheus.yml /etc/prometheus/prometheus.yml" in prometheus_dockerfile
+    assert "COPY provisioning /etc/grafana/provisioning" in grafana_dockerfile
+    assert "COPY dashboards /etc/grafana/dashboards" in grafana_dockerfile
+
+    # node_exporter's absolute mounts are the server's own /proc, /sys, and /, which is correct.
+    exporter_mounts = [str(mount) for mount in services["node-exporter"]["volumes"]]
+    assert all(mount.startswith("/") for mount in exporter_mounts)
 
 
 def _validate_env(

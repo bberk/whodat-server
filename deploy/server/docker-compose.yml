@@ -86,8 +86,13 @@ services:
   # --- Monitoring (LAN-only) -------------------------------------------------
   # Prometheus scrapes the backend's /metrics and node_exporter. Grafana is the only service
   # published on a LAN interface; Prometheus binds to loopback for SSH-tunnel access.
+  # Prometheus and Grafana config is baked into their images: the daemon is remote and cannot see
+  # a path on the laptop that runs manage.sh. Only named volumes and the server's own /proc,
+  # /sys, and / are mounted.
   prometheus:
-    image: prom/prometheus:v3.15.1
+    build:
+      context: ./monitoring/prometheus
+      dockerfile: Dockerfile
     restart: unless-stopped
     command:
       - --config.file=/etc/prometheus/prometheus.yml
@@ -100,7 +105,6 @@ services:
       - --storage.tsdb.wal-compression
       - --web.enable-lifecycle
     volumes:
-      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
     ports:
       # Loopback only. Reach the Prometheus UI with
@@ -123,7 +127,9 @@ services:
     logging: *default-logging
 
   grafana:
-    image: grafana/grafana:13.3.0
+    build:
+      context: ./monitoring/grafana
+      dockerfile: Dockerfile
     restart: unless-stopped
     environment:
       GF_SECURITY_ADMIN_USER: "${GRAFANA_ADMIN_USER:-admin}"
@@ -132,7 +138,7 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
-      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/api.json
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/api.json
     ports:
       # Bind to the server's reserved LAN address only. With no address, Docker listens on every
       # interface, which can expose Grafana publicly and bypass UFW's INPUT rules. The value is
@@ -140,8 +146,6 @@ services:
       - "${GRAFANA_BIND_ADDRESS:?Set GRAFANA_BIND_ADDRESS to the server LAN address in deploy/server/.env}:${GRAFANA_PORT:-3000}:3000"
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - prometheus
     logging: *default-logging

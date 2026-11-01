@@ -228,7 +228,9 @@ case "$command_name" in
         ;;
       update)
         [[ $# -eq 0 ]] || fail "update takes no arguments"
-        compose pull postgres prometheus node-exporter grafana
+        # Prometheus and Grafana are built from the local monitoring context because their config
+        # is baked into the image; pull only the services that still use a registry image.
+        compose pull postgres node-exporter
         compose build --pull
         compose up -d
         wait_for_health
