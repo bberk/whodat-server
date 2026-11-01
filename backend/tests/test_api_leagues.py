@@ -2582,18 +2582,19 @@ def test_metrics_attribute_requests_to_the_user_and_league(
     _seed_membership(api, user_id=user_id, league_id=league_id)
     _login(api, user_id)
 
+    # The registry is process-global and temporary databases reuse numeric ids, so compare
+    # deltas: a sample left by an earlier test must not satisfy this assertion.
+    user_labels = {"user_id": str(user_id), "method": "GET", "status": "200"}
+    league_labels = {"league_id": str(league_id), "method": "GET", "status": "200"}
+    before_user = REGISTRY.get_sample_value("app_user_requests_total", user_labels) or 0.0
+    before_league = REGISTRY.get_sample_value("app_league_requests_total", league_labels) or 0.0
+
     assert api.client.get(f"/api/v1/leagues/{league_id}/seasons").status_code == 200
 
-    user_value = REGISTRY.get_sample_value(
-        "app_user_requests_total",
-        {"user_id": str(user_id), "method": "GET", "status": "200"},
+    assert REGISTRY.get_sample_value("app_user_requests_total", user_labels) == before_user + 1
+    assert (
+        REGISTRY.get_sample_value("app_league_requests_total", league_labels) == before_league + 1
     )
-    league_value = REGISTRY.get_sample_value(
-        "app_league_requests_total",
-        {"league_id": str(league_id), "method": "GET", "status": "200"},
-    )
-    assert user_value is not None and user_value >= 1
-    assert league_value is not None and league_value >= 1
 
 
 def test_metrics_do_not_attribute_rejected_league_requests(
