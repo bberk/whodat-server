@@ -8,8 +8,10 @@ path, a league id) is the failure mode that hurts a self-hosted Prometheus most.
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+from prometheus_client import REGISTRY
 
 from app.api.main import create_app
+from app.metrics import forget_league, observe_league_request
 
 
 def _scrape() -> str:
@@ -71,3 +73,14 @@ def test_base_request_counter_keeps_attribution_labels_off() -> None:
 
     assert lines
     assert all("user_id=" not in line and "league_id=" not in line for line in lines)
+
+
+def test_league_attribution_series_can_be_forgotten() -> None:
+    """Forgetting a league removes every label set it contributed to the counter."""
+    labels = {"league_id": "987654", "method": "GET", "status": "200"}
+    observe_league_request(987654, "GET", "200")
+    assert REGISTRY.get_sample_value("app_league_requests_total", labels) is not None
+
+    forget_league(987654)
+
+    assert REGISTRY.get_sample_value("app_league_requests_total", labels) is None

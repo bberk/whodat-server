@@ -53,6 +53,7 @@ from app.db.models import (
     UserLeague,
 )
 from app.db.repositories import SyncRepository
+from app.metrics import forget_league
 from app.providers.base import LeagueDTO, LeagueProvider, LeagueRef
 from app.security.crypto import CredentialCryptoError, encrypt
 from app.security.invite_codes import (
@@ -926,6 +927,9 @@ class LeagueService:
                 self._session.execute(delete(model).where(model.league_id == league_id))
             self._session.execute(delete(League).where(League.id == league_id))
             self._session.flush()
+        # Drop the metric series only after the delete succeeds, so the registry stops exposing
+        # a league that no longer exists.
+        forget_league(league_id)
 
     # ------------------------------------------------------------------
     # Membership-scoped reads
