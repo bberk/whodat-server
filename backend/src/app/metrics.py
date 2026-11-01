@@ -44,6 +44,27 @@ USER_REQUESTS = Counter(
     ("user_id", "method", "status"),
 )
 
+#: Upper bound on live user attribution label sets. Accounts are not deleted today, so the cap is
+#: the backstop that keeps registry and Prometheus cardinality bounded as invitations add accounts.
+MAX_USER_LABEL_SETS = 4096
+
+#: Live label sets, oldest first, so the cap can evict the least recently used one.
+_USER_LABEL_SETS: OrderedDict[tuple[str, str, str], None] = OrderedDict()
+_USER_LABEL_SETS_LOCK = Lock()
+
+
+def observe_user_request(user_id: int, method: str, status: str) -> None:
+    """Count one successful authenticated request, bounded by the user label-set cap."""
+    labels = (str(user_id), method, status)
+    with _USER_LABEL_SETS_LOCK:
+        _USER_LABEL_SETS[labels] = None
+        _USER_LABEL_SETS.move_to_end(labels)
+        USER_REQUESTS.labels(*labels).inc()
+        while len(_USER_LABEL_SETS) > MAX_USER_LABEL_SETS:
+            oldest, _ = _USER_LABEL_SETS.popitem(last=False)
+            USER_REQUESTS.remove(*oldest)
+
+
 #: Requests attributed to the league in the route's ``league_id`` path parameter. Routes without
 #: that parameter (for example ``/api/v1/me/leagues``) contribute no series here.
 LEAGUE_REQUESTS = Counter(

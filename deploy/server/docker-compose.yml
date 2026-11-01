@@ -92,6 +92,9 @@ services:
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
+      # Size-based retention, overridable per deployment. The default is the requested 64 GB;
+      # lower PROMETHEUS_RETENTION_SIZE when the host disk is smaller than the runbook guidance.
+      - --storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-64GB}
       # WAL compression has been the default since Prometheus 2.20. It is passed explicitly so
       # the setting is visible and survives an image default change.
       - --storage.tsdb.wal-compression

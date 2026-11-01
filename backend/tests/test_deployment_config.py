@@ -75,23 +75,25 @@ def test_caddy_proxies_only_api_and_health_to_the_backend() -> None:
     assert "/metrics" not in caddyfile
 
 
-def test_prometheus_keeps_size_retention_with_the_pinned_image() -> None:
-    """The config-file retention block needs an image that supports it.
+def test_prometheus_retention_is_configurable_with_the_pinned_image() -> None:
+    """Retention comes from the environment via the flag, so a smaller disk can lower it.
 
-    Prometheus v3.15.1 accepts this block (verified with ``promtool check config`` and a real
-    server start that logged ``size=64GiB``). Pinning the image here makes a downgrade to a
-    version without the block fail loudly instead of at container start on the server.
+    The pinned image supports ``--storage.tsdb.retention.size`` (verified with a real server start
+    that logged ``size=64GiB``). Keeping the flag in the command also stops the value from becoming
+    a hardcoded config-file setting that a deployment cannot override.
     """
     config = yaml.safe_load(
         (REPO_ROOT / "deploy/server/monitoring/prometheus/prometheus.yml").read_text(
             encoding="utf-8"
         )
     )
-    assert config["storage"]["tsdb"]["retention"]["size"] == "64GB"
+    assert "storage" not in config
 
     services = _compose("deploy/server/docker-compose.yml")["services"]
+    command = services["prometheus"]["command"]
     assert services["prometheus"]["image"] == "prom/prometheus:v3.15.1"
-    assert "--storage.tsdb.wal-compression" in services["prometheus"]["command"]
+    assert "--storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-64GB}" in command
+    assert "--storage.tsdb.wal-compression" in command
 
 
 def _validate_env(

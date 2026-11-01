@@ -12,7 +12,11 @@ from fastapi import FastAPI
 from prometheus_fastapi_instrumentator import Instrumentator, metrics
 from prometheus_fastapi_instrumentator.metrics import Info
 
-from app.metrics import BUILD_INFO, USER_REQUESTS, observe_league_request
+from app.metrics import (
+    BUILD_INFO,
+    observe_league_request,
+    observe_user_request,
+)
 
 #: Scrape path. It is excluded from the request metrics and from the OpenAPI schema.
 METRICS_PATH = "/metrics"
@@ -36,7 +40,7 @@ def _attribution() -> Callable[[Info], None]:
         user_id = getattr(info.request.state, "user_id", None)
         if not isinstance(user_id, int):
             return
-        USER_REQUESTS.labels(str(user_id), info.method, info.modified_status).inc()
+        observe_user_request(user_id, info.method, info.modified_status)
         league_id = info.request.path_params.get("league_id")
         # A DELETE removes the league's series after the handler, so attributing the delete would
         # immediately re-create one. Deletes are not page visits; skip them.

@@ -8,14 +8,9 @@ global:
   external_labels:
     deployment: whodat-server
 
-# Size-based retention: the oldest blocks are deleted once the total block size would exceed
-# 64 GB. No time limit is applied (setting a size disables the implicit 15-day default).
-# 64 GB is a cap, not a reservation; at this deployment's series count the actual growth is far
-# slower. See docs/DEPLOY_SERVER.md for the disk-headroom warning.
-storage:
-  tsdb:
-    retention:
-      size: 64GB
+# Retention is configured with --storage.tsdb.retention.size in the Compose command, so a
+# deployment can set PROMETHEUS_RETENTION_SIZE without editing this file. Size-based retention
+# deletes the oldest blocks once the stored blocks reach the cap; it reserves no space.
 
 scrape_configs:
   - job_name: backend
