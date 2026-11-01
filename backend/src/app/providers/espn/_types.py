@@ -50,5 +50,9 @@ class ESPNLeagueProto(Protocol):
     teams: Sequence[ESPNTeamProto]
     members: Sequence[Mapping[str, Any]]
     currentMatchupPeriod: int
+    #: ESPN's current scoring period. ``box_scores`` only honors a week at or before it.
+    current_week: int
 
     def scoreboard(self, week: int) -> Sequence[ESPNMatchupProto]: ...
+
+    def box_scores(self, week: int) -> Sequence[object]: ...

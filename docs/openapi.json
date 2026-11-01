@@ -1180,6 +1180,27 @@
             ],
             "title": "Playoff Field"
           },
+          "projected_week": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Projected Week"
+          },
+          "projection_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectionReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "reason": {
             "anyOf": [
               {
@@ -1282,6 +1303,125 @@
           "high"
         ],
         "title": "ProbabilityInterval",
+        "type": "object"
+      },
+      "ProjectedTeam": {
+        "description": "One team's provider-projected points and the VP/record they would earn.",
+        "properties": {
+          "opponent_team_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opponent Team Id"
+          },
+          "points": {
+            "title": "Points",
+            "type": "string"
+          },
+          "team_id": {
+            "title": "Team Id",
+            "type": "integer"
+          },
+          "victory_points": {
+            "title": "Victory Points",
+            "type": "string"
+          }
+        },
+        "required": [
+          "team_id",
+          "opponent_team_id",
+          "points",
+          "victory_points"
+        ],
+        "title": "ProjectedTeam",
+        "type": "object"
+      },
+      "ProjectionReason": {
+        "enum": [
+          "no_active_week",
+          "projections_not_synced",
+          "projections_incomplete",
+          "incomplete_schedule"
+        ],
+        "type": "string"
+      },
+      "ProjectionResponse": {
+        "description": "The active week's provider projection, or why it was not applied.\n\n``status`` is ``\"ok\"`` when the week is included in the response's totals and ``\"unavailable\"``\notherwise, with ``reason`` explaining why. ``as_of`` is the last successful fetch, not the\nrequest time.",
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "is_cup_week": {
+            "title": "Is Cup Week",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "no_active_week",
+                  "projections_not_synced",
+                  "projections_incomplete",
+                  "incomplete_schedule"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "teams": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectedTeam"
+            },
+            "title": "Teams",
+            "type": "array"
+          },
+          "week": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Week"
+          }
+        },
+        "required": [
+          "status",
+          "week",
+          "reason",
+          "as_of",
+          "is_cup_week",
+          "teams"
+        ],
+        "title": "ProjectionResponse",
         "type": "object"
       },
       "PublicUser": {
@@ -1576,6 +1716,17 @@
       "StandingsResponse": {
         "description": "Overall standings plus division groupings for one league season.",
         "properties": {
+          "active_week": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Week"
+          },
           "completed_weeks": {
             "title": "Completed Weeks",
             "type": "integer"
@@ -1598,15 +1749,35 @@
             "title": "Overall",
             "type": "array"
           },
+          "projection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "season": {
             "title": "Season",
             "type": "integer"
+          },
+          "weeks": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Weeks",
+            "type": "array"
           }
         },
         "required": [
           "league_id",
           "season",
           "completed_weeks",
+          "weeks",
+          "active_week",
+          "projection",
           "overall",
           "divisions"
         ],
@@ -1842,6 +2013,35 @@
       "VpHistoryResponse": {
         "description": "Completed weeks and the per-team series used by the cumulative VP chart.",
         "properties": {
+          "active_week": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Week"
+          },
+          "projected_weeks": {
+            "default": [],
+            "items": {
+              "type": "integer"
+            },
+            "title": "Projected Weeks",
+            "type": "array"
+          },
+          "projection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "teams": {
             "items": {
               "$ref": "#/components/schemas/TeamVpHistory"
@@ -1937,6 +2137,27 @@
             },
             "title": "Periods",
             "type": "array"
+          },
+          "projected_week": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Projected Week"
+          },
+          "projection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "season": {
             "title": "Season",
@@ -3013,6 +3234,18 @@
               "description": "Team-strength weight: 0 makes every remaining matchup even, 1 is the default model, and up to 10 amplifies stronger teams. Decimals are accepted, with at most 18 decimal places.",
               "title": "Strength Weight"
             }
+          },
+          {
+            "description": "Fix the active week's stored provider projection into the simulation. The estimated team strength still uses completed weeks only. Only the current season is accepted.",
+            "in": "query",
+            "name": "include_projected",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Fix the active week's stored provider projection into the simulation. The estimated team strength still uses completed weeks only. Only the current season is accepted.",
+              "title": "Include Projected",
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -3129,6 +3362,18 @@
               "title": "Season",
               "type": "integer"
             }
+          },
+          {
+            "description": "Include the active week's stored provider projection in the response. Only the league's current season is accepted; a prior season returns 409.",
+            "in": "query",
+            "name": "include_projected",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Include the active week's stored provider projection in the response. Only the league's current season is accepted; a prior season returns 409.",
+              "title": "Include Projected",
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -3184,6 +3429,18 @@
               "title": "Season",
               "type": "integer"
             }
+          },
+          {
+            "description": "Include the active week's stored provider projection in the response. Only the league's current season is accepted; a prior season returns 409.",
+            "in": "query",
+            "name": "include_projected",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Include the active week's stored provider projection in the response. Only the league's current season is accepted; a prior season returns 409.",
+              "title": "Include Projected",
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -3238,6 +3495,18 @@
               "minimum": 2000,
               "title": "Season",
               "type": "integer"
+            }
+          },
+          {
+            "description": "Include the active week's stored provider projection in the response. Only the league's current season is accepted; a prior season returns 409.",
+            "in": "query",
+            "name": "include_projected",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Include the active week's stored provider projection in the response. Only the league's current season is accepted; a prior season returns 409.",
+              "title": "Include Projected",
+              "type": "boolean"
             }
           }
         ],

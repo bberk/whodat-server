@@ -124,6 +124,8 @@ class PlayoffOdds:
 
     ``status="unavailable"`` carries a ``reason`` and no teams. A finished regular season still
     projects its bracket from the final seeds, so ``iterations`` is the requested sample count.
+    ``projected_week`` is set when the active week's provider projection was fixed into the
+    simulation; ``projection_reason`` explains why a requested projection was not applied.
     """
 
     league_id: int
@@ -140,6 +142,8 @@ class PlayoffOdds:
     playoff_field: int | None
     division_count: int
     teams: tuple[TeamOdds, ...]
+    projected_week: int | None = None
+    projection_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -264,6 +268,7 @@ class PredictionService:
         iterations: int = DEFAULT_ITERATIONS,
         seed: int | None = None,
         strength_weight: Decimal = DEFAULT_STRENGTH_WEIGHT,
+        include_projected: bool = False,
     ) -> PlayoffOdds:
         """Return the cached or freshly simulated playoff odds for a league season.
 
@@ -277,6 +282,12 @@ class PredictionService:
         ``iterations`` by the authenticated role. An omitted seed is derived from the input digest,
         the iteration count, and the model version, so the same data and parameters return the same
         numbers on every page load.
+
+        ``include_projected`` folds the active week's stored provider projection into the
+        simulation as a fixed week. It is applied before the sampled remaining weeks, removed from
+        the remaining schedule, and never added to the counted weeks, so the estimated team
+        strength is unchanged. If the projection is unavailable the actual schedule is simulated
+        and ``projection_reason`` says why; the two modes have distinct digests and cache entries.
         """
         if not MIN_ITERATIONS <= iterations <= MAX_ITERATIONS:
             raise ValueError(f"iterations must be between {MIN_ITERATIONS} and {MAX_ITERATIONS}")
@@ -285,8 +296,12 @@ class PredictionService:
         weight_text = format_strength_weight(strength_weight)
 
         self._standings.require_current_season(league_id, season)
-        snapshot = self._standings.get_prediction_snapshot(league_id, season)
-        digest = input_digest(snapshot, strength_weight=strength_weight)
+        snapshot = self._standings.get_prediction_snapshot(
+            league_id, season, include_projected=include_projected
+        )
+        digest = input_digest(
+            snapshot, strength_weight=strength_weight, include_projected=include_projected
+        )
         effective_seed = seed if seed is not None else derive_seed(digest, iterations)
         key = _CacheKey(
             league_id=league_id,
@@ -305,6 +320,7 @@ class PredictionService:
                 iterations=iterations,
                 seed=effective_seed,
                 strength_weight=strength_weight,
+                include_projected=include_projected,
             ),
         )
 
@@ -326,6 +342,7 @@ def _compute(
     iterations: int,
     seed: int,
     strength_weight: Decimal,
+    include_projected: bool,
 ) -> PlayoffOdds:
     """Run the pure simulator once and project its counts into probabilities."""
     outcome = simulate_season(
@@ -334,6 +351,7 @@ def _compute(
         draws=SeededDrawSource(seed),
         bracket_draws=SeededDrawSource(derive_bracket_seed(seed)),
     )
+    projection_reason = _projection_reason(snapshot, include_projected)
     if isinstance(outcome, PredictionUnavailable):
         return PlayoffOdds(
             league_id=snapshot.league_id,
@@ -350,10 +368,26 @@ def _compute(
             playoff_field=snapshot.playoff_team_count,
             division_count=_division_count(snapshot.teams),
             teams=(),
+            projected_week=snapshot.projected_week,
+            projection_reason=projection_reason,
         )
     return _result_odds(
-        snapshot, outcome, digest=digest, seed=seed, strength_weight=strength_weight
+        snapshot,
+        outcome,
+        digest=digest,
+        seed=seed,
+        strength_weight=strength_weight,
+        include_projected=include_projected,
     )
+
+
+def _projection_reason(snapshot: PredictionSnapshot, include_projected: bool) -> str | None:
+    """Return why a requested projection was not applied, or None when it was or was not asked."""
+    if not include_projected or snapshot.projection is None:
+        return None
+    if snapshot.projection.applied:
+        return None
+    return snapshot.projection.reason
 
 
 def _result_odds(
@@ -363,6 +397,7 @@ def _result_odds(
     digest: str,
     seed: int,
     strength_weight: Decimal,
+    include_projected: bool,
 ) -> PlayoffOdds:
     """Build probability rows; a finished season has exact seeding but a projected champion."""
     samples = simulation.iterations
@@ -393,6 +428,8 @@ def _result_odds(
         playoff_field=simulation.playoff_field,
         division_count=simulation.division_count,
         teams=teams,
+        projected_week=snapshot.projected_week,
+        projection_reason=_projection_reason(snapshot, include_projected),
     )
 
 
@@ -407,6 +444,7 @@ def _simulation_inputs(
         regular_season_length=snapshot.regular_season_length,
         playoff_team_count=snapshot.playoff_team_count,
         cup_week=snapshot.cup_week,
+        fixed_weeks=snapshot.fixed_weeks,
         strength_weight=strength_weight,
     )
 
@@ -459,15 +497,20 @@ def derive_bracket_seed(seed: int) -> int:
 
 
 def input_digest(
-    snapshot: PredictionSnapshot, *, strength_weight: Decimal = DEFAULT_STRENGTH_WEIGHT
+    snapshot: PredictionSnapshot,
+    *,
+    strength_weight: Decimal = DEFAULT_STRENGTH_WEIGHT,
+    include_projected: bool = False,
 ) -> str:
     """Return a canonical SHA-256 digest of the simulation inputs only.
 
     ``last_refreshed_at`` is deliberately absent: a refresh that changes nothing keeps the cache.
-    A score, pairing, cup week, playoff field, division, team name, current total, or team-strength
-    weight change does invalidate it.
+    A score, pairing, cup week, playoff field, division, team name, current total, team-strength
+    weight, or projected-week change does invalidate it. ``include_projected`` and the fixed-week
+    scores are included, so the projected and actual runs never share a cache entry even when the
+    projection is unavailable and the fixed-week list is empty.
     """
-    payload = {
+    payload: dict[str, object] = {
         "league_id": snapshot.league_id,
         "season": snapshot.season,
         "regular_season_length": snapshot.regular_season_length,
@@ -492,6 +535,33 @@ def input_digest(
             for week in sorted(snapshot.remaining_weeks, key=lambda item: item.week)
         ],
     }
+    if include_projected:
+        # Only the projected path carries these keys, so the default (actual) digest and its
+        # derived seed are byte-identical to the pre-projection model.
+        payload["include_projected"] = True
+        payload["projected_week"] = snapshot.projected_week
+        payload["projection_reason"] = (
+            snapshot.projection.reason
+            if snapshot.projection is not None and not snapshot.projection.applied
+            else None
+        )
+        payload["fixed_weeks"] = [
+            {
+                "week": week.week,
+                "scores": [
+                    {"team_id": score.team_id, "points": format(score.points, "f")}
+                    for score in sorted(week.scores, key=lambda item: item.team_id)
+                ],
+                "matchups": [
+                    {"home": matchup.home_team_id, "away": matchup.away_team_id}
+                    for matchup in sorted(
+                        week.matchups,
+                        key=lambda item: (item.home_team_id, item.away_team_id or -1),
+                    )
+                ],
+            }
+            for week in sorted(snapshot.fixed_weeks, key=lambda item: item.week)
+        ]
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 

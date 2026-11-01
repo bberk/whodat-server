@@ -13,7 +13,7 @@ nothing else is labeled with those ids.
 from collections import OrderedDict
 from threading import Lock
 
-from prometheus_client import Counter, Histogram, Info
+from prometheus_client import Counter, Gauge, Histogram, Info
 
 #: Build and runtime identity, set once when the application is created.
 BUILD_INFO = Info("app_build", "Build and runtime identity of the running backend.")
@@ -33,6 +33,30 @@ PROVIDER_FETCH_DURATION_SECONDS = Histogram(
     "Wall-clock seconds spent fetching a league from a data provider.",
     ("provider",),
     buckets=(0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0),
+)
+
+#: Weekly data updates, by kind and outcome. ``completed`` counts a week whose final scores were
+#: stored and whose VP was recomputed (any sync path). ``projection`` counts an active-week ESPN
+#: projection refresh. Labels stay bounded: no league id, email, cookie, or error text.
+WEEK_REFRESH_TOTAL = Counter(
+    "app_week_refresh_total",
+    "Week data refreshes, by kind and outcome.",
+    ("kind", "outcome"),
+)
+
+#: Wall-clock time spent refreshing one week's data, by kind.
+WEEK_REFRESH_DURATION_SECONDS = Histogram(
+    "app_week_refresh_duration_seconds",
+    "Wall-clock seconds spent refreshing one week's data.",
+    ("kind",),
+    buckets=(0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0),
+)
+
+#: Unix seconds of the last successful active-week projection refresh. A missing series means no
+#: refresh has succeeded in this process; use it for a staleness panel or alert.
+PROJECTION_REFRESH_LAST_SUCCESS = Gauge(
+    "app_projection_refresh_last_success_timestamp_seconds",
+    "Unix time of the last successful active-week projection refresh.",
 )
 
 #: Requests attributed to the authenticated account. This is deliberately higher cardinality than

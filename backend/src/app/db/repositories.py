@@ -5,16 +5,25 @@ repository calls in the same session. They never commit or roll back: transactio
 belongs to the calling service.
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from typing import TypeVar
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
-from app.db.models import League, LeagueEloConfig, LeagueSeason, Matchup, Owner, Score, Team
+from app.db.models import (
+    League,
+    LeagueEloConfig,
+    LeagueSeason,
+    Matchup,
+    Owner,
+    ProjectedScore,
+    Score,
+    Team,
+)
 
 RowT = TypeVar("RowT")
 
@@ -114,6 +123,21 @@ class SyncRepository:
             update(LeagueSeason)
             .where(LeagueSeason.league_id == league_id, LeagueSeason.season == season)
             .values(last_refreshed_at=refreshed_at)
+        )
+        self._session.flush()
+
+    def set_league_season_projections_refreshed(
+        self, league_id: int, season: int, refreshed_at: datetime
+    ) -> None:
+        """Record the instant the active week's provider projections were last fetched.
+
+        Kept separate from ``last_refreshed_at``: a projections-only refresh never re-syncs a
+        season's schedule or scores. A failed fetch must leave the previous value untouched.
+        """
+        self._session.execute(
+            update(LeagueSeason)
+            .where(LeagueSeason.league_id == league_id, LeagueSeason.season == season)
+            .values(projections_refreshed_at=refreshed_at)
         )
         self._session.flush()
 
@@ -286,6 +310,10 @@ class SyncRepository:
             select(League).where(League.provider == provider, League.external_id == external_id)
         )
 
+    def list_leagues(self) -> list[League]:
+        """Return every stored league in stable primary-key order."""
+        return list(self._session.scalars(select(League).order_by(League.id)).all())
+
     def get_league_season(self, league_id: int, season: int) -> LeagueSeason | None:
         """Return one league season's settings, or None if that season is not stored."""
         return self._session.scalar(
@@ -413,6 +441,110 @@ class SyncRepository:
                 .order_by(Score.team_id)
             ).all()
         )
+
+    def upsert_projected_score(
+        self,
+        league_id: int,
+        season: int,
+        week: int,
+        team_id: int,
+        points: Decimal,
+    ) -> UpsertResult[ProjectedScore]:
+        """Insert or update one team's projected points for a season week.
+
+        Projections are provider data with their own lifecycle: they exist only for the active
+        week and are removed once the week completes or the schedule changes. The caller passes an
+        already-quantized Decimal; the repository applies no rounding policy.
+        """
+        values = {"points": points}
+        row = self._session.scalar(
+            select(ProjectedScore).where(
+                ProjectedScore.team_id == team_id,
+                ProjectedScore.season == season,
+                ProjectedScore.week == week,
+            )
+        )
+        if row is None:
+            row = ProjectedScore(
+                league_id=league_id,
+                season=season,
+                week=week,
+                team_id=team_id,
+                points=points,
+            )
+            self._session.add(row)
+            self._session.flush()
+            return UpsertResult(row, True)
+
+        changed = self._assign_changed(row, values)
+        if changed:
+            self._session.flush()
+        return UpsertResult(row, changed)
+
+    def get_week_projections(self, league_id: int, season: int, week: int) -> list[ProjectedScore]:
+        """Return every stored projection for a league season week in stable team order."""
+        return list(
+            self._session.scalars(
+                select(ProjectedScore)
+                .where(
+                    ProjectedScore.league_id == league_id,
+                    ProjectedScore.season == season,
+                    ProjectedScore.week == week,
+                )
+                .order_by(ProjectedScore.team_id)
+            ).all()
+        )
+
+    def list_projections(self, league_id: int, season: int) -> list[ProjectedScore]:
+        """Return every stored projection for a league season in week and team order."""
+        return list(
+            self._session.scalars(
+                select(ProjectedScore)
+                .where(
+                    ProjectedScore.league_id == league_id,
+                    ProjectedScore.season == season,
+                )
+                .order_by(ProjectedScore.week, ProjectedScore.team_id)
+            ).all()
+        )
+
+    def delete_projected_score(self, projected_score: ProjectedScore) -> None:
+        """Delete one stale projected team-week row inside the caller's transaction."""
+        self._session.delete(projected_score)
+        self._session.flush()
+
+    def delete_projections_except_week(self, league_id: int, season: int, week: int) -> None:
+        """Remove every projection for the season except the active week.
+
+        Used after a week completes (its projections are stale) and before a new active week is
+        populated, so a read can never pair projections with the wrong week.
+        """
+        self._session.execute(
+            delete(ProjectedScore).where(
+                ProjectedScore.league_id == league_id,
+                ProjectedScore.season == season,
+                ProjectedScore.week != week,
+            )
+        )
+        self._session.flush()
+
+    def delete_projections_for_teams(
+        self, league_id: int, season: int, week: int, team_ids: Sequence[int]
+    ) -> None:
+        """Remove projections for teams no longer present in the active week's schedule.
+
+        An empty ``team_ids`` clears the week, which is the correct state when the provider has no
+        usable projection for every team.
+        """
+        statement = delete(ProjectedScore).where(
+            ProjectedScore.league_id == league_id,
+            ProjectedScore.season == season,
+            ProjectedScore.week == week,
+        )
+        if team_ids:
+            statement = statement.where(ProjectedScore.team_id.not_in(tuple(team_ids)))
+        self._session.execute(statement)
+        self._session.flush()
 
     def persist_week_vp(
         self,

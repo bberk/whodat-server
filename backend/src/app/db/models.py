@@ -101,6 +101,12 @@ class LeagueSeason(TimestampMixin, Base):
     last_refreshed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    #: When the active week's provider projections were last fetched successfully. Kept separate
+    #: from ``last_refreshed_at`` because a projections-only refresh never re-syncs a whole season.
+    #: ``None`` means no projection refresh has succeeded yet.
+    projections_refreshed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     league: Mapped[League] = relationship(back_populates="seasons")
 
 
@@ -196,6 +202,33 @@ class Score(TimestampMixin, Base):
     vp_top_half: Mapped[Decimal] = mapped_column(Numeric(10, 6), nullable=False)
     vp_high: Mapped[Decimal] = mapped_column(Numeric(10, 6), nullable=False)
     vp_low: Mapped[Decimal] = mapped_column(Numeric(10, 6), nullable=False)
+
+
+class ProjectedScore(TimestampMixin, Base):
+    """A provider-projected score for one team and week.
+
+    Projections are ingested, not computed: they are external data that changes during the active
+    week, so the standings read path never calls a provider. A projection is not a result and does
+    not earn VP or change any stored score; the standings service computes projected VP from it on
+    read when the caller explicitly asks for the projected view.
+    """
+
+    __tablename__ = "projected_score"
+    __table_args__ = (
+        UniqueConstraint("team_id", "season", "week", name="uq_projected_score_team_season_week"),
+        Index("ix_projected_score_league_season_week", "league_id", "season", "week"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    team_id: Mapped[int] = mapped_column(
+        ForeignKey("team.id", name="fk_projected_score_team_id_team"), nullable=False
+    )
+    league_id: Mapped[int] = mapped_column(
+        ForeignKey("league.id", name="fk_projected_score_league_id_league"), nullable=False
+    )
+    season: Mapped[int] = mapped_column(Integer, nullable=False)
+    week: Mapped[int] = mapped_column(Integer, nullable=False)
+    points: Mapped[Decimal] = mapped_column(Numeric(8, 2), nullable=False)
 
 
 class LeagueEloConfig(TimestampMixin, Base):

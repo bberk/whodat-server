@@ -4,6 +4,7 @@
   "year": 2024,
   "status": {
     "currentMatchupPeriod": 2,
+    "currentWeek": 2,
     "firstScoringPeriod": 1,
     "finalScoringPeriod": 14,
     "latestScoringPeriod": 8
@@ -109,14 +110,14 @@
     },
     {
       "matchupPeriodId": 2,
-      "home": {"teamId": 1, "totalPoints": 85.5},
-      "away": {"teamId": 3, "totalPoints": 0.0},
+      "home": {"teamId": 1, "totalPoints": 85.5, "projectedPoints": 101.25},
+      "away": {"teamId": 3, "totalPoints": 0.0, "projectedPoints": 99.5},
       "winner": "UNDECIDED"
     },
     {
       "matchupPeriodId": 2,
-      "home": {"teamId": 2, "totalPoints": 0.0},
-      "away": {"teamId": 4, "totalPoints": 0.0},
+      "home": {"teamId": 2, "totalPoints": 0.0, "projectedPoints": 95.0},
+      "away": {"teamId": 4, "totalPoints": 0.0, "projectedPoints": 90.0},
       "winner": "UNDECIDED"
     }
   ]

@@ -12,6 +12,7 @@ dependencies = [
     "pydantic-settings>=2.16.1",
     "psycopg[binary]>=3.3.6",
     "espn-api>=1.0.1",  # ESPN fantasy sports API client for M3 provider adapter
+    "apscheduler>=3.11,<4",  # in-process cron schedule for the active-week projection refresh
     "cryptography>=50.0.2",  # AES-256-GCM for league-credential encryption
     "argon2-cffi>=25.1",  # Argon2id password hashing (AC-AU-02)
     "prometheus-fastapi-instrumentator>=8.1.0",  # /metrics for the self-hosted Prometheus stack

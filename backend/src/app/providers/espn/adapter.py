@@ -7,23 +7,50 @@ mappers module.
 """
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, NoReturn
 
 from app.providers.base import (
     LeagueDTO,
     LeagueRef,
     MatchupDTO,
     OwnerDTO,
+    ProjectionDTO,
+    ProviderAuthError,
+    ProviderError,
+    ProviderLeagueNotFound,
     TeamDTO,
     WeekStatus,
 )
 from app.providers.espn._types import ESPNLeagueProto
 from app.providers.espn.mappers import (
+    map_box_scores,
     map_league,
     map_matchups,
     map_owners,
     map_teams,
 )
+
+
+def _translate_espn_error(error: Exception) -> NoReturn:
+    """Translate an ``espn_api`` failure into the provider-agnostic error type.
+
+    The exceptions are imported lazily so the adapter keeps its deferred ``espn_api`` import.
+    Authentication failures are the only class the refresh job retries with another membership;
+    an unknown provider error aborts the run rather than silently rotating credentials.
+    """
+    from espn_api.requests.espn_requests import (  # type: ignore[import-untyped]
+        ESPNAccessDenied,
+        ESPNInvalidLeague,
+        ESPNUnknownError,
+    )
+
+    if isinstance(error, ESPNAccessDenied):
+        raise ProviderAuthError("the provider rejected the supplied credentials") from None
+    if isinstance(error, ESPNInvalidLeague):
+        raise ProviderLeagueNotFound("the provider does not know the requested league") from None
+    if isinstance(error, ESPNUnknownError):
+        raise ProviderError("the provider request failed") from error
+    raise error
 
 
 class ESPNLeagueProvider:
@@ -92,23 +119,58 @@ class ESPNLeagueProvider:
 
     def fetch_league(self, league_ref: LeagueRef, season: int) -> LeagueDTO:
         """Return normalized league metadata for the requested season."""
-        league = self._make_league(league_ref, season)
-        return map_league(league, league_ref.external_id)
+        try:
+            league = self._make_league(league_ref, season)
+            return map_league(league, league_ref.external_id)
+        except Exception as error:
+            _translate_espn_error(error)
 
     def fetch_owners(self, league_ref: LeagueRef, season: int) -> list[OwnerDTO]:
         """Return owners for the requested league season."""
-        league = self._make_league(league_ref, season)
-        return map_owners(league)
+        try:
+            league = self._make_league(league_ref, season)
+            return map_owners(league)
+        except Exception as error:
+            _translate_espn_error(error)
 
     def fetch_teams(self, league_ref: LeagueRef, season: int) -> list[TeamDTO]:
         """Return teams for the requested league season."""
-        league = self._make_league(league_ref, season)
-        return map_teams(league)
+        try:
+            league = self._make_league(league_ref, season)
+            return map_teams(league)
+        except Exception as error:
+            _translate_espn_error(error)
 
     def fetch_matchups(self, league_ref: LeagueRef, season: int, week: int) -> list[MatchupDTO]:
         """Return normalized matchups for one week."""
-        league = self._make_league(league_ref, season)
-        return map_matchups(league, week)
+        try:
+            league = self._make_league(league_ref, season)
+            return map_matchups(league, week)
+        except Exception as error:
+            _translate_espn_error(error)
+
+    def fetch_projections(
+        self, league_ref: LeagueRef, season: int, week: int
+    ) -> list[ProjectionDTO]:
+        """Return ESPN's projected team scores for the week, or nothing when unavailable.
+
+        ``espn_api`` exposes projections only through ``box_scores``, which is documented for the
+        most recent season and only honors a week up to the provider's current scoring week. A
+        later week returns an empty list instead of letting the library silently substitute the
+        current week's box scores.
+        """
+        try:
+            league = self._make_league(league_ref, season)
+            current_week = getattr(league, "current_week", None)
+            if (
+                isinstance(current_week, int)
+                and not isinstance(current_week, bool)
+                and week > current_week
+            ):
+                return []
+            return map_box_scores(league.box_scores(week), week)
+        except Exception as error:
+            _translate_espn_error(error)
 
     def current_week(self, league_ref: LeagueRef, season: int) -> WeekStatus:
         """Return the latest completed-week status for the league season.
@@ -121,17 +183,20 @@ class ESPNLeagueProvider:
         currentMatchupPeriod > regular_season_length, we're in playoffs,
         so cap at regular_season_length.
         """
-        league = self._make_league(league_ref, season)
-        current_period = league.currentMatchupPeriod
-        regular_season_length = league.settings.reg_season_count
+        try:
+            league = self._make_league(league_ref, season)
+            current_period = league.currentMatchupPeriod
+            regular_season_length = league.settings.reg_season_count
 
-        # No completed weeks yet
-        if current_period <= 1:
-            return WeekStatus(last_completed_week=None)
+            # No completed weeks yet
+            if current_period <= 1:
+                return WeekStatus(last_completed_week=None)
 
-        # In or past playoffs: cap at regular season length
-        if current_period > regular_season_length:
-            return WeekStatus(last_completed_week=regular_season_length)
+            # In or past playoffs: cap at regular season length
+            if current_period > regular_season_length:
+                return WeekStatus(last_completed_week=regular_season_length)
 
-        # Regular season in progress
-        return WeekStatus(last_completed_week=current_period - 1)
+            # Regular season in progress
+            return WeekStatus(last_completed_week=current_period - 1)
+        except Exception as error:
+            _translate_espn_error(error)

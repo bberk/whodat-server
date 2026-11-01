@@ -1,5 +1,8 @@
 """FastAPI application factory."""
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +17,18 @@ from app.api.routes_predictions import router as predictions_router
 from app.api.routes_standings import router as standings_router
 from app.api.schemas_auth import validation_exception_handler
 from app.config import DEFAULT_SECRET_KEY, get_settings
+from app.projection_refresh import start_projection_scheduler
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Start the optional in-process projection scheduler and stop it on shutdown."""
+    scheduler = start_projection_scheduler(get_settings())
+    try:
+        yield
+    finally:
+        if scheduler is not None:
+            scheduler.shutdown(wait=False)
 
 
 def create_app() -> FastAPI:
@@ -29,7 +44,7 @@ def create_app() -> FastAPI:
         raise RuntimeError(
             "SECRET_KEY must be changed from its insecure default when ENV is not 'local' or 'test'"
         )
-    app = FastAPI(title="Victory Points API", version="0.0.0")
+    app = FastAPI(title="Victory Points API", version="0.0.0", lifespan=_lifespan)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     # Added before CORS so CORS remains the outermost middleware and decorates a 413 too.
     app.add_middleware(RequestBodyLimitMiddleware, max_bytes=MAX_REQUEST_BODY_BYTES)

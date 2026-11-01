@@ -494,3 +494,74 @@ class TestESPNLeagueProviderRegistry:
         registry.register(provider)
 
         assert registry.get("espn") is provider
+
+
+class TestESPNProjections:
+    """Projection extraction from box scores and provider error classification."""
+
+    def test_fetch_projections_maps_recorded_box_scores(self) -> None:
+        """A recorded incomplete week maps every side's projected team total exactly."""
+        from decimal import Decimal
+
+        league = create_fake_league("league_incomplete.json")
+        provider = ESPNLeagueProvider(league_factory=lambda *args, **kwargs: league)
+
+        projections = provider.fetch_projections(LeagueRef(external_id="12347"), 2024, 2)
+
+        by_team = {
+            side.team_external_id: side.points
+            for projection in projections
+            for side in (projection.home, projection.away)
+            if side is not None
+        }
+        assert by_team == {
+            "1": Decimal("101.25"),
+            "3": Decimal("99.50"),
+            "2": Decimal("95.00"),
+            "4": Decimal("90.00"),
+        }
+
+    def test_fetch_projections_returns_empty_beyond_current_week(self) -> None:
+        """A week past ESPN's current scoring week is not silently replaced by the current week."""
+        league = create_fake_league("league_incomplete.json")
+        provider = ESPNLeagueProvider(league_factory=lambda *args, **kwargs: league)
+
+        assert provider.fetch_projections(LeagueRef(external_id="12347"), 2024, 3) == []
+
+    def test_fetch_projections_treats_a_missing_lineup_as_unknown(self) -> None:
+        """A box score without a modelled lineup produces None, never an invented zero."""
+        league = create_fake_league("league_basic.json")
+        provider = ESPNLeagueProvider(league_factory=lambda *args, **kwargs: league)
+
+        projections = provider.fetch_projections(LeagueRef(external_id="12345"), 2024, 1)
+
+        assert projections
+        for projection in projections:
+            assert projection.home.points is None
+            if projection.away is not None:
+                assert projection.away.points is None
+
+    def test_access_denied_becomes_provider_auth_error(self) -> None:
+        """ESPN's authentication exception is classified for credential rotation."""
+        from espn_api.requests.espn_requests import ESPNAccessDenied
+
+        from app.providers.base import ProviderAuthError
+
+        class DeniedLeague:
+            league_id = 1
+            currentMatchupPeriod = 1
+            current_week = 1
+            settings = type("Settings", (), {"reg_season_count": 14})
+            teams: list[object] = []
+            members: list[object] = []
+
+            def scoreboard(self, week: int) -> list[object]:
+                raise ESPNAccessDenied("no access")
+
+            def box_scores(self, week: int) -> list[object]:
+                raise ESPNAccessDenied("no access")
+
+        provider = ESPNLeagueProvider(league_factory=lambda *args, **kwargs: DeniedLeague())
+
+        with pytest.raises(ProviderAuthError):
+            provider.fetch_matchups(LeagueRef(external_id="1"), 2024, 1)

@@ -1140,6 +1140,8 @@ GOLDEN_PREDICTION = {
     "remaining_weeks": [3],
     "playoff_field": 3,
     "division_count": 2,
+    "projected_week": None,
+    "projection_reason": None,
     "teams": [
         {
             "team_id": 1,

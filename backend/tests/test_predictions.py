@@ -19,6 +19,7 @@ from app.domain.predictions import (
     CountedScore,
     CountedWeek,
     DeterministicDrawSource,
+    FixedWeek,
     PredictionUnavailable,
     RemainingMatchup,
     RemainingWeek,
@@ -1428,3 +1429,214 @@ def test_predictions_ten_thousand_iterations_fit_the_performance_budget() -> Non
     # Deliberately generous: the documented local benchmark is well under one second, and this
     # guard only catches an order-of-magnitude regression on slower CI hardware.
     assert elapsed < 5.0
+
+
+def test_fixed_week_is_deterministic_and_leaves_the_strength_model_unchanged() -> None:
+    """A provider-projected week is applied once without entering the strength estimate."""
+    teams = (
+        _team(1, "Alpha", "East", 3, 1, "120"),
+        _team(2, "Bravo", "East", 2, 1, "110"),
+        _team(3, "Charlie", "West", 0, 0, "100"),
+        _team(4, "Delta", "West", -1, 0, "90"),
+    )
+    counted = (_counted(1, [(1, "120"), (2, "110"), (3, "100"), (4, "90")]),)
+    pairings = (RemainingMatchup(1, 3), RemainingMatchup(2, 4))
+    fixed = FixedWeek(
+        week=2,
+        scores=(
+            CountedScore(1, Decimal("130")),
+            CountedScore(2, Decimal("90")),
+            CountedScore(3, Decimal("100")),
+            CountedScore(4, Decimal("80")),
+        ),
+        matchups=pairings,
+    )
+
+    actual = simulate_season(
+        SeasonPredictionInputs(
+            teams=teams,
+            counted_weeks=counted,
+            remaining_weeks=(RemainingWeek(week=2, matchups=pairings),),
+            regular_season_length=2,
+            playoff_team_count=2,
+            cup_week=None,
+        ),
+        iterations=1,
+        draws=DeterministicDrawSource(),
+    )
+    projected = simulate_season(
+        SeasonPredictionInputs(
+            teams=teams,
+            counted_weeks=counted,
+            remaining_weeks=(),
+            regular_season_length=2,
+            playoff_team_count=2,
+            cup_week=None,
+            fixed_weeks=(fixed,),
+        ),
+        iterations=1,
+        draws=DeterministicDrawSource(),
+    )
+
+    assert isinstance(actual, SeasonSimulation)
+    assert isinstance(projected, SeasonSimulation)
+    # The score model is estimated from counted weeks only, so every diagnostic matches.
+    assert projected.base_points == actual.base_points
+    assert projected.observation_counts == actual.observation_counts
+    assert projected.pooled_residual_count == actual.pooled_residual_count
+    assert projected.projected_weeks == (2,)
+    assert projected.remaining_weeks == ()
+    by_team = {team.team_id: team for team in projected.teams}
+    assert by_team[1].playoff_count == 1
+    assert by_team[1].championship_count == 1
+    assert by_team[2].playoff_count == 0
+    assert by_team[3].playoff_count == 1
+
+
+def test_fixed_week_cup_week_awards_no_head_to_head_vp() -> None:
+    """A fixed cup week still contributes rank VP and points but no H2H component."""
+    teams = (
+        _team(1, "Alpha", "East", 0, 0, "0"),
+        _team(2, "Bravo", "East", 0, 0, "0"),
+    )
+    counted = (_counted(1, [(1, "100"), (2, "90")]),)
+    fixed = FixedWeek(
+        week=2,
+        scores=(CountedScore(1, Decimal("80")), CountedScore(2, Decimal("120"))),
+        matchups=(RemainingMatchup(1, 2),),
+    )
+    outcome = simulate_season(
+        SeasonPredictionInputs(
+            teams=teams,
+            counted_weeks=counted,
+            remaining_weeks=(),
+            regular_season_length=2,
+            playoff_team_count=2,
+            cup_week=2,
+            fixed_weeks=(fixed,),
+        ),
+        iterations=1,
+        draws=DeterministicDrawSource(),
+    )
+
+    assert isinstance(outcome, SeasonSimulation)
+    # Week 1: A wins H2H (+1) and top half (+1); B loses and is the low score (-1).
+    # Week 2 (cup): B is the high score (+1) and top half (+1); A is the low score (-1).
+    by_team = {team.team_id: team for team in outcome.teams}
+    assert by_team[1].playoff_count + by_team[2].playoff_count == 2
+    assert outcome.projected_weeks == (2,)
+
+
+def test_fixed_week_away_win_and_byes_are_applied() -> None:
+    """A fixed week supports an away win and explicit byes without inventing pairings."""
+    teams = (
+        _team(1, "Alpha", "East", 0, 0, "0"),
+        _team(2, "Bravo", "East", 0, 0, "0"),
+    )
+    counted = (_counted(1, [(1, "100"), (2, "90")]),)
+    away_win = FixedWeek(
+        week=2,
+        scores=(CountedScore(1, Decimal("80")), CountedScore(2, Decimal("120"))),
+        matchups=(RemainingMatchup(1, 2),),
+    )
+    byes = FixedWeek(
+        week=2,
+        scores=(CountedScore(1, Decimal("80")), CountedScore(2, Decimal("120"))),
+        matchups=(RemainingMatchup(1, None), RemainingMatchup(2, None)),
+    )
+    for fixed in (away_win, byes):
+        outcome = simulate_season(
+            SeasonPredictionInputs(
+                teams=teams,
+                counted_weeks=counted,
+                remaining_weeks=(),
+                regular_season_length=2,
+                playoff_team_count=2,
+                cup_week=None,
+                fixed_weeks=(fixed,),
+            ),
+            iterations=1,
+            draws=DeterministicDrawSource(),
+        )
+        assert isinstance(outcome, SeasonSimulation)
+
+
+def test_invalid_fixed_weeks_are_unavailable() -> None:
+    """Every malformed fixed week is rejected as an incomplete schedule, never partially used."""
+    teams = (
+        _team(1, "Alpha", "East", 0, 0, "0"),
+        _team(2, "Bravo", "East", 0, 0, "0"),
+    )
+    counted = (_counted(1, [(1, "100"), (2, "90")]),)
+    good_scores = (CountedScore(1, Decimal("100")), CountedScore(2, Decimal("90")))
+    pairings = (RemainingMatchup(1, 2),)
+    cases = {
+        "week_out_of_range": FixedWeek(week=0, scores=good_scores, matchups=pairings),
+        "wrong_score_count": FixedWeek(
+            week=2, scores=(CountedScore(1, Decimal("1")),), matchups=pairings
+        ),
+        "unknown_team": FixedWeek(
+            week=2,
+            scores=(CountedScore(1, Decimal("1")), CountedScore(99, Decimal("1"))),
+            matchups=pairings,
+        ),
+        "duplicate_team": FixedWeek(
+            week=2,
+            scores=(CountedScore(1, Decimal("1")), CountedScore(1, Decimal("2"))),
+            matchups=pairings,
+        ),
+        "negative_points": FixedWeek(
+            week=2,
+            scores=(CountedScore(1, Decimal("-1")), CountedScore(2, Decimal("1"))),
+            matchups=pairings,
+        ),
+        "unknown_matchup_team": FixedWeek(
+            week=2, scores=good_scores, matchups=(RemainingMatchup(1, 99),)
+        ),
+        "self_matchup": FixedWeek(week=2, scores=good_scores, matchups=(RemainingMatchup(1, 1),)),
+        "missing_pairings": FixedWeek(week=2, scores=good_scores, matchups=()),
+    }
+    for name, fixed in cases.items():
+        outcome = simulate_season(
+            SeasonPredictionInputs(
+                teams=teams,
+                counted_weeks=counted,
+                remaining_weeks=(),
+                regular_season_length=2,
+                playoff_team_count=2,
+                cup_week=None,
+                fixed_weeks=(fixed,),
+            ),
+            iterations=1,
+        )
+        assert isinstance(outcome, PredictionUnavailable), name
+        assert outcome.reason == "incomplete_schedule", name
+
+
+def test_fixed_week_tie_is_applied() -> None:
+    """A tied fixed week follows the H2H tie rule and adds no win."""
+    teams = (
+        _team(1, "Alpha", "East", 0, 0, "0"),
+        _team(2, "Bravo", "East", 0, 0, "0"),
+    )
+    counted = (_counted(1, [(1, "100"), (2, "90")]),)
+    outcome = simulate_season(
+        SeasonPredictionInputs(
+            teams=teams,
+            counted_weeks=counted,
+            remaining_weeks=(),
+            regular_season_length=2,
+            playoff_team_count=2,
+            cup_week=None,
+            fixed_weeks=(
+                FixedWeek(
+                    week=2,
+                    scores=(CountedScore(1, Decimal("100")), CountedScore(2, Decimal("100"))),
+                    matchups=(RemainingMatchup(1, 2),),
+                ),
+            ),
+        ),
+        iterations=1,
+        draws=DeterministicDrawSource(),
+    )
+    assert isinstance(outcome, SeasonSimulation)

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Annotated, Never
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -70,6 +70,16 @@ def require_league_member(
 
 MemberDep = Annotated[None, Depends(require_league_member)]
 
+IncludeProjectedQuery = Annotated[
+    bool,
+    Query(
+        description=(
+            "Include the active week's stored provider projection in the response. Only the "
+            "league's current season is accepted; a prior season returns 409."
+        ),
+    ),
+]
+
 
 def _raise_standings_error(error: StandingsServiceError) -> Never:
     """Map a typed standings failure to a structured response without internal detail."""
@@ -101,10 +111,13 @@ def get_standings(
     season: SeasonPath,
     _member: MemberDep,
     service: StandingsServiceDep,
+    include_projected: IncludeProjectedQuery = False,
 ) -> StandingsResponse:
     """Return overall standings plus divisions that keep each team's overall league rank."""
     try:
-        standings = service.get_standings(league_id, season)
+        if include_projected:
+            service.require_current_season(league_id, season)
+        standings = service.get_standings(league_id, season, include_projected=include_projected)
     except StandingsServiceError as error:
         _raise_standings_error(error)
     return to_standings_response(standings)
@@ -119,10 +132,13 @@ def get_vp_history(
     season: SeasonPath,
     _member: MemberDep,
     service: StandingsServiceDep,
+    include_projected: IncludeProjectedQuery = False,
 ) -> VpHistoryResponse:
     """Return all completed regular-season weeks and each team's weekly and cumulative VP."""
     try:
-        history = service.get_vp_history(league_id, season)
+        if include_projected:
+            service.require_current_season(league_id, season)
+        history = service.get_vp_history(league_id, season, include_projected=include_projected)
     except StandingsServiceError as error:
         _raise_standings_error(error)
     return to_vp_history_response(history)
@@ -137,10 +153,13 @@ def get_wapdate(
     season: SeasonPath,
     _member: MemberDep,
     service: StandingsServiceDep,
+    include_projected: IncludeProjectedQuery = False,
 ) -> WapdateResponse:
     """Return the offered WAPDate periods with their lowest-first rows."""
     try:
-        wapdate = service.get_wapdate(league_id, season)
+        if include_projected:
+            service.require_current_season(league_id, season)
+        wapdate = service.get_wapdate(league_id, season, include_projected=include_projected)
     except StandingsServiceError as error:
         _raise_standings_error(error)
     return to_wapdate_response(wapdate)

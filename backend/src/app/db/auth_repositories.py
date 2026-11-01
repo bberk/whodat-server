@@ -196,6 +196,25 @@ class MembershipRepository:
             )
         )
 
+    def list_with_credentials(self, league_id: int) -> list[UserLeague]:
+        """Return memberships in a league that hold both encrypted ESPN credentials.
+
+        Only the opaque encrypted tokens are returned; the repository never decrypts them. The
+        unattended refresh job shuffles this list and calls the provider factory with each pair
+        until one succeeds, so a stale credential never blocks the league permanently.
+        """
+        return list(
+            self._session.scalars(
+                select(UserLeague)
+                .where(
+                    UserLeague.league_id == league_id,
+                    UserLeague.espn_s2_encrypted.is_not(None),
+                    UserLeague.espn_swid_encrypted.is_not(None),
+                )
+                .order_by(UserLeague.user_id)
+            )
+        )
+
     def set_owner(self, user_id: int, league_id: int, owner_id: int | None) -> UserLeague:
         """Set or clear the owner association on a membership.
 
