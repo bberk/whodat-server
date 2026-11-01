@@ -208,8 +208,11 @@ PROJECTION_REFRESH_LEAGUES=your-espn-league-id
 ```
 
 It runs every 15 minutes on Sundays 13:00–24:00 and Mondays 20:00–24:00, refreshes only the active
-week, and closes out a week that just finished. It uses the encrypted ESPN cookies already stored
-on league memberships and rotates to another member if one set is rejected. Run it manually with:
+week, and closes out a week that just finished. A full-season refresh from the admin page (or the
+league-wide refresh) also refreshes the current season's active-week projections after the season
+data is ingested; a projection failure does not undo the successful season sync. It uses the
+encrypted ESPN cookies already stored on league memberships and rotates to another member if one set
+is rejected. Run it manually with:
 
 ```bash
 cd backend

@@ -37,6 +37,7 @@ from app.providers.base import (
     ProjectionDTO,
     ProjectionSideDTO,
     ProviderAuthError,
+    ProviderError,
     ProviderLeagueNotFound,
     TeamDTO,
     WeekStatus,
@@ -76,6 +77,7 @@ def _seed(
     week_2_complete: bool = False,
     length: int = 2,
     with_projections: bool = True,
+    season: int = SEASON,
 ) -> tuple[FakeProvider, dict[int, list[MatchupDTO]]]:
     """Build a 4-team seed with week 1 complete and week 2 as the active week.
 
@@ -151,8 +153,8 @@ def _seed(
         ]
     }
     provider = FakeProvider(
-        {(LEAGUE, SEASON): (league, owners, teams, matchups, WeekStatus(last_completed_week=1))},
-        projections={((LEAGUE, SEASON)): projections} if with_projections else None,
+        {(LEAGUE, season): (league, owners, teams, matchups, WeekStatus(last_completed_week=1))},
+        projections={((LEAGUE, season)): projections} if with_projections else None,
     )
     return provider, matchups
 
@@ -1213,3 +1215,97 @@ def test_active_week_finalizes_and_projects_the_next_week(
     with db[0]() as check:
         assert StandingsService(check).get_standings(league_id, SEASON).completed_weeks == 2
         assert len(SyncRepository(check).get_week_projections(league_id, SEASON, 3)) == 4
+
+
+def test_full_season_sync_refreshes_the_active_week_projections(
+    db: tuple[sessionmaker[Session], Session],
+) -> None:
+    """A full-season sync (the admin refresh path) also stores the active-week projections."""
+    provider, _ = _seed()
+    league_id = _sync(db, provider)
+
+    with db[0]() as check:
+        repository = SyncRepository(check)
+        rows = repository.get_week_projections(league_id, SEASON, 2)
+        assert {row.team_id: row.points for row in rows} == {
+            1: Decimal("130.00"),
+            2: Decimal("90.00"),
+            3: Decimal("100.00"),
+            4: Decimal("80.00"),
+        }
+        season = repository.get_league_season(league_id, SEASON)
+        assert season is not None
+        assert season.projections_refreshed_at is not None
+
+
+def test_full_season_sync_clears_projections_when_the_season_is_complete(
+    db: tuple[sessionmaker[Session], Session],
+) -> None:
+    """A complete season has no active week, so a full sync leaves no projections behind."""
+    provider, _ = _seed(week_2_complete=True)
+    league_id = _sync(db, provider)
+
+    with db[0]() as check:
+        assert SyncRepository(check).get_week_projections(league_id, SEASON, 2) == []
+
+
+def test_full_season_sync_skips_projections_for_a_historical_season(
+    db: tuple[sessionmaker[Session], Session],
+) -> None:
+    """ESPN projections are current-season only, so a historical refresh leaves them alone."""
+    provider, _ = _seed()
+    league_id = _sync(db, provider)
+    with db[0]() as write:
+        SyncRepository(write).upsert_league_season(
+            league_id, 2025, {"regular_season_length": 2, "playoff_team_count": 4}
+        )
+        write.commit()
+    historical_provider, _ = _seed(season=2025)
+    with db[0]() as session:
+        summary = SyncService(historical_provider, session, clock=lambda: FIXED_NOW).sync_league(
+            LeagueRef(external_id=LEAGUE),
+            "fake",
+            2025,
+        )
+        session.commit()
+        assert summary.season == 2025
+        assert SyncRepository(session).get_week_projections(league_id, 2025, 2) == []
+
+
+def test_full_season_sync_survives_a_projection_provider_failure(
+    db: tuple[sessionmaker[Session], Session],
+) -> None:
+    """A projection-only provider failure does not undo a successful league sync."""
+    provider, _ = _seed()
+
+    class ProjectionFailure(FakeProvider):
+        def fetch_projections(
+            self, league_ref: LeagueRef, season: int, week: int
+        ) -> list[ProjectionDTO]:
+            raise ProviderError("box scores unavailable")
+
+    failing = ProjectionFailure(
+        {
+            (LEAGUE, SEASON): (
+                LeagueDTO(
+                    external_id=LEAGUE,
+                    name="Projection League",
+                    metadata={"regular_season_length": 2, "playoff_team_count": 4},
+                ),
+                provider.fetch_owners(LeagueRef(external_id=LEAGUE), SEASON),
+                provider.fetch_teams(LeagueRef(external_id=LEAGUE), SEASON),
+                {
+                    1: provider.fetch_matchups(LeagueRef(external_id=LEAGUE), SEASON, 1),
+                    2: provider.fetch_matchups(LeagueRef(external_id=LEAGUE), SEASON, 2),
+                },
+                WeekStatus(last_completed_week=1),
+            )
+        }
+    )
+    league_id = _sync(db, failing)
+
+    with db[0]() as check:
+        repository = SyncRepository(check)
+        assert repository.get_teams(league_id, SEASON)
+        assert repository.get_week_scores(league_id, SEASON, 1)
+        assert repository.get_week_projections(league_id, SEASON, 2) == []
