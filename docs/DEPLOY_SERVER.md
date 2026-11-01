@@ -582,6 +582,12 @@ the browser.
 The stack includes a self-hosted Prometheus + Grafana pair plus `node_exporter`. It adds roughly
 0.5 GiB of memory use, which the 4 GiB starting size in section 2 still covers.
 
+The Prometheus config, Grafana provisioning, and dashboards are copied into two small images built
+from `deploy/server/monitoring/` during `manage.sh deploy`, the same pattern as Caddy. The remote
+Docker daemon never receives a laptop path: the only mounts are named volumes and the server's own
+`/proc`, `/sys`, and `/` for node_exporter. Editing those files therefore requires a rebuild
+(`manage.sh update` or `manage.sh deploy`), not a container restart.
+
 - **Prometheus** scrapes `backend:8000/metrics` and `node-exporter:9100` every 15 seconds and
   stores the samples on the `prometheus_data` volume. It is published only on
   `127.0.0.1:9090`, so reach its UI through an SSH tunnel:
