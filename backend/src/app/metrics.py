@@ -10,6 +10,7 @@ below are the deliberate, bounded exception: they carry numeric account and leag
 nothing else is labeled with those ids.
 """
 
+from collections import OrderedDict
 from threading import Lock
 
 from prometheus_client import Counter, Histogram, Info
@@ -51,31 +52,44 @@ LEAGUE_REQUESTS = Counter(
     ("league_id", "method", "status"),
 )
 
-#: Label sets currently present on :data:`LEAGUE_REQUESTS`. A labeled counter child lives for the
-#: process lifetime, so this set exists to remove the children when a league is deleted.
-_LEAGUE_LABEL_SETS: set[tuple[str, str, str]] = set()
+#: Upper bound on live league attribution label sets. Deleted leagues are removed eagerly, and
+#: this cap is the backstop for a request already in flight when the league is deleted. It also
+#: bounds an operator who keeps creating and deleting leagues.
+MAX_LEAGUE_LABEL_SETS = 2048
+
+#: Live label sets, oldest first, so the cap can evict the least recently used one.
+_LEAGUE_LABEL_SETS: OrderedDict[tuple[str, str, str], None] = OrderedDict()
 _LEAGUE_LABEL_SETS_LOCK = Lock()
 
 
 def observe_league_request(league_id: int, method: str, status: str) -> None:
-    """Count one successful league-scoped request and remember its label set for cleanup."""
+    """Count one successful league-scoped request, bounded by the label-set cap.
+
+    The increment happens under the same lock as cleanup, so a concurrent :func:`forget_league`
+    cannot leave a tracked label set without its counter child. A request that completes after
+    its league is deleted can re-add one child, but the cap keeps the total series bounded.
+    """
     labels = (str(league_id), method, status)
     with _LEAGUE_LABEL_SETS_LOCK:
-        _LEAGUE_LABEL_SETS.add(labels)
-    LEAGUE_REQUESTS.labels(*labels).inc()
+        _LEAGUE_LABEL_SETS[labels] = None
+        _LEAGUE_LABEL_SETS.move_to_end(labels)
+        LEAGUE_REQUESTS.labels(*labels).inc()
+        while len(_LEAGUE_LABEL_SETS) > MAX_LEAGUE_LABEL_SETS:
+            oldest, _ = _LEAGUE_LABEL_SETS.popitem(last=False)
+            LEAGUE_REQUESTS.remove(*oldest)
 
 
 def forget_league(league_id: int) -> None:
     """Drop every attribution series for a deleted league.
 
-    Without this, a deleted league would keep appearing on every scrape because a labeled
-    counter child is never garbage-collected, and an admin could grow the registry by creating
-    and deleting leagues. A request still in flight can re-create one child, but the next request
-    for a deleted league returns 404 and is not attributed.
+    A labeled counter child is never garbage-collected, so without this a deleted league would
+    keep appearing on every scrape and an admin could grow the registry by creating and deleting
+    leagues. The total remains bounded by :data:`MAX_LEAGUE_LABEL_SETS` even if a request is
+    already in flight when deletion commits.
     """
     prefix = str(league_id)
     with _LEAGUE_LABEL_SETS_LOCK:
         stale = [labels for labels in _LEAGUE_LABEL_SETS if labels[0] == prefix]
         for labels in stale:
             LEAGUE_REQUESTS.remove(*labels)
-            _LEAGUE_LABEL_SETS.discard(labels)
+            del _LEAGUE_LABEL_SETS[labels]

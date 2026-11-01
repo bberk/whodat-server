@@ -7,9 +7,11 @@ path, a league id) is the failure mode that hurts a self-hosted Prometheus most.
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 from prometheus_client import REGISTRY
 
+from app import metrics as metrics_module
 from app.api.main import create_app
 from app.metrics import forget_league, observe_league_request
 
@@ -84,3 +86,23 @@ def test_league_attribution_series_can_be_forgotten() -> None:
     forget_league(987654)
 
     assert REGISTRY.get_sample_value("app_league_requests_total", labels) is None
+
+
+def test_league_attribution_label_sets_are_capped(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Create/delete churn cannot grow the league series without bound."""
+    monkeypatch.setattr(metrics_module, "MAX_LEAGUE_LABEL_SETS", 2)
+    league_ids = (987650, 987651, 987652)
+    for league_id in league_ids:
+        observe_league_request(league_id, "GET", "200")
+
+    def sample(league_id: int) -> float | None:
+        return REGISTRY.get_sample_value(
+            "app_league_requests_total",
+            {"league_id": str(league_id), "method": "GET", "status": "200"},
+        )
+
+    assert sample(league_ids[0]) is None
+    assert sample(league_ids[1]) is not None
+    assert sample(league_ids[2]) is not None
+    for league_id in league_ids:
+        forget_league(league_id)

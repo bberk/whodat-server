@@ -612,8 +612,9 @@ resolved path, so per-league traffic does not create one time series per league 
 recorded only for an authenticated request that returned 2xx: the user label is set after the
 session is validated, and the league label only when the route has a `league_id` path parameter.
 Rejected probes (401/403/404/422) therefore create no series, and deleting a league removes its
-series, so both sets stay bounded by the existing accounts and leagues rather than by request
-volume. Never label with an email, name,
+series. The live league label sets are also capped (`MAX_LEAGUE_LABEL_SETS`, 2048) as a backstop
+for a request already in flight during deletion, so both counters stay bounded by existing
+accounts and leagues rather than by request volume. Never label with an email, name,
 session token, or free-form error text.
 
 The backend also exposes `app_provider_fetch_total` and `app_provider_fetch_duration_seconds`,
