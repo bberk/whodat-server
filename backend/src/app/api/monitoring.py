@@ -23,14 +23,20 @@ def _attribution() -> Callable[[Info], None]:
 
     The caller comes from ``request.state.user_id``, set by the authentication dependency after a
     session is validated. The league comes from the route's ``league_id`` path parameter. Both are
-    numeric ids, so an unauthenticated request or a route without a league simply contributes no
-    tagged series.
+    numeric ids, and both are recorded only when the response is 2xx and the caller is
+    authenticated, so rejected probes and unknown league ids contribute no tagged series.
     """
 
     def instrumentation(info: Info) -> None:
+        # Attribution is recorded only for an authenticated, successful request. A rejected probe
+        # (401/403/404/422) or a nonexistent league id must not create a series: otherwise anyone
+        # could mint unbounded `league_id` label values by requesting arbitrary ids.
+        if not info.modified_status.startswith("2"):
+            return
         user_id = getattr(info.request.state, "user_id", None)
-        if isinstance(user_id, int):
-            USER_REQUESTS.labels(str(user_id), info.method, info.modified_status).inc()
+        if not isinstance(user_id, int):
+            return
+        USER_REQUESTS.labels(str(user_id), info.method, info.modified_status).inc()
         league_id = info.request.path_params.get("league_id")
         if league_id is not None:
             LEAGUE_REQUESTS.labels(str(league_id), info.method, info.modified_status).inc()

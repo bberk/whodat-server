@@ -2594,3 +2594,28 @@ def test_metrics_attribute_requests_to_the_user_and_league(
     )
     assert user_value is not None and user_value >= 1
     assert league_value is not None and league_value >= 1
+
+
+def test_metrics_do_not_attribute_rejected_league_requests(
+    api_factory: Callable[..., Api],
+) -> None:
+    """401 and 404 probes never create user or league attribution series.
+
+    Without this gate an unauthenticated caller could mint one `league_id` label value per
+    requested id, which is the cardinality failure the dedicated counters exist to avoid.
+    """
+    api = api_factory()
+    league_id = _seed_league(api)
+
+    rejected_league = {"league_id": str(league_id), "method": "GET", "status": "401"}
+    before_league = REGISTRY.get_sample_value("app_league_requests_total", rejected_league)
+    assert api.client.get(f"/api/v1/leagues/{league_id}/seasons").status_code == 401
+
+    outsider_id = _create_user(api, "outsider@example.com")
+    _login(api, outsider_id)
+    rejected_user = {"user_id": str(outsider_id), "method": "GET", "status": "404"}
+    before_user = REGISTRY.get_sample_value("app_user_requests_total", rejected_user)
+    assert api.client.get(f"/api/v1/leagues/{league_id}/seasons").status_code == 404
+
+    assert REGISTRY.get_sample_value("app_league_requests_total", rejected_league) == before_league
+    assert REGISTRY.get_sample_value("app_user_requests_total", rejected_user) == before_user
