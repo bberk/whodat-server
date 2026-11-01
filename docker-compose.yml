@@ -43,7 +43,10 @@ services:
       SEASON_REFRESH_USER_LIMIT: "${SEASON_REFRESH_USER_LIMIT:-60}"
       SEASON_REFRESH_USER_WINDOW_SECONDS: "${SEASON_REFRESH_USER_WINDOW_SECONDS:-3600}"
     ports:
-      - "8000:8000"
+      # Loopback only: the SPA dev server and a local TLS proxy reach it, but other hosts cannot.
+      # This also keeps the unauthenticated /metrics endpoint (user/league attribution series) off
+      # every network interface. The supported server deployment publishes no backend port at all.
+      - "127.0.0.1:8000:8000"
     depends_on:
       postgres:
         condition: service_healthy

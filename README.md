@@ -299,12 +299,16 @@ curl http://localhost:8000/health   # {"status":"ok"}
 curl -I http://localhost:8080/      # frontend index
 ```
 
-`docker compose` publishes the API on port 8000 and the frontend on port 8080, both plain HTTP.
+`docker compose` publishes the API on loopback (`127.0.0.1:8000`) and the frontend on port 8080,
+both plain HTTP. The loopback bind keeps the unauthenticated `/metrics` endpoint off every network
+interface; other hosts cannot scrape it.
 
 Known limitations of this path (not provided, and not planned as part of this stack):
 
-- **No TLS terminator or reverse proxy.** Put a TLS-terminating proxy in front of ports 8000 and
-  8080, or terminate TLS elsewhere, before exposing the app to the internet.
+- **No TLS terminator or reverse proxy.** Run a TLS-terminating proxy on the same host targeting
+  `127.0.0.1:8000` for the API and port 8080 for the SPA, or terminate TLS elsewhere, before
+  exposing the app to the internet. The API is bound to loopback, so the proxy must run on the
+  host.
 - **No managed database, backups, or HA.** The bundled `postgres` service is a single container with
   a local volume. For real data, use an external Postgres and point `DATABASE_URL` at it.
 - **Single instance only.** Rate limiting is in-process, so it does not coordinate across replicas;

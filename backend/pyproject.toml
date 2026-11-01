@@ -24,6 +24,7 @@ dev = [
     "mypy>=2.4.0",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
+    "pyyaml>=6.0.3",  # parse the Compose/Caddy deployment files in config regression tests
     "ruff>=0.17.2",
 ]
 
