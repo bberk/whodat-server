@@ -45,7 +45,6 @@ Follow the format used below. Newest entries at the top.
   and explains that Docker-published ports can bypass UFW's INPUT rules.
 
 ---
----
 
 ## OQ-0019 — Season final standings and all-time franchise records
 

@@ -131,9 +131,10 @@ services:
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/api.json
     ports:
-      # LAN-only by topology: the router forwards only 80/443, so this port is reachable on the
-      # home network and not from the internet. Do not port-forward 3000.
-      - "${GRAFANA_PORT:-3000}:3000"
+      # Bind to the server's reserved LAN address only. With no address, Docker listens on every
+      # interface, which can expose Grafana publicly and bypass UFW's INPUT rules. The value is
+      # required so a missing setting fails the deploy instead of silently widening the bind.
+      - "${GRAFANA_BIND_ADDRESS:?Set GRAFANA_BIND_ADDRESS to the server LAN address in deploy/server/.env}:${GRAFANA_PORT:-3000}:3000"
     volumes:
       - grafana_data:/var/lib/grafana
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
