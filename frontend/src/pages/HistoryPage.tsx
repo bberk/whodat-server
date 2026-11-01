@@ -108,6 +108,8 @@ export function HistoryPage() {
   };
 
   const ready = state.status === "ready" ? state.history : null;
+  const hasRecords =
+    ready?.teams.some((team) => team.championships > 0 || team.last_places > 0) ?? false;
   const filtered = ready === null ? null : filterEloHistoryWindow(ready, windowChoice.window);
   const resolved = ready === null ? null : resolveEloWindow(ready.weeks, windowChoice.window);
   const windowStartKey = resolved?.startKey ?? "";
@@ -391,7 +393,7 @@ export function HistoryPage() {
                 <p className="mt-1 text-[13px] text-ink-faint">
                   Sorted by current Elo · change this week and this season shown to two decimals
                 </p>
-                <SeasonRecordsLegend />
+                {hasRecords ? <SeasonRecordsLegend /> : null}
               </div>
               <span className="rounded-full bg-surface-strong px-2.5 py-1 text-[12px] font-semibold text-ink-muted">
                 {MODE_LABELS[mode]}

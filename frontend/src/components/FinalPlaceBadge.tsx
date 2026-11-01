@@ -15,15 +15,23 @@ function isFinalPlace(place: number | null): place is FinalPlace {
  * playoffs. Anything other than first, second, or third (including "not reported yet") renders
  * nothing, so a season in progress never shows a trophy.
  */
-export function FinalPlaceBadge({ place }: { place: number | null }) {
+export function FinalPlaceBadge({
+  place,
+  decorative = false,
+}: {
+  place: number | null;
+  /** When the adjacent text already names the place, hide the emoji from assistive technology. */
+  decorative?: boolean;
+}) {
   if (!isFinalPlace(place)) {
     return null;
   }
   const { emoji, label } = PLACES[place];
   return (
     <span
-      role="img"
-      aria-label={label}
+      role={decorative ? undefined : "img"}
+      aria-label={decorative ? undefined : label}
+      aria-hidden={decorative ? true : undefined}
       title={label}
       className="inline-flex flex-none items-center text-[13px] leading-none"
     >
@@ -41,7 +49,7 @@ export function FinalPlaceLegend() {
     >
       {([1, 2, 3] as const).map((place) => (
         <li key={place} className="inline-flex items-center gap-1.5">
-          <FinalPlaceBadge place={place} />
+          <FinalPlaceBadge place={place} decorative />
           <span>{PLACES[place].label}</span>
         </li>
       ))}

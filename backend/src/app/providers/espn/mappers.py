@@ -4,7 +4,7 @@ These functions contain NO side effects and NO HTTP calls. They convert
 espn_api objects into the normalized DTOs defined in providers.base.
 """
 
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from app.providers.base import (
     LeagueDTO,
@@ -73,12 +73,20 @@ def _final_standing(value: object) -> int | None:
     """Return a usable final finishing position, or None when ESPN has not reported one.
 
     ``espn_api`` exposes ``rankFinal`` (falling back to ``rankCalculatedFinal``) as
-    ``Team.final_standing``. A zero, a boolean, or a non-integer means "not final yet", so no
-    champion or podium is claimed from it.
+    ``Team.final_standing``. The rank is a 1-based position; an integral float, Decimal, or
+    digit-only string is accepted at this untrusted boundary. A zero, a boolean, a fractional
+    number, or a missing value means "not final yet", so no champion or podium is claimed.
     """
-    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+    if isinstance(value, bool) or not isinstance(value, int | float | Decimal | str):
         return None
-    return value
+    try:
+        number = Decimal(str(value).strip())
+    except InvalidOperation:
+        return None
+    if not number.is_finite() or number != number.to_integral_value():
+        return None
+    rank = int(number)
+    return rank if rank >= 1 else None
 
 
 def map_teams(league: ESPNLeagueProto) -> list[TeamDTO]:

@@ -150,6 +150,28 @@ describe("HistoryPage", () => {
     expect(screen.getByText(/have no rated matchups yet/i)).toBeInTheDocument();
   });
 
+  it("omits the record legend when no franchise has a record yet", async () => {
+    eloFetch((path) => {
+      if (path === "/api/v1/leagues/1/elo-history") {
+        return jsonResponse({
+          ...eloHistoryResponse,
+          teams: eloHistoryResponse.teams.map((team) => ({
+            ...team,
+            championships: 0,
+            last_places: 0,
+          })),
+        });
+      }
+      return errorResponse(404, { code: "not_found", message: path });
+    });
+    renderPage();
+
+    await screen.findByRole("region", {
+      name: "Elo score history current scores, scrollable horizontally",
+    });
+    expect(screen.queryByText(/last-place regular-season finishes/i)).not.toBeInTheDocument();
+  });
+
   it("switches modes and refetches the history", async () => {
     const requestedModes: (string | null)[] = [];
     eloFetch((path, mode) => {
