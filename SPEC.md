@@ -227,8 +227,11 @@ rankings, Elo, or the data a later sync writes.
 - **Refresh.** An in-process scheduler refreshes only the active week's projections every 15
   minutes on Sundays from 13:00 through midnight and Mondays from 20:00 through midnight, in a
   configured timezone. It also closes out a week that just finished (storing its final scores and
-  recomputing its VP) and then moves to the next active week. The schedule is display data
-  freshness, not scoring.
+  recomputing its VP) and then moves to the next active week. A **full-season refresh** (the admin
+  per-season refresh or the league-wide refresh) also refreshes the current season's active-week
+  projections after ingesting the schedule and scores; a projection failure leaves the successful
+  season sync in place, and a historical season is skipped because ESPN projections are
+  current-season only. The schedule is display data freshness, not scoring.
 - **Credentials.** The refresh uses the encrypted ESPN cookies stored on league memberships. It
   shuffles the credential-holding memberships and tries them until one succeeds; an authentication
   failure moves to another holder, while a key/decryption fault or any other provider failure

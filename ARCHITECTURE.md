@@ -259,7 +259,11 @@ DTO rules:
 5. Weeks that are playoffs or incomplete are stored but receive no VP (VP columns remain 0 and are excluded from standings). A future matchup with `points=None` has no score row; any retained numeric incomplete score has its VP reset to zero.
 6. After the whole season has been ingested and recomputed, a provider-backed sync records
    `league_season.last_refreshed_at`. A failed sync leaves it unchanged; `recompute_league` never
-   writes it. The full sync also prunes projections to the active week.
+   writes it. The full sync also prunes projections to the active week, and for the **current
+   season** it refreshes that week's projections after the schedule and scores are stored. A
+   projection failure is reported by the projection metric but never fails the successful season
+   sync; a historical season skips projections because ESPN exposes them only for the most recent
+   season.
 
 `SyncService.sync_active_week(league_ref, provider_id, season)` is the narrow unattended path:
 
