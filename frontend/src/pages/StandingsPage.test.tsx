@@ -2,6 +2,12 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type {
+  PlayoffOddsResponse,
+  StandingsResponse,
+  VpHistoryResponse,
+  WapdateResponse,
+} from "../api/types";
 import type { AuthContextValue } from "../auth/AuthContext";
 import { AuthContext } from "../auth/AuthContext";
 import type { LeagueContextValue } from "../leagues/LeagueContext";
@@ -503,5 +509,124 @@ describe("StandingsPage", () => {
     });
     renderPage();
     expect(await screen.findByText("No chart yet")).toBeInTheDocument();
+  });
+
+  it("projects the active week across the tables, chart, WAPDate, and odds", async () => {
+    const projectedOverall = standingsResponse.overall.map((row) => ({
+      ...row,
+      weekly_vp: [...row.weekly_vp, "1"],
+    }));
+    const baseStandings: StandingsResponse = { ...standingsResponse, active_week: 5 };
+    const projectedStandings: StandingsResponse = {
+      ...standingsResponse,
+      weeks: [...standingsResponse.weeks, 5],
+      active_week: 5,
+      projection: {
+        status: "ok",
+        week: 5,
+        reason: null,
+        as_of: "2026-11-01T18:00:00Z",
+        is_cup_week: false,
+        teams: projectedOverall.map((row) => ({
+          team_id: row.team_id,
+          opponent_team_id: null,
+          points: "100",
+          victory_points: "1",
+        })),
+      },
+      overall: projectedOverall,
+      divisions: standingsResponse.divisions.map((division) => ({
+        ...division,
+        standings: projectedOverall.filter((row) => row.division === division.name),
+      })),
+    };
+    const projectedHistory: VpHistoryResponse = {
+      ...historyResponse,
+      weeks: [...historyResponse.weeks, 5],
+      projected_weeks: [5],
+      teams: historyResponse.teams.map((team) => {
+        const last = Number(team.cumulative[team.cumulative.length - 1]);
+        return {
+          ...team,
+          weekly: [...team.weekly, "1"],
+          cumulative: [...team.cumulative, String(last + 1)],
+        };
+      }),
+    };
+    const projectedWapdate: WapdateResponse = {
+      ...wapdateResponse,
+      projected_week: 5,
+      periods: wapdateResponse.periods.map((period) =>
+        period.period === 2 ? { ...period, weeks: [...period.weeks, 5] } : period,
+      ),
+    };
+    const projectedOdds: PlayoffOddsResponse = { ...playoffOddsResponse, projected_week: 5 };
+    const urls: string[] = [];
+    mockFetch((url) => {
+      urls.push(String(url));
+      const path = requestPath(url);
+      const projected = new URL(String(url)).searchParams.get("include_projected") === "true";
+      if (path.endsWith("/standings")) {
+        return jsonResponse(projected ? projectedStandings : baseStandings);
+      }
+      if (path.endsWith("/vp-history")) {
+        return jsonResponse(projected ? projectedHistory : historyResponse);
+      }
+      if (path.endsWith("/wapdate")) {
+        return jsonResponse(projected ? projectedWapdate : wapdateResponse);
+      }
+      if (path.endsWith("/playoff-odds")) {
+        return jsonResponse(projected ? projectedOdds : playoffOddsResponse);
+      }
+      return errorResponse(404, { code: "not_found", message: "Not found" });
+    });
+
+    const user = userEvent.setup();
+    renderPage();
+    const toggle = await screen.findByRole("switch", {
+      name: /include projected week 5/i,
+    });
+    expect(toggle).not.toBeChecked();
+    expect(urls.some((url) => url.includes("include_projected=true"))).toBe(false);
+
+    await user.click(toggle);
+
+    await waitFor(() => {
+      expect(toggle).toBeChecked();
+    });
+    const overall = await screen.findByRole("table", {
+      name: /overall 2026 standings/i,
+    });
+    expect(
+      within(overall).getByRole("columnheader", {
+        name: /week 5 vp, espn projection/i,
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/projecting week 5/i)).toBeInTheDocument();
+    expect(screen.getByText(/weeks marked with \*/i)).toBeInTheDocument();
+    expect(screen.getByText(/safe-from-last bound treats it as played/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/team-strength model still uses completed weeks only/i),
+    ).toBeInTheDocument();
+    for (const suffix of ["standings", "vp-history", "wapdate", "playoff-odds"]) {
+      expect(
+        urls.some(
+          (url) =>
+            requestPath(url).endsWith(`/${suffix}`) &&
+            new URL(url).searchParams.get("include_projected") === "true",
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it("disables the projected switch when the season has no active week", async () => {
+    readyFetch();
+    renderPage();
+
+    const toggle = await screen.findByRole("switch", {
+      name: /projected week unavailable/i,
+    });
+    expect(toggle).toBeDisabled();
+    expect(screen.getByText(/no active week to project/i)).toBeInTheDocument();
   });
 });

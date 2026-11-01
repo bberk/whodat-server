@@ -22,6 +22,8 @@ export interface VPChartProps {
   onIsolateTeam: (teamId: number) => void;
   /** Compact geometry (labels trimmed) for narrow viewports; the layout is chosen by the page. */
   compact: boolean;
+  /** Weeks whose values come from the active week's provider projection, not a result. */
+  projectedWeeks?: readonly number[];
 }
 
 const LAYOUT = {
@@ -106,11 +108,15 @@ export function VPChart({
   onToggleTeam,
   onIsolateTeam,
   compact,
+  projectedWeeks = [],
 }: VPChartProps) {
   const layout = compact ? LAYOUT.compact : LAYOUT.full;
   const plotWidth = layout.width - layout.left - layout.right;
   const plotHeight = layout.height - layout.top - layout.bottom;
   const visible = new Set(visibleTeamIds);
+  const projected = new Set(projectedWeeks);
+  const firstProjectedIndex = weeks.findIndex((week) => projected.has(week));
+  const hasProjected = firstProjectedIndex >= 0;
 
   if (weeks.length === 0 || series.length === 0) {
     return (
@@ -147,8 +153,13 @@ export function VPChart({
   const ranked = drawn.slice().sort((a, b) => toNumber(lastValue(b)) - toNumber(lastValue(a)));
   const summary = [
     `Line chart of cumulative victory points, weeks ${weeks[0]} to ${weeks[weeks.length - 1]}.`,
+    hasProjected
+      ? `Weeks ${projectedWeeks.join(", ")} are ESPN projections, not completed results.`
+      : "",
     ranked.map((entry) => `${entry.teamName} ${formatVP(lastValue(entry))}`).join(", "),
-  ].join(" ");
+  ]
+    .filter(Boolean)
+    .join(" ");
   const xLabelY = layout.height - (compact ? 8 : 10);
 
   return (
@@ -183,7 +194,7 @@ export function VPChart({
         <g fontSize={compact ? 9.5 : 11} textAnchor="middle" className="fill-chart-axis">
           {weeks.map((week, index) => (
             <text key={week} x={xFor(index)} y={xLabelY}>
-              W{week}
+              {projected.has(week) ? `W${week}*` : `W${week}`}
             </text>
           ))}
         </g>
@@ -206,17 +217,39 @@ export function VPChart({
           {drawn.map((entry) => {
             const style = seriesStyle(entry.styleIndex);
             const selected = entry.teamId === selectedTeamId;
+            const actualValues = hasProjected
+              ? entry.cumulative.slice(0, firstProjectedIndex + 1)
+              : entry.cumulative;
+            const projectedValues = hasProjected ? entry.cumulative.slice(firstProjectedIndex) : [];
             return (
-              <polyline
-                key={entry.teamId}
-                data-team-id={entry.teamId}
-                points={entry.cumulative
-                  .map((value, index) => `${xFor(index)},${yFor(toNumber(value))}`)
-                  .join(" ")}
-                strokeDasharray={style.dash}
-                strokeWidth={selected ? 3.2 : 2.2}
-                style={{ stroke: style.color }}
-              />
+              <g key={entry.teamId}>
+                {actualValues.length > 1 ? (
+                  <polyline
+                    data-team-id={entry.teamId}
+                    points={actualValues
+                      .map((value, index) => `${xFor(index)},${yFor(toNumber(value))}`)
+                      .join(" ")}
+                    strokeDasharray={style.dash}
+                    strokeWidth={selected ? 3.2 : 2.2}
+                    style={{ stroke: style.color }}
+                  />
+                ) : null}
+                {projectedValues.length > 1 ? (
+                  <polyline
+                    data-projected-team-id={entry.teamId}
+                    points={projectedValues
+                      .map((value, index) => {
+                        const weekIndex = firstProjectedIndex + index;
+                        return `${xFor(weekIndex)},${yFor(toNumber(value))}`;
+                      })
+                      .join(" ")}
+                    strokeDasharray="5 4"
+                    strokeWidth={selected ? 3.2 : 2.2}
+                    opacity={0.8}
+                    style={{ stroke: style.color }}
+                  />
+                ) : null}
+              </g>
             );
           })}
         </g>
@@ -225,14 +258,26 @@ export function VPChart({
             const style = seriesStyle(entry.styleIndex);
             const size = entry.teamId === selectedTeamId ? 4.6 : compact ? 3.4 : 4;
             return entry.cumulative.map((value, index) => (
-              <Marker
-                key={`${entry.teamId}-${weeks[index]}`}
-                shape={style.marker}
-                x={xFor(index)}
-                y={yFor(toNumber(value))}
-                color={style.color}
-                size={size}
-              />
+              <g key={`${entry.teamId}-${weeks[index]}`}>
+                <Marker
+                  shape={style.marker}
+                  x={xFor(index)}
+                  y={yFor(toNumber(value))}
+                  color={style.color}
+                  size={size}
+                />
+                {projected.has(weeks[index]) ? (
+                  <circle
+                    cx={xFor(index)}
+                    cy={yFor(toNumber(value))}
+                    r={size + 2}
+                    fill="none"
+                    strokeDasharray="2 2"
+                    strokeWidth={1.2}
+                    style={{ stroke: style.color }}
+                  />
+                ) : null}
+              </g>
             ));
           })}
         </g>
@@ -253,6 +298,12 @@ export function VPChart({
       <p id="vp-chart-legend-hint" className="mt-3 text-xs text-ink-faint">
         Click a team to hide or show it. Double-click a team to show only that team.
       </p>
+      {hasProjected ? (
+        <p className="mt-1 text-xs text-ink-faint">
+          Weeks marked with * use the stored ESPN projection, not a completed result; the dashed
+          segment and ringed points are projected.
+        </p>
+      ) : null}
       <ul
         className="mt-2 flex flex-wrap gap-2"
         aria-label="Chart series toggles"
@@ -325,7 +376,7 @@ export function VPChart({
                     scope="col"
                     className="whitespace-nowrap border-b border-line-strong px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-ink-faint"
                   >
-                    W{week}
+                    {projected.has(week) ? `W${week} (proj)` : `W${week}`}
                   </th>
                 ))}
               </tr>
@@ -342,7 +393,12 @@ export function VPChart({
                   {entry.cumulative.map((value, index) => (
                     <td
                       key={`${entry.teamId}-${index}`}
-                      className={`${BODY_CELL_DIVIDER} whitespace-nowrap px-3 py-2 text-right tabular-nums text-ink-subtle`}
+                      className={`${BODY_CELL_DIVIDER} whitespace-nowrap px-3 py-2 text-right tabular-nums ${
+                        projected.has(weeks[index])
+                          ? "bg-surface-muted text-ink-muted"
+                          : "text-ink-subtle"
+                      }`}
+                      title={projected.has(weeks[index]) ? "ESPN projection" : undefined}
                     >
                       {formatVP(value)}
                     </td>

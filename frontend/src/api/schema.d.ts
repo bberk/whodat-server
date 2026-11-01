@@ -1099,6 +1099,9 @@ export interface components {
       model: components["schemas"]["PlayoffOddsModel"];
       /** Playoff Field */
       playoff_field: number | null;
+      /** Projected Week */
+      projected_week?: number | null;
+      projection_reason?: components["schemas"]["ProjectionReason"] | null;
       /** Reason */
       reason:
         | (
@@ -1136,6 +1139,58 @@ export interface components {
       low: string;
       /** Probability */
       probability: string;
+    };
+    /**
+     * ProjectedTeam
+     * @description One team's provider-projected points and the VP/record they would earn.
+     */
+    ProjectedTeam: {
+      /** Opponent Team Id */
+      opponent_team_id: number | null;
+      /** Points */
+      points: string;
+      /** Team Id */
+      team_id: number;
+      /** Victory Points */
+      victory_points: string;
+    };
+    /** @enum {string} */
+    ProjectionReason:
+      | "no_active_week"
+      | "projections_not_synced"
+      | "projections_incomplete"
+      | "incomplete_schedule";
+    /**
+     * ProjectionResponse
+     * @description The active week's provider projection, or why it was not applied.
+     *
+     *     ``status`` is ``"ok"`` when the week is included in the response's totals and ``"unavailable"``
+     *     otherwise, with ``reason`` explaining why. ``as_of`` is the last successful fetch, not the
+     *     request time.
+     */
+    ProjectionResponse: {
+      /** As Of */
+      as_of: string | null;
+      /** Is Cup Week */
+      is_cup_week: boolean;
+      /** Reason */
+      reason:
+        | (
+            | "no_active_week"
+            | "projections_not_synced"
+            | "projections_incomplete"
+            | "incomplete_schedule"
+          )
+        | null;
+      /**
+       * Status
+       * @enum {string}
+       */
+      status: "ok" | "unavailable";
+      /** Teams */
+      teams: components["schemas"]["ProjectedTeam"][];
+      /** Week */
+      week: number | null;
     };
     /**
      * PublicUser
@@ -1271,6 +1326,8 @@ export interface components {
      * @description Overall standings plus division groupings for one league season.
      */
     StandingsResponse: {
+      /** Active Week */
+      active_week: number | null;
       /** Completed Weeks */
       completed_weeks: number;
       /** Divisions */
@@ -1279,8 +1336,11 @@ export interface components {
       league_id: number;
       /** Overall */
       overall: components["schemas"]["StandingsRow"][];
+      projection: components["schemas"]["ProjectionResponse"] | null;
       /** Season */
       season: number;
+      /** Weeks */
+      weeks: number[];
     };
     /**
      * StandingsRow
@@ -1362,6 +1422,14 @@ export interface components {
      * @description Completed weeks and the per-team series used by the cumulative VP chart.
      */
     VpHistoryResponse: {
+      /** Active Week */
+      active_week?: number | null;
+      /**
+       * Projected Weeks
+       * @default []
+       */
+      projected_weeks: number[];
+      projection?: components["schemas"]["ProjectionResponse"] | null;
       /** Teams */
       teams: components["schemas"]["TeamVpHistory"][];
       /** Weeks */
@@ -1399,6 +1467,9 @@ export interface components {
       league_id: number;
       /** Periods */
       periods: components["schemas"]["WapdatePeriod"][];
+      /** Projected Week */
+      projected_week?: number | null;
+      projection?: components["schemas"]["ProjectionResponse"] | null;
       /** Season */
       season: number;
     };
@@ -2074,6 +2145,8 @@ export interface operations {
         seed?: number | null;
         /** @description Team-strength weight: 0 makes every remaining matchup even, 1 is the default model, and up to 10 amplifies stronger teams. Decimals are accepted, with at most 18 decimal places. */
         strength_weight?: number | string;
+        /** @description Fix the active week's stored provider projection into the simulation. The estimated team strength still uses completed weeks only. Only the current season is accepted. */
+        include_projected?: boolean;
       };
       header?: never;
       path: {
@@ -2152,7 +2225,10 @@ export interface operations {
   };
   get_standings_api_v1_leagues__league_id__seasons__season__standings_get: {
     parameters: {
-      query?: never;
+      query?: {
+        /** @description Include the active week's stored provider projection in the response. Only the league's current season is accepted; a prior season returns 409. */
+        include_projected?: boolean;
+      };
       header?: never;
       path: {
         league_id: number;
@@ -2184,7 +2260,10 @@ export interface operations {
   };
   get_vp_history_api_v1_leagues__league_id__seasons__season__vp_history_get: {
     parameters: {
-      query?: never;
+      query?: {
+        /** @description Include the active week's stored provider projection in the response. Only the league's current season is accepted; a prior season returns 409. */
+        include_projected?: boolean;
+      };
       header?: never;
       path: {
         league_id: number;
@@ -2216,7 +2295,10 @@ export interface operations {
   };
   get_wapdate_api_v1_leagues__league_id__seasons__season__wapdate_get: {
     parameters: {
-      query?: never;
+      query?: {
+        /** @description Include the active week's stored provider projection in the response. Only the league's current season is accepted; a prior season returns 409. */
+        include_projected?: boolean;
+      };
       header?: never;
       path: {
         league_id: number;

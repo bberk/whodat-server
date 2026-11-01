@@ -23,6 +23,7 @@ export function useWapdateData(
   leagueId: number | null,
   season: number | null,
   dataVersion: number,
+  includeProjected = false,
 ): WapdateData {
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<WapdateState>({ status: "loading" });
@@ -34,7 +35,7 @@ export function useWapdateData(
     }
     const controller = new AbortController();
     setState({ status: "loading" });
-    api.wapdate(leagueId, season, controller.signal).then(
+    api.wapdate(leagueId, season, controller.signal, includeProjected).then(
       (wapdate) => {
         if (controller.signal.aborted) {
           return;
@@ -54,7 +55,7 @@ export function useWapdateData(
     return () => {
       controller.abort();
     };
-  }, [leagueId, season, dataVersion, attempt]);
+  }, [leagueId, season, dataVersion, attempt, includeProjected]);
 
   const reload = useCallback(() => {
     setAttempt((current) => current + 1);

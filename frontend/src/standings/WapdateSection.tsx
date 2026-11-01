@@ -53,6 +53,7 @@ export interface WapdateSectionProps {
   leagueId: number;
   season: number;
   dataVersion: number;
+  includeProjected?: boolean;
 }
 
 /**
@@ -64,12 +65,18 @@ export interface WapdateSectionProps {
  * VP, wins, and points for sort on the client; the team column is not sortable. The team column is
  * pinned at the left edge with an opaque background so nothing shows through it while scrolling.
  */
-export function WapdateSection({ leagueId, season, dataVersion }: WapdateSectionProps) {
-  const { state, reload } = useWapdateData(leagueId, season, dataVersion);
+export function WapdateSection({
+  leagueId,
+  season,
+  dataVersion,
+  includeProjected = false,
+}: WapdateSectionProps) {
+  const { state, reload } = useWapdateData(leagueId, season, dataVersion, includeProjected);
   const [selectedPeriod, setSelectedPeriod] = useState<number | null>(null);
   const [sort, setSort] = useState<SortState | null>(null);
 
   const periods = state.status === "ready" ? state.wapdate.periods : [];
+  const projectedWeek = state.status === "ready" ? (state.wapdate.projected_week ?? null) : null;
   const active =
     periods.find((period) => period.period === selectedPeriod) ?? defaultWapdatePeriod(periods);
 
@@ -129,6 +136,12 @@ export function WapdateSection({ leagueId, season, dataVersion }: WapdateSection
           <p className="mt-2 text-[13px] text-ink-faint">
             Weeks counted: {active.weeks.length === 0 ? "none" : active.weeks.join(", ")}.
           </p>
+          {projectedWeek !== null && active.weeks.includes(projectedWeek) ? (
+            <p className="mt-1 rounded-lg border border-line bg-surface-muted px-3 py-2 text-[13px] text-ink-muted">
+              Week {projectedWeek} is included from the stored ESPN projection; the safe-from-last
+              bound treats it as played.
+            </p>
+          ) : null}
 
           <div className="relative mt-3">
             <div
