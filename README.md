@@ -230,6 +230,19 @@ For the supported single-server path, see the
 over SSH, uses Caddy for ingress and DuckDNS DNS-01 TLS, and covers Postgres backups. There is no
 GitHub Actions deployment workflow.
 
+### Monitoring
+
+That server stack also runs a self-hosted Prometheus, Grafana, and node_exporter. On the same
+local network as the server, open `http://<server-lan-ip>:3000` and sign in with
+`GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` from `deploy/server/.env`. The provisioned
+dashboards cover request rate and latency, host CPU/memory/disk, and backend provider metrics,
+plus per-user and per-league request attribution. Host panels are whole-server values from
+node_exporter, not per-container; backend process usage has its own dashboard. The
+backend exposes route-template-scoped request metrics and custom metrics at `/metrics`, which
+Prometheus scrapes over the Compose network; the endpoint is not reachable through the public
+domain. Retention, dashboards, and the disk-headroom warning are documented in
+[DEPLOY_SERVER.md §12](docs/DEPLOY_SERVER.md#12-monitoring-lan-only).
+
 The root `docker-compose.yml` also remains available as a production-style Compose stack without
 TLS, a managed database, registry, or orchestrator configuration. The steps below build and run
 those images manually; the local development instructions above are unchanged.

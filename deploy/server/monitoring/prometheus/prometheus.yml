@@ -1,0 +1,38 @@
+# Prometheus for the single-host deployment. Scrapes the backend over the Compose network and
+# node_exporter for host CPU, memory, disk, and network. Prometheus is not published on a public
+# port; reach its UI from a laptop with `ssh -L 9090:127.0.0.1:9090 deploy@<server-lan-ip>`.
+
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  external_labels:
+    deployment: whodat-server
+
+# Size-based retention: the oldest blocks are deleted once the total block size would exceed
+# 64 GB. No time limit is applied (setting a size disables the implicit 15-day default).
+# 64 GB is a cap, not a reservation; at this deployment's series count the actual growth is far
+# slower. See docs/DEPLOY_SERVER.md for the disk-headroom warning.
+storage:
+  tsdb:
+    retention:
+      size: 64GB
+
+scrape_configs:
+  - job_name: backend
+    static_configs:
+      - targets: ["backend:8000"]
+
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
+    metric_relabel_configs:
+      # node-exporter runs with the host filesystem mounted at /host/root, so its mountpoint
+      # label carries that prefix. Strip it so dashboards show "/" and "/boot" as on the host.
+      - source_labels: [mountpoint]
+        regex: /host/root(.*)
+        target_label: mountpoint
+        replacement: "$1"
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

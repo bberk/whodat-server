@@ -82,4 +82,6 @@ def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=_NOT_AUTHENTICATED,
         ) from None
+    # Tagged request metrics read this after the response; store only the numeric id.
+    request.state.user_id = user.id
     return PublicUser(id=user.id, email=user.email, role=user.role)

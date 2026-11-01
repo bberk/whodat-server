@@ -12,6 +12,8 @@ The Compose project contains:
 - **Frontend**, nginx serving the built SPA on the private Compose network.
 - **Backend**, one process that runs `alembic upgrade head` and then starts uvicorn.
 - **Postgres**, with its data directory on a named volume.
+- **Prometheus**, **node_exporter**, and **Grafana** for monitoring. node_exporter and Prometheus
+  have no published port except a loopback-only Prometheus UI; Grafana publishes a LAN port.
 
 Caddy serves one origin, `https://<subdomain>.duckdns.org`. It sends `/api/*` and `/health` to the
 backend and every other request to the frontend. The frontend nginx image supplies the SPA
@@ -22,9 +24,11 @@ Caddy gets and renews certificates with DuckDNS **DNS-01**. Inbound port 80 is n
 certificate issuance. The DuckDNS updater refreshes the public IPv4 record every five minutes
 because the home/public address can rotate.
 
-Only Caddy publishes host ports. Postgres, uvicorn, and nginx have no host-published ports. Never
-publish or forward 22, 8000, 8080, or 5432 to the internet. SSH management is LAN-only (or through
-a VPN that joins the laptop to that LAN).
+Caddy is the only ingress reachable from the internet. Postgres, uvicorn, and nginx have no
+host-published ports. Grafana binds the LAN on port 3000 and Prometheus binds loopback on 9090;
+neither is on the router's forwarding table. Never publish or forward 22, 8000, 8080, 5432, 9090,
+or 3000 to the internet. SSH management is LAN-only (or through a VPN that joins the laptop to that
+LAN).
 
 **This is a single-node setup with no high availability, failover, or coordinated replicas.** The
 server, its disk, the home router, and the ISP connection are single points of failure. Rate limits
@@ -570,7 +574,63 @@ its logs before retrying. The frontend API origin is compiled at build time. Aft
 `DOMAIN`, run `manage.sh deploy` or `manage.sh update`, not just `manage.sh up`, and hard-refresh
 the browser.
 
-## 12. Security and maintenance notes
+## 12. Monitoring (LAN-only)
+
+The stack includes a self-hosted Prometheus + Grafana pair plus `node_exporter`. It adds roughly
+0.5 GiB of memory use, which the 4 GiB starting size in section 2 still covers.
+
+- **Prometheus** scrapes `backend:8000/metrics` and `node-exporter:9100` every 15 seconds and
+  stores the samples on the `prometheus_data` volume. It is published only on
+  `127.0.0.1:9090`, so reach its UI through an SSH tunnel:
+  `ssh -L 9090:127.0.0.1:9090 deploy@<server-lan-ip>`, then open <http://127.0.0.1:9090>.
+- **node_exporter** reads the host's `/proc`, `/sys`, and root filesystem for CPU, memory, disk,
+  and network metrics. It publishes no port.
+- **Grafana** serves the dashboards on the LAN at `http://<server-lan-ip>:3000` (override with
+  `GRAFANA_PORT`). Sign in with `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` from
+  `deploy/server/.env`. Anonymous access and sign-ups are disabled.
+
+The provisioned **Victory Points** folder contains three dashboards:
+
+| Dashboard | Shows |
+|---|---|
+| API | request rate by route and status, 5xx ratio, 429 refresh throttling, latency p50/p95/p99, requests grouped by numeric user and league id |
+| Host | whole-server CPU, load, memory, filesystem use, network, disk I/O, and uptime from node_exporter (not per container) |
+| Backend | backend process CPU/memory/FDs, Python GC, provider fetch rate/latency/errors, build info |
+
+Request metrics use route templates such as `/api/v1/leagues/{league_id}/standings`, never the
+resolved path, so per-league traffic does not create one time series per league on the base
+`http_requests_total` series. Attribution is deliberately separate:
+`app_user_requests_total{user_id,method,status}` and
+`app_league_requests_total{league_id,method,status}` carry the numeric ids. The user label is set
+only after the session is validated, and the league label only when the route has a `league_id`
+path parameter, so both series are bounded by the number of accounts and leagues rather than by
+request volume. Never label with an email, name, session token, or free-form error text.
+
+The backend also exposes `app_provider_fetch_total` and `app_provider_fetch_duration_seconds`,
+defined in `backend/src/app/metrics.py`. Add a metric there with a small, fixed label set and query
+it in a dashboard panel.
+
+Retention is size-based, configured in `deploy/server/monitoring/prometheus/prometheus.yml`:
+
+```yaml
+storage:
+  tsdb:
+    retention:
+      size: 64GB
+```
+
+`storage.tsdb.retention.size` is a **cap**, not a reservation: Prometheus deletes the oldest
+blocks once the stored blocks would exceed it, and WAL compression is on. The 30 GiB disk guidance
+in section 2 is smaller than this cap, so either give the server a larger disk or lower the value.
+Keep at least 10 GiB free on the host so Postgres, images, and the head/WAL have room; the Host
+dashboard shows filesystem use, and the Prometheus UI reports the current TSDB size. Monitoring
+data is not a backup and does not need to be backed up.
+
+Grafana and Prometheus volumes survive `manage.sh down`; `manage.sh update` pulls the pinned
+monitoring images along with Postgres. Deleting `prometheus_data` or `grafana_data` discards
+metrics and any UI-created dashboards, so do not remove them as a routine cleanup step.
+
+## 13. Security and maintenance notes
 
 - Patch the server regularly with `sudo apt-get update && sudo apt-get upgrade`; reboot when kernel
   or other updates require it. Docker restart policies and the DuckDNS timer resume after reboot,
@@ -583,7 +643,11 @@ the browser.
 - Back up `LEAGUE_CREDENTIALS_KEY` separately and securely. Restrict and encrypt off-site database
   backups. Limit who can read Docker logs and shell history.
 - Only 443 is required from the internet; 80 is an optional redirect. No application, database,
-  SSH, or Docker API port belongs on the router's forwarding table.
+  SSH, or Docker API port belongs on the router's forwarding table. Do not forward Grafana (3000)
+  or Prometheus (9090), and keep `/metrics` out of Caddy: the Caddyfile only proxies `/api/*` and
+  `/health` to the backend.
+- `GRAFANA_ADMIN_PASSWORD` is a real credential. Keep it in `deploy/server/.env` mode 0600, never
+  in a dashboard or a ticket. Grafana has anonymous access and sign-ups disabled.
 - Revisit image pins and base-image updates during normal upgrades. Caddy and its DuckDNS plugin
   are version-pinned in `deploy/server/caddy/Dockerfile`.
 - There is no HA or automatic disaster recovery. Document the latest known-good commit, test

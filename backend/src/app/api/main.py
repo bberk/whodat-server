@@ -5,6 +5,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.body_limit import MAX_REQUEST_BODY_BYTES, RequestBodyLimitMiddleware
+from app.api.monitoring import configure_monitoring
 from app.api.routes_auth import router as auth_router
 from app.api.routes_elo import router as elo_router
 from app.api.routes_health import router as health_router
@@ -45,6 +46,9 @@ def create_app() -> FastAPI:
     app.include_router(standings_router)
     app.include_router(predictions_router)
     app.include_router(elo_router)
+    # Installed last so its middleware is outermost and observes the full request, including
+    # CORS and body-limit responses. `/metrics` stays out of the OpenAPI schema.
+    configure_monitoring(app, version=app.version, environment=settings.env)
     return app
 
 

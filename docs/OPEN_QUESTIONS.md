@@ -8,6 +8,45 @@ Follow the format used below. Newest entries at the top.
 
 ---
 
+## OQ-0021 — Monitoring retention cap exceeds the documented disk guidance
+
+- **Found:** the monitoring request specifies size-based Prometheus retention of 64 GB. The
+  deployment runbook's recommended server size in `docs/DEPLOY_SERVER.md` §2 is 30 GiB free disk
+  shared with Postgres, Docker images, build cache, and logs. `storage.tsdb.retention.size` is a
+  cap, not a reservation, so the mismatch only matters if series cardinality or a long scrape
+  history grows enough to approach it.
+- **Options:** (1) keep 64 GB and require a larger disk; (2) lower the cap to a value that fits the
+  current 30 GiB guidance; (3) keep 64 GB as a configurable start value, document the conflict, and
+  monitor free space.
+- **Recommendation:** option 3 for now. The value is one line in
+  `deploy/server/monitoring/prometheus/prometheus.yml`, the host dashboard shows filesystem use,
+  and a dedicated alert should be added before the disk is upgraded.
+- **In the meantime:** the cap is 64 GB as requested, the runbook documents that the host must keep
+  at least 10 GiB free (or the cap must be lowered), and the Grafana host dashboard surfaces root
+  disk use. WAL compression is enabled explicitly.
+
+---
+
+## OQ-0022 — Grafana is the only app-adjacent service published on the LAN
+
+- **Found:** `docs/DEPLOY_SERVER.md` previously stated that only Caddy publishes host ports. The
+  dashboards are requested for same-LAN viewing, which requires Grafana to bind a host port.
+- **Options:** (1) proxy Grafana through Caddy at a path on the public domain; (2) publish Grafana
+  on a LAN port and leave it out of the router's forwarding table; (3) keep Grafana internal and
+  require an SSH tunnel for every view.
+- **Recommendation:** option 2. It matches "view on the same local network", keeps the public
+  surface unchanged, and avoids adding an authenticated path to the internet-facing origin.
+- **In the meantime:** Grafana publishes `${GRAFANA_PORT:-3000}` bound only to the server's
+  reserved LAN address in `GRAFANA_BIND_ADDRESS` (a required setting), never `0.0.0.0`; anonymous
+  access and sign-ups are disabled, and the runbook forbids forwarding 3000. Prometheus binds
+  loopback only (`127.0.0.1:9090`). The root development Compose file also publishes the backend on
+  loopback only (`127.0.0.1:8000`), so `/metrics` is never reachable from another host there. The
+  runbook wording now says Caddy is the only *internet* ingress instead of the only published port,
+  and explains that Docker-published ports can bypass UFW's INPUT rules.
+
+---
+---
+
 ## OQ-0019 — Season final standings and all-time franchise records
 
 - **Found:** `SPEC.md`/`ACCEPTANCE.md`/`ARCHITECTURE.md` describe regular-season VP, playoff
