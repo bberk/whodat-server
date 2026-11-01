@@ -19,6 +19,7 @@ import httpx
 import pytest
 from fastapi import HTTPException, Response
 from fastapi.testclient import TestClient
+from prometheus_client import REGISTRY
 from pydantic import ValidationError
 from sqlalchemy import Engine, create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -2565,3 +2566,31 @@ def test_admin_delete_and_member_routes_reject_malformed_league_ids(
     for response in responses:
         assert response.status_code == 422
         assert isinstance(response.json()["detail"], list)
+
+
+def test_metrics_attribute_requests_to_the_user_and_league(
+    api_factory: Callable[..., Api],
+) -> None:
+    """An authenticated league read tags both attribution counters with numeric ids.
+
+    The base ``http_requests_total`` stays label-bounded; the per-user and per-league series are
+    separate so a dashboard can group by them without multiplying every request metric.
+    """
+    api = api_factory()
+    user_id = _create_user(api, "member@example.com")
+    league_id = _seed_league(api)
+    _seed_membership(api, user_id=user_id, league_id=league_id)
+    _login(api, user_id)
+
+    assert api.client.get(f"/api/v1/leagues/{league_id}/seasons").status_code == 200
+
+    user_value = REGISTRY.get_sample_value(
+        "app_user_requests_total",
+        {"user_id": str(user_id), "method": "GET", "status": "200"},
+    )
+    league_value = REGISTRY.get_sample_value(
+        "app_league_requests_total",
+        {"league_id": str(league_id), "method": "GET", "status": "200"},
+    )
+    assert user_value is not None and user_value >= 1
+    assert league_value is not None and league_value >= 1

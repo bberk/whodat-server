@@ -10,12 +10,14 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_EVEN, Decimal
 from fractions import Fraction
+from time import perf_counter
 
 from sqlalchemy.orm import Session
 
 from app.db.repositories import SyncRepository, WeeklyVPValues
 from app.domain.types import TeamWeek
 from app.domain.vp_engine import compute_week_vp
+from app.metrics import PROVIDER_FETCH_DURATION_SECONDS, PROVIDER_FETCH_TOTAL
 from app.providers.base import LeagueProvider, LeagueRef, MatchupDTO
 from app.validation import normalize_display_text
 
@@ -165,13 +167,24 @@ class SyncService:
         provider = self._require_provider()
 
         # Fetch the league, then upsert its league row and this season's row.
+        fetch_started = perf_counter()
+        fetch_outcome = "error"
         try:
             league_dto = provider.fetch_league(league_ref, season)
         except KeyError as exc:
+            fetch_outcome = "not_found"
             raise LeagueNotFoundError(
                 f"provider {provider_id!r} has no league {league_ref.external_id!r} "
                 f"for season {season}"
             ) from exc
+        else:
+            fetch_outcome = "ok"
+        finally:
+            # Low-cardinality labels only: the provider id, never the league id or name.
+            PROVIDER_FETCH_TOTAL.labels(provider_id, fetch_outcome).inc()
+            PROVIDER_FETCH_DURATION_SECONDS.labels(provider_id).observe(
+                perf_counter() - fetch_started
+            )
         league_result = self._repository.upsert_league(
             provider=provider_id,
             external_id=league_dto.external_id,

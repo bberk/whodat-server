@@ -13,6 +13,7 @@ from dataclasses import replace
 from decimal import Decimal
 
 import pytest
+from prometheus_client import REGISTRY
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
@@ -1499,3 +1500,38 @@ def test_whitespace_only_division_is_stored_as_no_division(session: Session) -> 
     )
     assert stored_team is not None
     assert stored_team.division is None
+
+
+def test_sync_records_provider_fetch_metrics(session: Session) -> None:
+    """A provider-backed sync counts one successful fetch and observes its duration.
+
+    The metric is read from the process-wide registry, so the assertion compares deltas and can
+    run after other tests that also synced through the fake provider.
+    """
+    labels = {"provider": "fake", "outcome": "ok"}
+    before_total = REGISTRY.get_sample_value("app_provider_fetch_total", labels) or 0.0
+    before_count = (
+        REGISTRY.get_sample_value("app_provider_fetch_duration_seconds_count", {"provider": "fake"})
+        or 0.0
+    )
+
+    SyncService(FakeProvider(_basic_seed()), session).sync_league(_league_ref(), "fake", 2026)
+
+    assert REGISTRY.get_sample_value("app_provider_fetch_total", labels) == before_total + 1
+    assert (
+        REGISTRY.get_sample_value("app_provider_fetch_duration_seconds_count", {"provider": "fake"})
+        == before_count + 1
+    )
+
+
+def test_sync_records_not_found_provider_fetch_outcome(session: Session) -> None:
+    """A provider that does not know the league increments the ``not_found`` outcome."""
+    labels = {"provider": "fake", "outcome": "not_found"}
+    before = REGISTRY.get_sample_value("app_provider_fetch_total", labels) or 0.0
+
+    with pytest.raises(LeagueNotFoundError):
+        SyncService(FakeProvider(_basic_seed()), session).sync_league(
+            _league_ref("missing-league"), "fake", 2026
+        )
+
+    assert REGISTRY.get_sample_value("app_provider_fetch_total", labels) == before + 1

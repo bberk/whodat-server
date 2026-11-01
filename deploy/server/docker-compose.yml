@@ -83,6 +83,65 @@ services:
       start_period: 10s
     logging: *default-logging
 
+  # --- Monitoring (LAN-only) -------------------------------------------------
+  # Prometheus scrapes the backend's /metrics and node_exporter. Grafana is the only service
+  # published on a LAN interface; Prometheus binds to loopback for SSH-tunnel access.
+  prometheus:
+    image: prom/prometheus:v3.15.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # WAL compression has been the default since Prometheus 2.20. It is passed explicitly so
+      # the setting is visible and survives an image default change.
+      - --storage.tsdb.wal-compression
+      - --web.enable-lifecycle
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      # Loopback only. Reach the Prometheus UI with
+      # `ssh -L 9090:127.0.0.1:9090 deploy@<server-lan-ip>`.
+      - "127.0.0.1:9090:9090"
+    logging: *default-logging
+
+  node-exporter:
+    image: prom/node-exporter:v1.12.1
+    restart: unless-stopped
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/host/root
+      - --collector.filesystem.mount-points-exclude=^(/host/root)?/(sys|proc|dev|etc)($$|/)
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro,rslave
+    logging: *default-logging
+
+  grafana:
+    image: grafana/grafana:13.3.0
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: "${GRAFANA_ADMIN_USER:-admin}"
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in deploy/server/.env}"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/api.json
+    ports:
+      # LAN-only by topology: the router forwards only 80/443, so this port is reachable on the
+      # home network and not from the internet. Do not port-forward 3000.
+      - "${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    logging: *default-logging
+
   caddy:
     build:
       context: ./caddy
@@ -113,5 +172,7 @@ services:
 
 volumes:
   postgres_data:
+  prometheus_data:
+  grafana_data:
   caddy_data:
   caddy_config:

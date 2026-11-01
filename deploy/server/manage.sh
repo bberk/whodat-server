@@ -193,10 +193,10 @@ case "$command_name" in
         compose run --rm backend uv run alembic upgrade head
         ;;
       shell)
-        [[ $# -le 1 ]] || fail "usage: manage.sh shell [backend|postgres|frontend|caddy]"
+        [[ $# -le 1 ]] || fail "usage: manage.sh shell [backend|postgres|frontend|caddy|grafana|prometheus|node-exporter]"
         service="${1:-backend}"
         case "$service" in
-          backend | postgres | frontend | caddy) ;;
+          backend | postgres | frontend | caddy | grafana | prometheus | node-exporter) ;;
           *) fail "unknown service: $service" ;;
         esac
         compose exec "$service" sh
@@ -226,7 +226,7 @@ case "$command_name" in
         ;;
       update)
         [[ $# -eq 0 ]] || fail "update takes no arguments"
-        compose pull postgres
+        compose pull postgres prometheus node-exporter grafana
         compose build --pull
         compose up -d
         wait_for_health
