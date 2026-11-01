@@ -786,6 +786,18 @@ class StandingsService:
                 teams=(),
             )
 
+        # A completed week after the first incomplete one is a schedule gap. Appending the
+        # projected week at the end of the series would then misalign it with its week number.
+        completed = self._completed_weeks(context)
+        if completed and active < completed[-1]:
+            return active, Projection(
+                week=None,
+                reason="incomplete_schedule",
+                as_of=as_of,
+                is_cup_week=False,
+                teams=(),
+            )
+
         matchups = self._repository.get_week_matchups(context.league_id, context.season, active)
         if not matchups or any(matchup.is_playoff for matchup in matchups):
             return active, Projection(
