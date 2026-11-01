@@ -191,6 +191,34 @@ not consume the league-wide quota. Both are configurable through the `REFRESH_*`
 `SEASON_REFRESH_*` variables in `.env.example`. Changing a cup week recomputes standings without
 contacting ESPN.
 
+## Projected active week
+
+The standings page has a **projected week** switch on the current season. It adds the active
+week's stored ESPN projection to the standings, clinch badges, cumulative VP chart, WAPDate, and
+playoff odds; Elo is unchanged. The projection is provider data, refreshed by the backend, not a
+score-model estimate. A missing projection disables the switch with a reason rather than guessing.
+
+The in-process scheduler is off by default in development. Enable it and choose its window
+timezone and league list with:
+
+```bash
+PROJECTION_REFRESH_ENABLED=true
+PROJECTION_REFRESH_TIMEZONE=America/New_York
+PROJECTION_REFRESH_LEAGUES=your-espn-league-id
+```
+
+It runs every 15 minutes on Sundays 13:00–24:00 and Mondays 20:00–24:00, refreshes only the active
+week, and closes out a week that just finished. It uses the encrypted ESPN cookies already stored
+on league memberships and rotates to another member if one set is rejected. Run it manually with:
+
+```bash
+cd backend
+uv run python -m app.cli sync-active-week --league <external-id>
+```
+
+The production Compose stack enables the scheduler and assumes one backend process; see
+`deploy/server/.env.example`.
+
 ## Run the tests
 
 ```bash
@@ -269,6 +297,9 @@ never commit real values):
 | `REFRESH_USER_LIMIT` / `REFRESH_USER_WINDOW_SECONDS` | League-wide refresh cap per user and its rolling window. Defaults `3` per `3600` seconds. |
 | `SEASON_REFRESH_LEAGUE_INTERVAL_SECONDS` | Seconds between admin per-season refreshes of one league. App default `0`; the production Compose default is `5`. |
 | `SEASON_REFRESH_USER_LIMIT` / `SEASON_REFRESH_USER_WINDOW_SECONDS` | Admin per-season refresh cap per user and its rolling window. Defaults `60` per `3600` seconds. |
+| `PROJECTION_REFRESH_ENABLED` | Enables the in-process active-week projection scheduler. App default `false`; the production Compose default is `true`. |
+| `PROJECTION_REFRESH_TIMEZONE` | IANA timezone for the Sunday/Monday projection windows. Default `America/New_York`. |
+| `PROJECTION_REFRESH_LEAGUES` | Comma-separated provider league external ids to refresh; empty means every stored league. |
 | `VITE_API_BASE_URL` | Browser-facing API origin, baked in at frontend build time. Defaults to `http://localhost:8000`. |
 
 ESPN cookies are entered per league in the UI and stored encrypted on the member's membership;

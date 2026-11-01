@@ -61,7 +61,8 @@ Key principle: **dependencies point inward**. The VP engine knows nothing about 
 │   │   ├── db/                  # SQLAlchemy models, session, repositories
 │   │   ├── services/            # sync, standings, prediction, elo, and auth services
 │   │   ├── api/                 # FastAPI routers, schemas, dependencies
-│   │   ├── cli.py               # `sync`, `recompute`, `create-user` commands
+│   │   ├── projection_refresh.py # in-process cron schedule and active-week refresh job
+│   │   ├── cli.py               # `sync`, `sync-active-week`, `recompute`, `create-user` commands
 │   │   └── config.py            # env-driven settings
 │   └── tests/
 ├── frontend/
@@ -84,6 +85,7 @@ Key principle: **dependencies point inward**. The VP engine knows nothing about 
 | `providers/fake.py` | In-memory provider for tests/dev | `providers.base` | everything else |
 | `db/` | Models, session handling, repositories | sqlalchemy, `domain.types` | api, providers |
 | `services/` | Orchestrates the other layers | domain, db, providers.base | `espn_api`, fastapi |
+| `projection_refresh.py` | In-process cron schedule and unattended active-week refresh; credential rotation | apscheduler, db, providers.base, services | api routers, `espn_api` |
 | `api/` | HTTP routes, request/response schemas, auth dependencies | services, fastapi | `espn_api`, db models directly (go through services), credential decryption |
 | `frontend/` | UI | generated API types | nothing in `backend/` |
 
@@ -106,12 +108,14 @@ Per-season provider settings, so each season can be refreshed independently and 
 season never overwrites another season's settings: `league_id` → league, `season` (int),
 `metadata` (JSON: regular season length, team count, division count, scoring type, and playoff
 settings including `playoff_team_count`), `cup_week` (int, nullable; the optional cup week described
-in SPEC 3.4; `NULL` means no cup week), and `last_refreshed_at` (timestamp, nullable; the instant of
+in SPEC 3.4; `NULL` means no cup week), `last_refreshed_at` (timestamp, nullable; the instant of
 the last successful
-provider-backed sync of this season, `NULL` when it has never synced). The cup week is admin-chosen
-application data, not provider metadata: sync updates `metadata` but never overwrites `cup_week`.
-A provider-free recompute and a cup-week edit never change `last_refreshed_at`. Unique:
-(`league_id`, `season`).
+provider-backed sync of this season, `NULL` when it has never synced), and
+`projections_refreshed_at` (timestamp, nullable; the instant the active week's provider
+projections were last fetched successfully, kept separate from a full-season sync). The cup week is
+admin-chosen application data, not provider metadata: sync updates `metadata` but never overwrites
+`cup_week`. A provider-free recompute and a cup-week edit never change `last_refreshed_at`.
+Unique: (`league_id`, `season`).
 
 ### `owner`
 `league_id` → league, `external_id` (provider's owner/member ID), `display_name`.
@@ -142,6 +146,16 @@ the current pairings (including home/away swaps and explicit byes). A completed 
 reconciled: its pairings stay stable and the existing completed-score correction path still updates
 reported points and recomputes VP. This keeps schedule edits before kickoff from orphaning rows
 without rewriting completed history.
+
+### `projected_score`
+
+`league_id`, `season`, `week`, `team_id` → team, `points` (NUMERIC(8,2)). Unique:
+(`team_id`, `season`, `week`); index: (`league_id`, `season`, `week`). Holds only the active week's
+provider-projected team scores, ingested by sync. It is not a result: it earns no stored VP,
+never substitutes for a `score` row, and is cleared when the week completes or the schedule
+changes. The standings service computes projected VP from these rows with the real engine only
+when the caller asks for `include_projected=true`. `projected_score` is child-first in the
+league and season deletion orders.
 
 ### `elo_config`
 Per-league Elo settings for the History page: `league_id` → league (unique), `starting_rating`
@@ -213,6 +227,10 @@ class LeagueProvider(Protocol):
     def fetch_teams(self, league_ref: LeagueRef, season: int) -> list[TeamDTO]: ...
     def fetch_matchups(self, league_ref: LeagueRef, season: int, week: int) -> list[MatchupDTO]: ...
     # MatchupDTO carries both pairing slots; points are None until the matchup has a result.
+    def fetch_projections(
+        self, league_ref: LeagueRef, season: int, week: int
+    ) -> list[ProjectionDTO]: ...
+    # ProjectionDTO carries one projected score per side; None means ESPN has no usable value.
     def current_week(self, league_ref: LeagueRef, season: int) -> WeekStatus: ...
 ```
 
@@ -220,7 +238,8 @@ DTO rules:
 
 - DTOs are provider-agnostic dataclasses/Pydantic models with `external_id` strings and `Decimal` points.
 - A `MatchupDTO` has `week`, `home` and `away` entries (`team_external_id`, `points`), `away` is optional for byes, plus `is_playoff` and `is_complete`. `points` is `None` for an unplayed matchup.
-- The ESPN adapter translates ESPN payloads and quirks into these DTOs and nothing else. It reads the full scheduled scoreboard for the requested week, so future home/away pairings are preserved, and maps `settings.playoff_team_count` into league metadata. All ESPN quirks (cookie auth, division names, bye representation, playoff detection) are contained in `providers/espn/`.
+- A `ProjectionDTO` has the same pairing shape with `ProjectionSideDTO(team_external_id, points)`, where `points` is the provider's projected team total for the week or `None`. ESPN exposes it only through `box_scores` (the scoreboard has no projections), which is current-season and current-scoring-week only; a later week returns an empty list rather than the current week's box scores. A negative sentinel, non-finite value, empty lineup, or missing side maps to `None`, never to zero.
+- The ESPN adapter translates ESPN payloads and quirks into these DTOs and nothing else. It reads the full scheduled scoreboard for the requested week, so future home/away pairings are preserved, and maps `settings.playoff_team_count` into league metadata. All ESPN quirks (cookie auth, division names, bye representation, playoff detection, `box_scores` projections) are contained in `providers/espn/`.
 - Providers are looked up by `provider_id` in `providers/registry.py`.
 
 ## 6. Sync flow
@@ -240,11 +259,30 @@ DTO rules:
 5. Weeks that are playoffs or incomplete are stored but receive no VP (VP columns remain 0 and are excluded from standings). A future matchup with `points=None` has no score row; any retained numeric incomplete score has its VP reset to zero.
 6. After the whole season has been ingested and recomputed, a provider-backed sync records
    `league_season.last_refreshed_at`. A failed sync leaves it unchanged; `recompute_league` never
-   writes it.
+   writes it. The full sync also prunes projections to the active week.
+
+`SyncService.sync_active_week(league_ref, provider_id, season)` is the narrow unattended path:
+
+1. Find the first incomplete regular-season week from stored data. A missing schedule or a playoff
+   week in the regular season means no active week.
+2. Fetch and upsert only that week's matchups. If the previously active week is now complete, fetch
+   its final scores, recompute its VP, and advance to the next active week.
+3. Fetch the active week's provider projections with `fetch_projections`, require exactly one
+   valid projection for every participating team, and upsert `projected_score` rows. A missing,
+   partial, or non-regular-season set clears the week instead of storing a guess.
+4. Delete projections for every other week and set `projections_refreshed_at`.
+5. Never re-ingest other weeks or other seasons. A full sync and this method both leave the
+   projection rows consistent with the stored active week.
+
+The method is provider-backed and leaves the commit to its caller. The in-process scheduler
+(`app/projection_refresh.py`) runs it every 15 minutes in the two windows described in SPEC 3.8,
+shuffling the league's credential-holding memberships and rotating on `ProviderAuthError`.
 
 Sync is idempotent (AC-DB-02): upserts compare values and only write on change.
 
-CLI: `python -m app.cli sync --league <id> --season <year> [--weeks 1-5]` and `python -m app.cli recompute --league <id> --season <year>` (recompute VP only, no provider calls).
+CLI: `python -m app.cli sync --league <id> --season <year> [--weeks 1-5]`,
+`python -m app.cli sync-active-week [--league <id> ...]`, and
+`python -m app.cli recompute --league <id> --season <year>` (recompute VP only, no provider calls).
 
 ## 7. VP engine contract
 
@@ -383,6 +421,15 @@ string, including `.25`, `1.`, and `0.25`. An unavailable result uses one of `no
 `missing_playoff_field`, `incomplete_schedule`, `unsupported_division_shape`, or
 `invalid_playoff_bracket`; it never fills a missing input with a guess.
 
+`SeasonPredictionInputs.fixed_weeks` is the one deterministic exception to sampling. The standings
+service builds it from the active week's stored `projected_score` rows and pairings; the simulator
+applies each fixed week once, before the sampled weeks, with the same integer VP engine and cup-week
+rule. Fixed weeks are excluded from `counted_weeks` (so they never affect the strength estimate) and
+from `remaining_weeks` (so they are never drawn twice); the three lists must partition the regular
+season exactly once. `SeasonSimulation.projected_weeks` reports them. The API digest includes the
+fixed scores only for `include_projected=true`, so the default actual digest and its derived seed
+are unchanged from the pre-projection model.
+
 Seeding uses VP, H2H wins, points for, team name, and team id. Division winners occupy the leading
 seeds in that order, followed by the remaining teams. The bye count is
 `min(divisions, max(0, next_power_of_two(P) - P))` and only division winners can receive a bye, so
@@ -433,10 +480,10 @@ All endpoints are under `/api/v1`, JSON, cookie-session or bearer-token auth (ba
 | `POST /leagues/{league_id}/seasons/{season}/refresh` | admin member with credentials | Refresh exactly one stored season (rate limited per league and per user); sets its `last_refreshed_at` |
 | `DELETE /leagues/{league_id}/seasons/{season}` | admin member | Delete only that season's row, teams, matchups, and scores |
 | `POST /leagues/{league_id}/refresh` | member with credentials | Refresh the league (rate limited per league and per user) |
-| `GET /leagues/{league_id}/seasons/{season}/standings` | member | Overall standings + divisions (shape below) |
-| `GET /leagues/{league_id}/seasons/{season}/vp-history` | member | Weekly and cumulative VP per team (for the chart) |
-| `GET /leagues/{league_id}/seasons/{season}/wapdate` | member | Offered WAPDate periods with status, counted weeks, and lowest-first rows |
-| `GET /leagues/{league_id}/seasons/{season}/playoff-odds?iterations=&seed=&strength_weight=` | member | Monte Carlo playoff, bye, division-title, and championship probabilities with 95% intervals from a projected reseeded bracket; iterations 1-100,000 (members capped at 10,000, admins at 100,000); team-strength weight 0-10 with default 1; current season only (409 `season_not_current` for a prior stored season) |
+| `GET /leagues/{league_id}/seasons/{season}/standings?include_projected=` | member | Overall standings + divisions (shape below); `include_projected=true` adds the active week's stored provider projection and is current-season only (409 `season_not_current` otherwise) |
+| `GET /leagues/{league_id}/seasons/{season}/vp-history?include_projected=` | member | Weekly and cumulative VP per team (for the chart); the projected week is appended and marked |
+| `GET /leagues/{league_id}/seasons/{season}/wapdate?include_projected=` | member | Offered WAPDate periods with status, counted weeks, and lowest-first rows; the projected week joins its period |
+| `GET /leagues/{league_id}/seasons/{season}/playoff-odds?iterations=&seed=&strength_weight=&include_projected=` | member | Monte Carlo playoff, bye, division-title, and championship probabilities with 95% intervals from a projected reseeded bracket; iterations 1-100,000 (members capped at 10,000, admins at 100,000); team-strength weight 0-10 with default 1; `include_projected=true` fixes the active week into the simulation without changing the counted strength weeks; current season only (409 `season_not_current` for a prior stored season) |
 | `GET /leagues/{league_id}/elo-history?mode=actual_schedule\|round_robin` | member | Full running Elo series, weeks, boundaries, current/peak/low, unrated teams, and warnings |
 | `GET /leagues/{league_id}/elo-config` | admin member | Saved Elo settings, or the defaults |
 | `PUT /leagues/{league_id}/elo-config` | admin member | Validate and persist the five Elo settings; later history reads use them |
@@ -473,6 +520,9 @@ removes only that league's rows; accounts, league-less admin invites, and other 
 ```json
 {
   "league_id": 1, "season": 2026, "completed_weeks": 6,
+  "weeks": [1, 2, 3, 4, 5, 6],
+  "active_week": 7,
+  "projection": null,
   "overall": [
     {
       "rank": 1, "team_id": 7, "team_name": "…", "owner_name": "…", "division": "East",
@@ -490,6 +540,39 @@ VP and points are serialized as **strings** (decimal), so the frontend never rel
 `"Z"`, `"Y"`, `"X"`, `"E"`, or `null` and is identical on a team's overall and division rows; it is
 computed once for the selected season from stored current totals and remaining matchups.
 
+`weeks` is the explicit alignment for `weekly_vp`; it equals the completed weeks, plus the projected
+week when the projection is applied. `active_week` is always the first incomplete regular-season
+week, even when the caller did not request the projection, so a client can enable or disable its
+switch without a second request.
+
+### Projected-week response (shape)
+
+With `include_projected=true` the projected week is included in every total, `weeks` gains it, and
+`projection` describes it. `status` is `ok` when applied and `unavailable` otherwise; `reason` is one
+of `no_active_week`, `projections_not_synced`, `projections_incomplete`, or `incomplete_schedule`.
+`as_of` is the last successful projection fetch for the season, never the request time. A missing or
+partial projection is never filled in.
+
+```json
+{
+  "projection": {
+    "status": "ok",
+    "week": 7,
+    "reason": null,
+    "as_of": "2026-11-01T18:00:00Z",
+    "is_cup_week": false,
+    "teams": [
+      {"team_id": 7, "opponent_team_id": 3, "points": "101.25", "victory_points": "2.5"}
+    ]
+  }
+}
+```
+
+`vp-history` adds `projected_weeks` (the indices in `weeks` that are projections), `active_week`,
+and `projection`; `wapdate` adds `projected_week` and `projection`; playoff odds add
+`projected_week` and `projection_reason`. All four reject `include_projected=true` for a prior stored
+season with 409 `season_not_current`.
+
 ### VP history response (shape)
 
 ```json
@@ -497,22 +580,29 @@ computed once for the selected season from stored current totals and remaining m
   "weeks": [1, 2, 3],
   "teams": [
     { "team_id": 7, "team_name": "…", "weekly": ["3", "2.5", "-1"], "cumulative": ["3", "5.5", "4.5"] }
-  ]
+  ],
+  "projected_weeks": [],
+  "active_week": 4,
+  "projection": null
 }
 ```
 
 ### WAPDate response (shape)
 
-Only offered periods are returned, in period order. `weeks` lists the completed weeks that
-counted, `status` is `complete` or `current`, and rows are already ordered lowest first. VP and
-points for are strings like the other responses; `eliminated` is true only for a team that cannot
-finish last in the current period.
+Only offered periods are returned, in period order. `weeks` lists the counted weeks (the completed
+weeks plus the projected week when applied), `status` is `complete` or `current`, and rows are
+already ordered lowest first. VP and points for are strings like the other responses; `eliminated`
+is true only for a team that cannot finish last in the current period. `projected_week` is the
+active week when the projected view was applied, and `projection` carries its `status`/`reason`/
+`as_of` like the standings response.
 
 ```json
 {
   "league_id": 1,
   "season": 2026,
   "highest_completed_week": 6,
+  "projected_week": 7,
+  "projection": null,
   "periods": [
     {
       "period": 1,
@@ -568,6 +658,8 @@ request is a structured 403 `iterations_not_allowed` before any simulation runs.
   "remaining_weeks": [9, 10, 11, 12, 13, 14],
   "playoff_field": 6,
   "division_count": 2,
+  "projected_week": 7,
+  "projection_reason": null,
   "teams": [
     {
       "team_id": 7, "team_name": "…", "division": "East",
@@ -666,10 +758,12 @@ structured 422s; a non-admin member gets 403; a non-member or unknown league get
   fields.
 - **State**: server state via TanStack Query; local UI state (selected team, hidden chart series) in component state or a small store. No global state library needed.
 - **Components**: `StandingsTable` (reused for overall and per-division, with `ClinchBadge` beside
-  the team and `ClinchLegend` above the overall table), `WapdateSection` (period
-  toggle plus a lowest-first table below the chart), `PlayoffOddsSection` (a separately loaded
-  section below the WAPDate standings with `PlayoffOddsTable`, sortable playoff/bye columns,
-  interval text, and unavailable/error/loading states), `WeeklyVPCells`, `VPChart`, `EloChart`,
+  the team and `ClinchLegend` above the overall table), `ProjectedWeekToggle` (a native
+  checkbox exposed as a switch, current season only, disabled with a reason), `WapdateSection`
+  (period toggle plus a lowest-first table below the chart), `PlayoffOddsSection` (a separately
+  loaded section below the WAPDate standings with `PlayoffOddsTable`, sortable playoff/bye columns,
+  interval text, and unavailable/error/loading states), `WeeklyVPCells`, `VPChart` (dashed projected
+  segment and ringed projected points when `projectedWeeks` is non-empty), `EloChart`,
   `EloRatingsTable`, `InfoTooltip`, `TeamSelector`/legend, `SeasonPicker`, `LeagueSwitcher`,
   `SeasonsSection`, `EloSettingsSection`, `DisplaySettingsSection`, `MembersSection`,
   `InvitesSection`, `DeleteLeagueSection`, layout/nav, and states (`Loading`, `Empty`,
@@ -687,6 +781,10 @@ for AES-256-GCM), `CORS_ORIGINS`, `ENV`, and the optional refresh limits
 `REFRESH_LEAGUE_INTERVAL_SECONDS`, `REFRESH_USER_LIMIT`, `REFRESH_USER_WINDOW_SECONDS`,
 `SEASON_REFRESH_LEAGUE_INTERVAL_SECONDS`, `SEASON_REFRESH_USER_LIMIT`, and
 `SEASON_REFRESH_USER_WINDOW_SECONDS`. League-wide and per-season refreshes use independent limiters.
+The optional projection refresh adds `PROJECTION_REFRESH_ENABLED` (default `false`),
+`PROJECTION_REFRESH_TIMEZONE` (default `America/New_York`), and `PROJECTION_REFRESH_LEAGUES`
+(comma-separated external ids; empty means every stored league). The scheduler runs only when
+enabled, and the backend deployment assumes one application process so one scheduler exists.
 
 League credentials live only on memberships. They are stored encrypted at rest with AES-256-GCM
 under `LEAGUE_CREDENTIALS_KEY`, decrypted only on the provider call path, never logged, and never
@@ -712,6 +810,12 @@ returned by the API. There is no environment `ESPN_S2`/`ESPN_SWID` credential pa
   digest/cache tests (including weight separation), an HTTP golden response, and frontend state,
   sorting, edge-label, interval, and accessibility tests. `domain/predictions.py` is fully covered
   (100% lines and branches); every statistical check uses a fixed seed.
+- **Projected active week**: recorded `box_scores` fixtures with valid, missing, negative, and
+  empty-lineup projections; the active-week sync's finalize-and-advance path, stale-row clearing,
+  credential rotation, and no-credentials/no-active-week outcomes; the combined cron trigger's
+  exact next-fire times; exact projected standings, clinch, VP-history, WAPDate, and snapshot
+  totals; fixed-week determinism and strength-model invariance; the Grafana panel query; and
+  frontend switch, projected markers, and four-endpoint refetch.
 - **Database/services**: run against SQLite by default locally, where each worktree gets its own throwaway databases so concurrent agents stay isolated; CI and production use Postgres. `scripts/dev-postgres.sh` starts a worktree-local Postgres for debugging Postgres-specific behavior.
 - **API**: FastAPI `TestClient` tests including authorization matrices and golden JSON comparison.
 - **Frontend**: Vitest + Testing Library for components; Playwright for the end-to-end smoke test, responsive screenshots, and axe accessibility checks.
@@ -736,6 +840,9 @@ returned by the API. There is no environment `ESPN_S2`/`ESPN_SWID` credential pa
 | Reviewer is a separate agent that posts a review comment, and a human approves and merges | GitHub forbids self-approval, so the formal approval must be a human's; the reviewer's definition comes from `main`, so a PR cannot weaken the reviewer that judges it. |
 | Draft PR on first commit, review only when marked ready | Reviewers never spend effort on half-finished work. |
 | Conservative clinch proof, never a guessed badge | Playoff status is a claim about all remaining outcomes. Cheap exact bounds, complete H2H enumeration, and a no-badge node-cap fallback make a false designation impossible while keeping ordinary late-season cases fast. |
+| Store provider projections instead of modelling them | The owner wants ESPN's projections, not ours. Persisting the active week keeps the read path provider-free and credential-free, while the fixture-backed mapper keeps ESPN confined to the adapter. |
+| Projected mode uses one `ProjectedWeek` for every surface | The table, clinch, chart, WAPDate, and odds must agree exactly. One computation from `projected_score` plus the real VP engine prevents a second, divergent definition. |
+| The scheduler is in-process | The refresh is frequent and its Prometheus counters must share the scrape target. One APScheduler job also avoids an external timer and a CLI window check; a single-process deployment is documented. |
 | Governance files are human-merge only | Agents cannot loosen the rules or gates that bind them. |
 
 ## 13. Repository tooling, CI, and the PR workflow
