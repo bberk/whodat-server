@@ -504,3 +504,53 @@ def test_scheduler_rejects_an_unknown_timezone() -> None:
     )
     with pytest.raises(RuntimeError):
         start_projection_scheduler(settings)  # type: ignore[arg-type]
+
+
+def test_projected_view_refuses_a_schedule_gap(
+    db: tuple[sessionmaker[Session], Session],
+) -> None:
+    """A completed week after the active week is inconsistent, so the projection is not applied."""
+    provider, _ = _seed()
+    league_id = _sync(db, provider)
+    _, session = db
+    with db[0]() as write:
+        repository = SyncRepository(write)
+        repository.upsert_league_season(
+            league_id,
+            SEASON,
+            {"regular_season_length": 3, "playoff_team_count": 4},
+        )
+        teams = {team.external_id: team.id for team in repository.get_teams(league_id, SEASON)}
+        for home, away in (("team-1", "team-2"), ("team-3", "team-4")):
+            repository.upsert_matchup(
+                league_id,
+                SEASON,
+                3,
+                teams[home],
+                teams[away],
+                False,
+                True,
+            )
+        for index, external_id in enumerate(("team-1", "team-2", "team-3", "team-4"), start=1):
+            repository.upsert_score(
+                teams[external_id],
+                league_id,
+                SEASON,
+                3,
+                Decimal(str(100 + index)),
+            )
+        write.commit()
+    _add_credentials(session, league_id)
+    refresh_active_weeks(
+        session_factory=db[0],
+        provider_id="fake",
+        provider_factory=lambda **_: provider,
+        clock=lambda: FIXED_NOW,
+    )
+
+    projected = StandingsService(session).get_standings(league_id, SEASON, include_projected=True)
+
+    assert projected.projection is not None
+    assert projected.projection.week is None
+    assert projected.projection.reason == "incomplete_schedule"
+    assert projected.weeks == (1, 3)
