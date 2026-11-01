@@ -667,6 +667,71 @@
       ],
       "title": "Top users by requests (selected range)",
       "type": "bargauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Completed weeks and active-week ESPN projection refreshes. In-process refreshes (API and scheduler) only; CLI runs are not scraped.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 60,
+            "showPoints": "never",
+            "axisPlacement": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 45
+      },
+      "id": 12,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by (kind) (increase(app_week_refresh_total{outcome=\"ok\"}[$__rate_interval]))",
+          "legendFormat": "{{kind}} ok",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by (kind, outcome) (increase(app_week_refresh_total{outcome!=\"ok\"}[$__rate_interval]))",
+          "legendFormat": "{{kind}} {{outcome}}",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Week refresh events",
+      "type": "timeseries"
     }
   ],
   "refresh": "30s",

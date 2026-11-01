@@ -42,6 +42,9 @@ services:
       SEASON_REFRESH_LEAGUE_INTERVAL_SECONDS: "${SEASON_REFRESH_LEAGUE_INTERVAL_SECONDS:-0}"
       SEASON_REFRESH_USER_LIMIT: "${SEASON_REFRESH_USER_LIMIT:-60}"
       SEASON_REFRESH_USER_WINDOW_SECONDS: "${SEASON_REFRESH_USER_WINDOW_SECONDS:-3600}"
+      PROJECTION_REFRESH_ENABLED: "${PROJECTION_REFRESH_ENABLED:-false}"
+      PROJECTION_REFRESH_TIMEZONE: "${PROJECTION_REFRESH_TIMEZONE:-America/New_York}"
+      PROJECTION_REFRESH_LEAGUES: "${PROJECTION_REFRESH_LEAGUES:-}"
     ports:
       # Loopback only: the SPA dev server and a local TLS proxy reach it, but other hosts cannot.
       # This also keeps the unauthenticated /metrics endpoint (user/league attribution series) off

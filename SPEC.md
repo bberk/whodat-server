@@ -193,6 +193,58 @@ designations, Elo, or stored data.
   interval is not a statement of model certainty. A finished regular season still projects its
   playoff bracket from the final seeds rather than reporting a deterministic champion.
 
+### 3.8 Projected active week
+
+The standings page offers a **projected** view of the season in progress. It is a display over
+stored provider projections, not a new scoring rule, and it never changes stored scores, VP,
+rankings, Elo, or the data a later sync writes.
+
+- **Source.** Projections are ESPN's team-projected points for the active week, read from
+  `box_scores` and stored by sync. A projection is provider data: it is never derived from our
+  score model, never inferred from a zero-looking value, and never substituted when ESPN has no
+  usable value.
+- **Active week.** The active week is the first incomplete regular-season week in stored data. A
+  missing stored schedule, a playoff week inside the regular season, or a season with no active
+  week makes the projected view unavailable rather than guessed.
+- **Scoring.** The projected week is scored by the same Victory Points engine as a completed week,
+  including H2H ties, the top-half cutoff, high/low splits, byes, and the cup-week rule. Its VP,
+  W/L-T, and points for are added to the season totals; the table is re-ranked. The projected week
+  is appended to the weekly VP series and marked as projected.
+- **Completeness.** Every team in the active week's schedule must have a projection. A missing,
+  negative, non-finite, empty-lineup, or duplicate value makes the whole week unavailable; a
+  partial week is never filled.
+- **Clinch designations.** When the projected view is on, Z/Y/X/E are recalculated from the
+  projected totals with the active week treated as played (removed from the remaining schedule).
+  They are therefore conditional on the projection, and the page says so. The conservative
+  no-false-badge rule still applies to the outcomes that remain unprojected.
+- **Playoff odds.** When the projected view is on, the active week is a fixed, already-played week
+  in the simulation and is removed from the remaining schedule. The counted weeks, and therefore
+  the estimated team strength and the team-strength weight, are unchanged: they still come only
+  from completed weeks. Future weeks remain sampled.
+- **WAPDate.** The projected week joins the fixed period that contains it, and the safe-from-last
+  bound treats it as played. Weeks 13 and later still belong to no period.
+- **Elo.** Elo never reads projections. It remains derived from completed stored matchups only.
+- **Refresh.** An in-process scheduler refreshes only the active week's projections every 15
+  minutes on Sundays from 13:00 through midnight and Mondays from 20:00 through midnight, in a
+  configured timezone. It also closes out a week that just finished (storing its final scores and
+  recomputing its VP) and then moves to the next active week. The schedule is display data
+  freshness, not scoring.
+- **Credentials.** The refresh uses the encrypted ESPN cookies stored on league memberships. It
+  shuffles the credential-holding memberships and tries them until one succeeds; an authentication
+  failure moves to another holder, while a key/decryption fault or any other provider failure
+  aborts that league for the run. Cookies, email addresses, and ciphertext never appear in logs or
+  responses.
+- **Freshness.** A projection is as fresh as the last successful refresh. The response reports that
+  instant as `as_of`; the page never presents an old projection as live. A failed refresh keeps the
+  last successful rows, and a completed week's rows are removed so they can never be paired with a
+  different week.
+- **Scope.** The projected view is available only for the league's current season (the latest
+  stored season). A prior stored season rejects `include_projected` with `season_not_current`, and
+  the page hides the switch.
+- **Availability.** The response distinguishes a season with no active week, a week with no stored
+  projections, an incomplete projection set, and an inconsistent schedule. None of these is a
+  guessed result.
+
 ## 4. Functional requirements
 
 ### 4.1 Data ingestion
@@ -329,7 +381,7 @@ Pages and views:
 1. **Sign up (invite code) / Log in**
 2. **Standings**
    - Season selector (default: current season).
-   - **Overall standings table**: rank, team, owner, season VP, H2H record (W-L-T), points for, and one column per week showing that week's VP. A proven playoff designation appears beside the team: **Z** top seed, **Y** division winner, **X** clinched playoff berth, or **E** eliminated. A text legend near the table explains all four; status is never conveyed by colour alone.
+   - **Overall standings table**: rank, team, owner, season VP, H2H record (W-L-T), points for, and one column per week showing that week's VP. A proven playoff designation appears beside the team: **Z** top seed, **Y** division winner, **X** clinched playoff berth, or **E** eliminated. A text legend near the table explains all four; status is never conveyed by colour alone. A **projected week** switch adds the active week's stored ESPN projection to the table, clinch badges, chart, WAPDate, and playoff odds (section 3.8); it shows the projected points and a text "proj" marker, is available only for the current season, is disabled with a reason when the projection is unavailable, and states that Elo is unchanged.
    - **Division standings**: one table per division; the division only filters and groups the rows, and the rank displayed for each team is its overall league rank. Division rows carry the same designation as the overall table.
    - **Playoff odds**: below the WAPDate standings, a separately loaded section estimates each team's
      playoff berth, first-round bye, division title, and championship from a Monte Carlo simulation

@@ -8,6 +8,56 @@ Follow the format used below. Newest entries at the top.
 
 ---
 
+## OQ-0023 — The projection scheduler is in-process and auto-selects credentials
+
+- **Found:** the owner asked for a 15-minute active-week refresh with a cron definition instead of
+  the CLI/systemd window check, and for random credential-holder selection with rotation on an
+  auth error. Running the scheduler in the API process gives the refresh access to the same
+  Prometheus registry, but it also means one scheduler must exist per deployment.
+- **Options:** (1) an external timer plus a CLI window check; (2) an in-process APScheduler job;
+  (3) a separate scheduler service. Option 2 is chosen because the metrics are process-local and
+  the deployment already runs a single backend container.
+- **In the meantime:** the scheduler starts only when `PROJECTION_REFRESH_ENABLED` is true, uses
+  one combined job with `max_instances=1`, and is documented as a single-process assumption. The
+  refresh shuffles the league's credential-holding memberships and rotates on
+  `ProviderAuthError`; no email or cookie is logged. If the deployment ever runs multiple workers
+  or replicas, a database lock or a dedicated scheduler process is required before enabling it.
+- **Follow-up:** revisit if the backend is scaled horizontally.
+
+---
+
+## OQ-0024 — Clinch badges are conditional on the projection, and the Monday window ends at midnight
+
+- **Found:** the owner asked the projected view to affect clinch badges and WAPDate and specified a
+  Monday window ending at midnight. A badge computed from projected totals is no longer a
+  mathematical proof over actual results, and a Monday night game can finish after midnight ET.
+- **Options:** (1) hide badges in projected mode; (2) recompute from projected totals and label
+  them as conditional. Option 2 is chosen by the owner. The window is kept exactly as specified.
+- **In the meantime:** `get_standings(include_projected=True)` removes the projected week from the
+  remaining schedule and passes the adjusted completed weeks to the conservative calculator; the
+  page labels the badges as conditional. The Monday window's last run is 23:45 local, so an
+  overtime finish after midnight may wait for the next full sync. Thursday games are outside both
+  windows by design.
+- **Follow-up:** revisit the Monday end time and add a Thursday window if the league needs it.
+
+---
+
+## OQ-0025 — ESPN projections come from `box_scores`, not the scoreboard
+
+- **Found:** ESPN exposes team projections only through `espn_api`'s `League.box_scores`, which is
+  documented for the most recent season and only honors a week at or before the current scoring
+  week. The regular `scoreboard` has no projections. Projections are therefore current-season and
+  current-week data.
+- **Options:** (1) request ESPN projections on the standings read; (2) ingest them through sync and
+  store them in `projected_score`; (3) model our own projections. Option 3 was rejected by the
+  owner; option 1 violates the provider-free read path and credential boundary. Option 2 is used.
+- **In the meantime:** the adapter's `fetch_projections` returns an empty list for a later week
+  instead of letting the library silently substitute the current week, and maps missing,
+  negative, non-finite, or empty-lineup values to `None`. The projected view is current-season
+  only; a prior season returns 409 `season_not_current`.
+
+---
+
 ## OQ-0021 — Monitoring retention cap exceeds the documented disk guidance
 
 - **Found:** the monitoring request specifies size-based Prometheus retention of 64 GB. The
