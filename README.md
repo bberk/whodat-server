@@ -15,9 +15,12 @@ teams that are already safe from last place greyed in the current period. A Hist
 running Elo score per franchise across every stored season, with Actual schedule and Round robin
 models, a week-range filter (From/To week plus all-history, current-season, and last-12-weeks
 presets), cup-week markers, and a current-ratings table; admins can tune the
-per-league Elo settings from the league admin page. In the final four regular-season weeks, the
-standings also mark proven Z (top seed), Y (division winner), X (clinched berth), and E
-(eliminated) designations. Members sign up, are linked to their team
+per-league Elo settings from the league admin page. Each season's standings also mark the final
+champion and podium from the provider's post-playoff finishing position, and the History
+current-ratings table shows each franchise's all-time championships and last-place regular-season
+finishes. In the final four regular-season weeks, the standings mark proven Z (top seed), Y
+(division winner), X (clinched berth), and E (eliminated) designations. Members sign up, are
+linked to their team
 owner, and see only their league's data. A System/Light/Dark theme control follows the operating
 system on the first visit, remembers an explicit choice, and covers every page and chart.
 

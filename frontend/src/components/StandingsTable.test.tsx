@@ -111,9 +111,9 @@ describe("StandingsTable", () => {
     expect(screen.getAllByRole("img", { name: "X — clinched playoff berth" })).toHaveLength(2);
   });
 
-  it("omits the designation badge for a team with no proven status", () => {
-    renderTable({ rows: [{ ...rows[0], clinch: null }] });
-    expect(screen.queryByRole("img", { name: /—/ })).not.toBeInTheDocument();
+  it("omits every badge for a team with no proven status or final place", () => {
+    renderTable({ rows: [{ ...rows[0], clinch: null, final_standing: null }] });
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
   });
 
   it("marks the final podium for first, second, and third without claiming fourth", () => {

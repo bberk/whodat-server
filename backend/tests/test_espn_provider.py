@@ -73,18 +73,49 @@ class TestESPNLeagueProviderTeams:
         assert teams[0].division == "Division 1"
         assert teams[0].owner_external_id == "owner-1"
 
-    def test_final_standing_is_mapped_only_when_reported(self) -> None:
-        """A positive final rank is carried through; zero or missing means "not final yet"."""
-        league = create_fake_league("league_basic.json")
-        league.teams[0].final_standing = 1
-        league.teams[1].final_standing = 0
-        league.teams[2].final_standing = None
-        del league.teams[3].final_standing
-        provider = ESPNLeagueProvider(league_factory=lambda *args, **kwargs: league)
+    def test_final_standing_is_mapped_from_recorded_rank_fields(self) -> None:
+        """The adapter reads rankFinal and its rankCalculatedFinal fallback from ESPN data."""
+        provider = ESPNLeagueProvider(
+            league_factory=lambda *args, **kwargs: create_fake_league("league_playoffs.json")
+        )
+
+        teams = provider.fetch_teams(LeagueRef(external_id="12348"), 2024)
+
+        assert [team.final_standing for team in teams] == [1, 2, 3, 4]
+
+    def test_final_standing_is_none_when_a_fixture_reports_no_final_rank(self) -> None:
+        """A season without final rank fields never claims a champion or podium."""
+        provider = ESPNLeagueProvider(
+            league_factory=lambda *args, **kwargs: create_fake_league("league_basic.json")
+        )
 
         teams = provider.fetch_teams(LeagueRef(external_id="12345"), 2024)
 
-        assert [team.final_standing for team in teams] == [1, None, None, None]
+        assert [team.final_standing for team in teams] == [None, None, None, None]
+
+    def test_final_standing_accepts_integral_values_and_ignores_invalid_ones(self) -> None:
+        """Integral float/string ranks are usable; fractional, invalid, and missing are not."""
+        league = create_fake_league("league_basic.json")
+        league.teams[0].final_standing = True
+        league.teams[1].final_standing = 2.0
+        league.teams[2].final_standing = "3"
+        league.teams[3].final_standing = 2.5
+        provider = ESPNLeagueProvider(league_factory=lambda *args, **kwargs: league)
+
+        def ranks() -> list[int | None]:
+            return [team.final_standing for team in provider.fetch_teams(LeagueRef("12345"), 2024)]
+
+        assert ranks() == [None, 2, 3, None]
+
+        league.teams[3].final_standing = "not-a-rank"
+        assert ranks() == [None, 2, 3, None]
+
+        league.teams[3].final_standing = float("nan")
+        assert ranks() == [None, 2, 3, None]
+
+        league.teams[0].final_standing = 0
+        del league.teams[3].final_standing
+        assert ranks() == [None, 2, 3, None]
 
 
 class TestESPNLeagueProviderMatchups:

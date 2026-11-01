@@ -115,6 +115,12 @@ def test_repository_team_upsert_stores_and_updates_final_standing(session: Sessi
     assert not unreported.changed
     assert unreported.row.final_standing == 2
 
+    for invalid in (0, -1, True):
+        with pytest.raises(ValueError, match="1-based"):
+            repository.upsert_team(
+                league.id, 2025, "team-1", "Home", "East", None, final_standing=invalid
+            )
+
 
 def test_repository_score_upsert_reports_score_corrections(session: Session) -> None:
     """A corrected Decimal score updates the existing row and preserves VP for recompute."""

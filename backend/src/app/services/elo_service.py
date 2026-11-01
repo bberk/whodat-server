@@ -37,7 +37,7 @@ from app.domain.elo import (
     compute_elo_history,
 )
 from app.services.league_service import AdminRequiredError, LeagueUser, NotAMemberError
-from app.services.standings_service import StandingsService, StandingsServiceError
+from app.services.standings_service import StandingsService
 
 
 class EloLeagueNotFoundError(LookupError):
@@ -267,7 +267,9 @@ class EloService:
         valid_seasons: list[int] = []
         championships_by_key: dict[str, int] = {}
         last_places_by_key: dict[str, int] = {}
-        standings = StandingsService(self._session)
+        last_places_by_season = StandingsService(self._session).get_last_place_team_ids_for_seasons(
+            league_id, tuple(row.season for row in season_rows)
+        )
 
         for team in team_rows:
             if team.final_standing == 1:
@@ -307,14 +309,7 @@ class EloService:
             season_infos.append(SeasonInfo(season=season, team_keys=roster_keys))
             valid_seasons.append(season)
 
-            try:
-                last_ids = standings.get_last_place_team_ids(league_id, season)
-            except StandingsServiceError:
-                # A season whose scores cannot produce a ranking already has an Elo warning (or is
-                # otherwise unusable); leave its last-place record uncounted rather than fail the
-                # whole history page for a secondary all-time tally.
-                last_ids = ()
-            for team_id in last_ids:
+            for team_id in last_places_by_season.get(season, ()):
                 franchise_key = team_key_by_id.get(team_id)
                 if franchise_key is not None:
                     last_places_by_key[franchise_key] = last_places_by_key.get(franchise_key, 0) + 1

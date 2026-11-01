@@ -1,5 +1,5 @@
 {
-  "description": "4-team league with playoff weeks (weeks 15-17)",
+  "description": "4-team league with playoff weeks (weeks 15-17) and final ranks",
   "league_id": 12348,
   "year": 2024,
   "status": {
@@ -33,6 +33,7 @@
       "id": 1,
       "abbrev": "TEAM1",
       "name": "Team Alpha",
+      "rankFinal": 1,
       "divisionId": 0,
       "owners": ["owner-1"],
       "record": {
@@ -49,6 +50,7 @@
       "id": 2,
       "abbrev": "TEAM2",
       "name": "Team Beta",
+      "rankFinal": 2,
       "divisionId": 0,
       "owners": ["owner-2"],
       "record": {
@@ -65,6 +67,7 @@
       "id": 3,
       "abbrev": "TEAM3",
       "name": "Team Gamma",
+      "rankCalculatedFinal": 3,
       "divisionId": 0,
       "owners": ["owner-3"],
       "record": {
@@ -81,6 +84,7 @@
       "id": 4,
       "abbrev": "TEAM4",
       "name": "Team Delta",
+      "rankCalculatedFinal": 4,
       "divisionId": 0,
       "owners": ["owner-4"],
       "record": {

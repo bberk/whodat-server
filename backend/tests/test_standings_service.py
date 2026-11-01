@@ -12,10 +12,11 @@ from decimal import Decimal
 from fractions import Fraction
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, delete
 from sqlalchemy.orm import Session
 
 from app.db.base import Base
+from app.db.models import Score
 from app.db.repositories import SyncRepository
 from app.providers.base import (
     LeagueDTO,
@@ -794,6 +795,66 @@ def test_last_place_needs_a_complete_regular_season(session: Session) -> None:
     assert last == ()
 
 
+def test_bulk_last_place_matches_the_single_season_read(session: Session) -> None:
+    """The multi-season form uses the same ranking as the single-season form."""
+    seeded = _seed(
+        session,
+        team_specs=FOUR_TEAMS,
+        weeks=_four_team_weeks(),
+        regular_season_length=2,
+    )
+    service = StandingsService(session)
+
+    single = service.get_last_place_team_ids(seeded.league_id, SEASON)
+    bulk = service.get_last_place_team_ids_for_seasons(seeded.league_id, (SEASON,))
+
+    assert bulk[SEASON] == single == (seeded.team_ids["team-c"],)
+
+
+def test_bulk_last_place_skips_a_season_whose_scores_cannot_rank(session: Session) -> None:
+    """One unusable season is treated as no last place instead of failing a multi-season read."""
+    seeded = _seed(
+        session,
+        team_specs=FOUR_TEAMS,
+        weeks=_four_team_weeks(),
+        regular_season_length=2,
+    )
+    session.execute(
+        delete(Score).where(
+            Score.league_id == seeded.league_id,
+            Score.season == SEASON,
+            Score.week == 1,
+        )
+    )
+    session.commit()
+
+    bulk = StandingsService(session).get_last_place_team_ids_for_seasons(
+        seeded.league_id, (SEASON,)
+    )
+
+    assert bulk[SEASON] == ()
+
+
+def test_bulk_last_place_skips_a_season_with_invalid_settings(session: Session) -> None:
+    """A season without a usable regular-season length is omitted, not fatal."""
+    seeded = _seed(
+        session,
+        team_specs=FOUR_TEAMS,
+        weeks=_four_team_weeks(),
+        regular_season_length=2,
+    )
+    league_season = SyncRepository(session).get_league_season(seeded.league_id, SEASON)
+    assert league_season is not None
+    league_season.league_season_metadata = {"team_count": 4}
+    session.commit()
+
+    bulk = StandingsService(session).get_last_place_team_ids_for_seasons(
+        seeded.league_id, (SEASON,)
+    )
+
+    assert SEASON not in bulk
+
+
 def test_last_place_is_shared_by_fully_tied_teams(session: Session) -> None:
     """When the usual tiebreakers leave teams equal at the bottom, each shares last place."""
     seeded = _seed(
@@ -842,6 +903,8 @@ def test_missing_league_raises_typed_error(session: Session) -> None:
 
     with pytest.raises(LeagueNotFoundError):
         service.get_vp_history(4242, SEASON)
+    with pytest.raises(LeagueNotFoundError):
+        service.get_last_place_team_ids_for_seasons(4242, (SEASON,))
 
 
 def test_missing_season_raises_typed_error(session: Session) -> None:

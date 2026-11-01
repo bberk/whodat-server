@@ -14,7 +14,7 @@ The service is transaction-neutral: it only reads and never commits, flushes, or
 The caller owns the session and its transaction.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from fractions import Fraction
@@ -23,7 +23,7 @@ from typing import Literal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import League, LeagueSeason, Owner, Team
+from app.db.models import League, LeagueSeason, Matchup, Owner, Score, Team
 from app.db.repositories import SyncRepository
 from app.domain.clinch import (
     ClinchMatchup,
@@ -340,6 +340,85 @@ class StandingsService:
         last_rank = max(row.rank for row in ranked)
         return tuple(sorted(row.team_id for row in ranked if row.rank == last_rank))
 
+    def get_last_place_team_ids_for_seasons(
+        self, league_id: int, seasons: Sequence[int]
+    ) -> Mapping[int, tuple[int, ...]]:
+        """Return last-place team ids for several seasons after loading stored rows once.
+
+        This is the bulk form of :meth:`get_last_place_team_ids` for callers such as the History
+        service that read many seasons in one request: it loads the league's seasons, teams,
+        matchups, and scores once and then groups them in memory, instead of issuing three
+        queries per week per season. Seasons whose settings or stored scores cannot produce a
+        ranking are omitted (treated as "no last place"), so one bad season never fails a
+        multi-season read. The same completed-regular-season, VP, H2H-win, and points-for rules
+        apply as in the single-season method.
+        """
+        if self._session.get(League, league_id) is None:
+            raise LeagueNotFoundError(league_id)
+
+        requested = set(seasons)
+        season_rows = {row.season: row for row in self._repository.list_league_seasons(league_id)}
+        teams_by_season: dict[int, list[Team]] = {}
+        for team in self._repository.list_teams(league_id):
+            teams_by_season.setdefault(team.season, []).append(team)
+        matchups_by_week: dict[tuple[int, int], list[Matchup]] = {}
+        for matchup in self._repository.list_matchups(league_id):
+            matchups_by_week.setdefault((matchup.season, matchup.week), []).append(matchup)
+        scores_by_week: dict[tuple[int, int], list[Score]] = {}
+        for score in self._repository.list_scores(league_id):
+            scores_by_week.setdefault((score.season, score.week), []).append(score)
+
+        result: dict[int, tuple[int, ...]] = {}
+        for season in sorted(requested):
+            league_season = season_rows.get(season)
+            if league_season is None:
+                continue
+            try:
+                regular_season_length = self._regular_season_length(league_season)
+            except SeasonSettingsError:
+                continue
+            season_teams = tuple(teams_by_season.get(season, ()))
+            if not season_teams:
+                continue
+
+            context = _SeasonContext(
+                league_id=league_id,
+                season=season,
+                regular_season_length=regular_season_length,
+                cup_week=league_season.cup_week,
+                playoff_team_count=None,
+                teams=season_teams,
+                owner_names={},
+            )
+            weeks: list[int] = []
+            for week in range(1, regular_season_length + 1):
+                matchups = matchups_by_week.get((season, week), ())
+                if not matchups:
+                    continue
+                if any(matchup.is_playoff or not matchup.is_complete for matchup in matchups):
+                    continue
+                weeks.append(week)
+            if len(weeks) < regular_season_length:
+                result[season] = ()
+                continue
+
+            def matchups_for(week: int, current_season: int = season) -> Sequence[Matchup]:
+                return matchups_by_week.get((current_season, week), ())
+
+            def scores_for(week: int, current_season: int = season) -> Sequence[Score]:
+                return scores_by_week.get((current_season, week), ())
+
+            try:
+                aggregate = self._aggregate_from(context, weeks, matchups_for, scores_for)
+            except TeamDataError:
+                result[season] = ()
+                continue
+            ranked = rank_teams(self._season_rows(context, aggregate))
+            last_rank = max(row.rank for row in ranked)
+            result[season] = tuple(sorted(row.team_id for row in ranked if row.rank == last_rank))
+
+        return result
+
     def get_vp_history(self, league_id: int, season: int) -> VpHistory:
         """Return counted weeks plus each team's exact weekly and cumulative VP series.
 
@@ -614,7 +693,24 @@ class StandingsService:
         return tuple(weeks)
 
     def _aggregate(self, context: _SeasonContext, weeks: Sequence[int]) -> _SeasonAggregate:
-        """Recompute weekly VP and W-L-T and accumulate exact season totals.
+        """Aggregate a season's counted weeks by loading each week from the repository."""
+        return self._aggregate_from(
+            context,
+            weeks,
+            lambda week: self._repository.get_week_matchups(
+                context.league_id, context.season, week
+            ),
+            lambda week: self._repository.get_week_scores(context.league_id, context.season, week),
+        )
+
+    @staticmethod
+    def _aggregate_from(
+        context: _SeasonContext,
+        weeks: Sequence[int],
+        matchups_for: Callable[[int], Sequence[Matchup]],
+        scores_for: Callable[[int], Sequence[Score]],
+    ) -> _SeasonAggregate:
+        """Recompute weekly VP and W-L-T from caller-supplied week loaders.
 
         A cup week (``context.cup_week``) still counts for points for and its VP, but its
         matchups never change the W-L-T record and every team gets zero head-to-head VP.
@@ -628,8 +724,8 @@ class StandingsService:
 
         for week in weeks:
             is_cup_week = week == context.cup_week
-            matchups = self._repository.get_week_matchups(context.league_id, context.season, week)
-            scores = self._repository.get_week_scores(context.league_id, context.season, week)
+            matchups = matchups_for(week)
+            scores = scores_for(week)
             scores_by_team = {score.team_id: score for score in scores}
 
             unknown_score_teams = set(scores_by_team) - roster_ids

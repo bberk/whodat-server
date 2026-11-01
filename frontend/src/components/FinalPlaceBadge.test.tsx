@@ -29,5 +29,8 @@ describe("FinalPlaceBadge", () => {
     expect(legend).toHaveTextContent("Champion");
     expect(legend).toHaveTextContent("Runner-up");
     expect(legend).toHaveTextContent("Third place");
+    // The adjacent text names each place, so the legend emoji is decorative and not announced
+    // twice ("Champion Champion").
+    expect(screen.queryByRole("img", { name: "Champion" })).not.toBeInTheDocument();
   });
 });
