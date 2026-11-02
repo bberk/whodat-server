@@ -46,7 +46,14 @@ _WINDOW_TRIGGERS: tuple[tuple[str, str], ...] = (("sun", "13-23"), ("mon", "20-2
 
 _LOG = logging.getLogger(__name__)
 
-type RefreshStatus = Literal["ok", "no_active_week", "no_credentials", "auth_failed", "failed"]
+type RefreshStatus = Literal[
+    "ok",
+    "no_active_week",
+    "incomplete_schedule",
+    "no_credentials",
+    "auth_failed",
+    "failed",
+]
 
 
 @dataclass(frozen=True)
@@ -247,7 +254,12 @@ def _refresh_league(
                     LeagueRef(external_id=spec.external_id), spec.provider, spec.season
                 )
                 session.commit()
-            status: RefreshStatus = "ok" if summary.active_week is not None else "no_active_week"
+            if summary.active_week is not None:
+                status: RefreshStatus = "ok"
+            elif summary.schedule_reason == "incomplete_schedule":
+                status = "incomplete_schedule"
+            else:
+                status = "no_active_week"
             return LeagueRefreshResult(spec.league_id, spec.external_id, status, summary)
         except ProviderAuthError:
             continue

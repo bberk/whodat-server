@@ -765,22 +765,21 @@ class StandingsService:
             projection=projection,
         )
 
-    def _active_week(self, context: _SeasonContext) -> int | None:
-        """Return the first incomplete regular-season week, or None when there is none.
+    def _active_week(self, context: _SeasonContext) -> tuple[int | None, ProjectionReason | None]:
+        """Return the first incomplete week and an incomplete-schedule reason, if any.
 
-        Every regular-season week must have a stored schedule and none may be a playoff week.
-        The scan continues after the first incomplete week so a missing or playoff-marked later
-        week makes the projected view unavailable rather than applying a projection over an
-        inconsistent season.
+        Every regular-season week must have a stored schedule and none may be a playoff week. The
+        scan continues after the first incomplete week so a missing or playoff-marked later week
+        is reported as an incomplete schedule, not as a finished season.
         """
         active: int | None = None
         for week in range(1, context.regular_season_length + 1):
             matchups = self._repository.get_week_matchups(context.league_id, context.season, week)
             if not matchups or any(matchup.is_playoff for matchup in matchups):
-                return None
+                return None, "incomplete_schedule"
             if active is None and any(not matchup.is_complete for matchup in matchups):
                 active = week
-        return active
+        return active, None
 
     def _projection(
         self, context: _SeasonContext, include_projected: bool
@@ -793,12 +792,20 @@ class StandingsService:
         missing row, or non-regular-season schedule returns an explicit reason and no partial
         week.
         """
-        active = self._active_week(context)
+        active, schedule_reason = self._active_week(context)
         if not include_projected:
             return active, None
 
         league_season = self._repository.get_league_season(context.league_id, context.season)
         as_of = league_season.projections_refreshed_at if league_season is not None else None
+        if schedule_reason is not None:
+            return active, Projection(
+                week=None,
+                reason=schedule_reason,
+                as_of=as_of,
+                is_cup_week=False,
+                teams=(),
+            )
         if active is None:
             return None, Projection(
                 week=None,
