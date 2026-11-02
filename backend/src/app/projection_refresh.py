@@ -250,7 +250,6 @@ def _refresh_league(
             status: RefreshStatus = "ok" if summary.active_week is not None else "no_active_week"
             return LeagueRefreshResult(spec.league_id, spec.external_id, status, summary)
         except ProviderAuthError:
-            WEEK_REFRESH_TOTAL.labels("projection", "auth_failed").inc()
             continue
         except CredentialCryptoError:
             WEEK_REFRESH_TOTAL.labels("projection", "failed").inc()
@@ -261,6 +260,9 @@ def _refresh_league(
             _LOG.warning("projection refresh failed")
             return LeagueRefreshResult(spec.league_id, spec.external_id, "failed", None)
 
+    # One outcome per league refresh, not one per credential attempt. Individual attempts are not
+    # a refresh outcome: a retry followed by success must not look like an auth failure on the
+    # dashboard, and exhausting every holder counts once.
     WEEK_REFRESH_TOTAL.labels("projection", "auth_failed").inc()
     return LeagueRefreshResult(spec.league_id, spec.external_id, "auth_failed", None)
 
