@@ -14,6 +14,7 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import pytest
+from prometheus_client import REGISTRY
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.models import AppUser, UserLeague
@@ -166,6 +167,14 @@ def _team_id_map(session: Session, league_id: int) -> dict[str, int]:
     }
 
 
+def _metric(kind: str, outcome: str) -> float:
+    """Read the current projection metric value for one outcome."""
+    return (
+        REGISTRY.get_sample_value("app_week_refresh_total", {"kind": kind, "outcome": outcome})
+        or 0.0
+    )
+
+
 def _add_credentials(session: Session, league_id: int, count: int = 1) -> None:
     for index in range(count):
         user = AppUser(
@@ -263,6 +272,8 @@ def test_active_week_rotates_credential_holders_on_auth_failure(
     _, session = db
     _add_credentials(session, league_id, count=2)
     attempts: list[str] = []
+    auth_before = _metric("projection", "auth_failed")
+    ok_before = _metric("projection", "ok")
 
     def factory(**kwargs: str | None):  # type: ignore[no-untyped-def]
         attempts.append(kwargs["espn_s2_encrypted"] or "")
@@ -280,6 +291,8 @@ def test_active_week_rotates_credential_holders_on_auth_failure(
 
     assert results[0].status == "ok"
     assert len(attempts) == 2
+    assert _metric("projection", "auth_failed") == auth_before
+    assert _metric("projection", "ok") == ok_before + 1
 
 
 def test_active_week_no_credentials_is_reported(
@@ -822,6 +835,7 @@ def test_all_rejected_credentials_report_auth_failure(
     provider, _ = _seed()
     league_id = _sync(db, provider)
     _add_credentials(db[1], league_id, count=2)
+    auth_before = _metric("projection", "auth_failed")
 
     def rejected(**_: str | None):  # type: ignore[no-untyped-def]
         raise ProviderAuthError("rejected")
@@ -835,6 +849,7 @@ def test_all_rejected_credentials_report_auth_failure(
     )
 
     assert [result.status for result in results] == ["auth_failed"]
+    assert _metric("projection", "auth_failed") == auth_before + 1
 
 
 def test_parse_league_ids_handles_empty_and_comma_lists() -> None:
