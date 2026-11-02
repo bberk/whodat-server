@@ -9,16 +9,13 @@ together.
 from __future__ import annotations
 
 import random
-from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import pytest
-from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.db.base import Base
 from app.db.models import AppUser, UserLeague
 from app.db.repositories import SyncRepository
 from app.projection_refresh import (
@@ -58,17 +55,12 @@ FIXED_NOW = datetime(2026, 11, 1, 13, 0, tzinfo=UTC)
 
 
 @pytest.fixture
-def db() -> Iterator[tuple[sessionmaker[Session], Session]]:
-    """Provide a session factory and one caller-owned session on an isolated SQLite database."""
-    engine = create_engine("sqlite://")
-    Base.metadata.create_all(engine)
-    factory = sessionmaker(bind=engine, expire_on_commit=False)
-    try:
-        with factory() as session:
-            yield factory, session
-    finally:
-        Base.metadata.drop_all(engine)
-        engine.dispose()
+def db(
+    db_session_factory: sessionmaker[Session],
+    db_session: Session,
+) -> tuple[sessionmaker[Session], Session]:
+    """Use the shared transaction-rollback database fixtures."""
+    return db_session_factory, db_session
 
 
 def _seed(
@@ -167,6 +159,13 @@ def _sync(db: tuple[sessionmaker[Session], Session], provider: FakeProvider) -> 
     return summary.league_id
 
 
+def _team_id_map(session: Session, league_id: int) -> dict[str, int]:
+    """Resolve external team ids to database ids without assuming sequence values."""
+    return {
+        team.external_id: team.id for team in SyncRepository(session).get_teams(league_id, SEASON)
+    }
+
+
 def _add_credentials(session: Session, league_id: int, count: int = 1) -> None:
     for index in range(count):
         user = AppUser(
@@ -242,12 +241,13 @@ def test_active_week_stores_projections_and_records_as_of(
     assert results[0].summary is not None
     assert results[0].summary.projections_stored == 4
     with db[0]() as check:
+        team_ids = _team_id_map(check, league_id)
         rows = SyncRepository(check).get_week_projections(league_id, SEASON, 2)
         assert {row.team_id: row.points for row in rows} == {
-            1: Decimal("130.00"),
-            2: Decimal("90.00"),
-            3: Decimal("100.00"),
-            4: Decimal("80.00"),
+            team_ids["team-1"]: Decimal("130.00"),
+            team_ids["team-2"]: Decimal("90.00"),
+            team_ids["team-3"]: Decimal("100.00"),
+            team_ids["team-4"]: Decimal("80.00"),
         }
         season = SyncRepository(check).get_league_season(league_id, SEASON)
         assert season is not None
@@ -349,22 +349,28 @@ def test_projected_standings_add_the_active_week(
     assert projected.projection.week == 2
     assert projected.projection.reason is None
 
+    team_ids = _team_id_map(session, league_id)
     by_team = {row.team_id: row for row in projected.overall}
-    assert [row.team_id for row in projected.overall] == [1, 2, 3, 4]
-    assert by_team[1].victory_points == 6
-    assert by_team[2].victory_points == 3
-    assert by_team[3].victory_points == 1
-    assert by_team[4].victory_points == -2
-    assert by_team[1].weekly_vp == (3, 3)
-    assert by_team[2].weekly_vp == (2, 1)
-    assert by_team[3].weekly_vp == (0, 1)
-    assert by_team[4].weekly_vp == (-1, -1)
-    assert (by_team[1].wins, by_team[1].losses) == (2, 0)
-    assert (by_team[3].wins, by_team[3].losses) == (0, 2)
-    assert by_team[1].points_for == Decimal("250.00")
-    assert by_team[4].points_for == Decimal("170.00")
-    assert by_team[1].rank == 1
-    assert by_team[4].rank == 4
+    assert [row.team_id for row in projected.overall] == [
+        team_ids["team-1"],
+        team_ids["team-2"],
+        team_ids["team-3"],
+        team_ids["team-4"],
+    ]
+    assert by_team[team_ids["team-1"]].victory_points == 6
+    assert by_team[team_ids["team-2"]].victory_points == 3
+    assert by_team[team_ids["team-3"]].victory_points == 1
+    assert by_team[team_ids["team-4"]].victory_points == -2
+    assert by_team[team_ids["team-1"]].weekly_vp == (3, 3)
+    assert by_team[team_ids["team-2"]].weekly_vp == (2, 1)
+    assert by_team[team_ids["team-3"]].weekly_vp == (0, 1)
+    assert by_team[team_ids["team-4"]].weekly_vp == (-1, -1)
+    assert (by_team[team_ids["team-1"]].wins, by_team[team_ids["team-1"]].losses) == (2, 0)
+    assert (by_team[team_ids["team-3"]].wins, by_team[team_ids["team-3"]].losses) == (0, 2)
+    assert by_team[team_ids["team-1"]].points_for == Decimal("250.00")
+    assert by_team[team_ids["team-4"]].points_for == Decimal("170.00")
+    assert by_team[team_ids["team-1"]].rank == 1
+    assert by_team[team_ids["team-4"]].rank == 4
 
 
 def test_projected_standings_are_unavailable_without_projections(
@@ -402,7 +408,8 @@ def test_projected_vp_history_marks_the_projected_week(
 
     assert history.weeks == (1, 2)
     assert history.projected_weeks == (2,)
-    team = next(entry for entry in history.teams if entry.team_id == 1)
+    team_ids = _team_id_map(session, league_id)
+    team = next(entry for entry in history.teams if entry.team_id == team_ids["team-1"])
     assert team.weekly == (3, 3)
     assert team.cumulative == (3, 6)
 
@@ -424,12 +431,13 @@ def test_projected_wapdate_includes_the_active_week(
 
     wapdate = StandingsService(session).get_wapdate(league_id, SEASON, include_projected=True)
 
+    team_ids = _team_id_map(session, league_id)
     assert wapdate.projected_week == 2
     assert len(wapdate.periods) == 1
     period = wapdate.periods[0]
     assert period.weeks == (1, 2)
     assert period.status == "current"
-    assert period.rows[-1].team_id == 1
+    assert period.rows[-1].team_id == team_ids["team-1"]
     assert period.rows[-1].vp == 6
 
 
@@ -1010,10 +1018,11 @@ def test_projected_cup_week_keeps_the_record_unchanged(
 
     projected = StandingsService(session).get_standings(league_id, SEASON, include_projected=True)
 
+    team_ids = _team_id_map(session, league_id)
     by_team = {row.team_id: row for row in projected.overall}
-    assert by_team[1].wins == 1
-    assert by_team[1].losses == 0
-    assert by_team[1].victory_points == 5
+    assert by_team[team_ids["team-1"]].wins == 1
+    assert by_team[team_ids["team-1"]].losses == 0
+    assert by_team[team_ids["team-1"]].victory_points == 5
 
 
 def test_projected_away_win_and_tie_updates_the_record(
@@ -1032,11 +1041,18 @@ def test_projected_away_win_and_tie_updates_the_record(
 
     projected = StandingsService(session).get_standings(league_id, SEASON, include_projected=True)
 
+    team_ids = _team_id_map(session, league_id)
     by_team = {row.team_id: row for row in projected.overall}
-    assert (by_team[1].wins, by_team[1].losses) == (1, 1)
-    assert (by_team[3].wins, by_team[3].losses) == (1, 1)
-    assert by_team[2].ties == 1
-    assert by_team[4].ties == 1
+    assert (
+        by_team[team_ids["team-1"]].wins,
+        by_team[team_ids["team-1"]].losses,
+    ) == (1, 1)
+    assert (
+        by_team[team_ids["team-3"]].wins,
+        by_team[team_ids["team-3"]].losses,
+    ) == (1, 1)
+    assert by_team[team_ids["team-2"]].ties == 1
+    assert by_team[team_ids["team-4"]].ties == 1
 
 
 def test_projected_bye_has_no_head_to_head_record(
@@ -1066,12 +1082,23 @@ def test_projected_bye_has_no_head_to_head_record(
 
     projected = StandingsService(session).get_standings(league_id, SEASON, include_projected=True)
 
+    team_ids = _team_id_map(session, league_id)
     by_team = {row.team_id: row for row in projected.overall}
-    assert (by_team[1].wins, by_team[1].losses, by_team[1].ties) == (1, 0, 0)
-    assert (by_team[4].wins, by_team[4].losses, by_team[4].ties) == (0, 1, 0)
+    assert (
+        by_team[team_ids["team-1"]].wins,
+        by_team[team_ids["team-1"]].losses,
+        by_team[team_ids["team-1"]].ties,
+    ) == (1, 0, 0)
+    assert (
+        by_team[team_ids["team-4"]].wins,
+        by_team[team_ids["team-4"]].losses,
+        by_team[team_ids["team-4"]].ties,
+    ) == (0, 1, 0)
     assert projected.projection is not None
     assert (
-        next(team for team in projected.projection.teams if team.team_id == 1).opponent_team_id
+        next(
+            team for team in projected.projection.teams if team.team_id == team_ids["team-1"]
+        ).opponent_team_id
         is None
     )
 
@@ -1225,12 +1252,13 @@ def test_full_season_sync_refreshes_the_active_week_projections(
 
     with db[0]() as check:
         repository = SyncRepository(check)
+        team_ids = _team_id_map(check, league_id)
         rows = repository.get_week_projections(league_id, SEASON, 2)
         assert {row.team_id: row.points for row in rows} == {
-            1: Decimal("130.00"),
-            2: Decimal("90.00"),
-            3: Decimal("100.00"),
-            4: Decimal("80.00"),
+            team_ids["team-1"]: Decimal("130.00"),
+            team_ids["team-2"]: Decimal("90.00"),
+            team_ids["team-3"]: Decimal("100.00"),
+            team_ids["team-4"]: Decimal("80.00"),
         }
         season = repository.get_league_season(league_id, SEASON)
         assert season is not None
