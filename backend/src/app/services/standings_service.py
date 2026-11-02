@@ -44,6 +44,8 @@ from app.domain.standings import SeasonRow, rank_teams
 from app.domain.types import TeamWeek
 from app.domain.vp_engine import compute_week_vp
 from app.domain.wapdate import (
+    PERIODS,
+    PeriodWindow,
     TeamPeriodStats,
     WapdateRow,
     build_wapdate_rows,
@@ -569,8 +571,27 @@ class StandingsService:
         _, projection = self._projection(context, include_projected)
         applied = projection if projection is not None and projection.applied else None
 
+        windows = list(offered_periods(weeks))
+        if applied is not None and applied.week is not None:
+            period = next(
+                (
+                    candidate
+                    for candidate in PERIODS
+                    if candidate.start_week <= applied.week <= candidate.end_week
+                ),
+                None,
+            )
+            if period is not None and all(
+                window.period.number != period.number for window in windows
+            ):
+                # The projected week can be the first week of a new period before any of that
+                # period's weeks is complete. Offer it as current with no completed weeks; the
+                # loop below adds the projected week to its totals.
+                windows.append(PeriodWindow(period=period, status="current", weeks=()))
+        windows.sort(key=lambda window: window.period.number)
+
         periods: list[WapdatePeriod] = []
-        for window in offered_periods(weeks):
+        for window in windows:
             in_period_week: int | None = None
             if (
                 applied is not None
@@ -747,18 +768,19 @@ class StandingsService:
     def _active_week(self, context: _SeasonContext) -> int | None:
         """Return the first incomplete regular-season week, or None when there is none.
 
-        A missing stored schedule for any week, or a playoff week inside the regular season, is
-        inconsistent data: the projected view is then unavailable rather than skipping ahead.
+        Every regular-season week must have a stored schedule and none may be a playoff week.
+        The scan continues after the first incomplete week so a missing or playoff-marked later
+        week makes the projected view unavailable rather than applying a projection over an
+        inconsistent season.
         """
+        active: int | None = None
         for week in range(1, context.regular_season_length + 1):
             matchups = self._repository.get_week_matchups(context.league_id, context.season, week)
-            if not matchups:
+            if not matchups or any(matchup.is_playoff for matchup in matchups):
                 return None
-            if any(matchup.is_playoff for matchup in matchups):
-                return None
-            if any(not matchup.is_complete for matchup in matchups):
-                return week
-        return None
+            if active is None and any(not matchup.is_complete for matchup in matchups):
+                active = week
+        return active
 
     def _projection(
         self, context: _SeasonContext, include_projected: bool

@@ -109,12 +109,12 @@ season never overwrites another season's settings: `league_id` → league, `seas
 `metadata` (JSON: regular season length, team count, division count, scoring type, and playoff
 settings including `playoff_team_count`), `cup_week` (int, nullable; the optional cup week described
 in SPEC 3.4; `NULL` means no cup week), `last_refreshed_at` (timestamp, nullable; the instant of
-the last successful
-provider-backed sync of this season, `NULL` when it has never synced), and
-`projections_refreshed_at` (timestamp, nullable; the instant the active week's provider
+the last successful **full-season** provider-backed sync of this season, `NULL` when it has never
+synced), and `projections_refreshed_at` (timestamp, nullable; the instant the active week's provider
 projections were last fetched successfully, kept separate from a full-season sync). The cup week is
 admin-chosen application data, not provider metadata: sync updates `metadata` but never overwrites
-`cup_week`. A provider-free recompute and a cup-week edit never change `last_refreshed_at`.
+`cup_week`. A provider-free recompute, a cup-week edit, and the active-week-only refresh never change
+`last_refreshed_at`.
 Unique: (`league_id`, `season`).
 
 ### `owner`

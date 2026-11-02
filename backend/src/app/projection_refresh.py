@@ -41,10 +41,6 @@ from app.services.sync_service import ActiveWeekSyncSummary, SyncService
 #: The provider natural key used to resolve stored leagues.
 DEFAULT_PROVIDER_ID = "espn"
 
-#: Upper bound on credential holders tried for one league in one run. A stale membership can never
-#: make the job walk an unbounded list.
-MAX_CREDENTIAL_ATTEMPTS = 10
-
 #: The fixed windows. APScheduler evaluates them in the configured zone, including DST changes.
 _WINDOW_TRIGGERS: tuple[tuple[str, str], ...] = (("sun", "13-23"), ("mon", "20-23"))
 
@@ -240,7 +236,7 @@ def _refresh_league(
 
     holders = list(credentials)
     random_source.shuffle(holders)
-    for espn_s2_encrypted, espn_swid_encrypted in holders[:MAX_CREDENTIAL_ATTEMPTS]:
+    for espn_s2_encrypted, espn_swid_encrypted in holders:
         try:
             with session_factory() as session:
                 provider = provider_factory(

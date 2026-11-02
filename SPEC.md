@@ -357,8 +357,10 @@ All ESPN-specific code lives behind a provider interface that returns normalized
   only that season's stored data (the `league_season` row, teams, matchups, and scores) while
   keeping the league, owners, memberships, invites, and every other stored season. Both operations
   are atomic.
-- Each stored season records the instant of its last successful provider sync as a nullable
-  timestamp. Add-season and refresh set it; changing the cup week never does.
+- Each stored season records the instant of its last successful **full-season** provider sync as a
+  nullable timestamp. Add-season and refresh set it; the active-week-only projection refresh and
+  changing the cup week never do. The projection refresh records its own
+  `projections_refreshed_at` instant.
 - After joining, a user may associate their membership with one of that league's owners.
 - An admin who belongs to a league can manage its membership from the league admin page. The page
   lists every account associated with the league by email (the account identifier; there is no

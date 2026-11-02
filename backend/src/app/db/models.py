@@ -96,8 +96,9 @@ class LeagueSeason(TimestampMixin, Base):
     #: The optional single week scored without head-to-head VP and without a W/L/T record.
     #: ``None`` means the season has no cup week and every week is scored normally.
     cup_week: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    #: When this season's data was last synced from the provider. ``None`` means never refreshed
-    #: through the provider since the column existed; admin edits such as the cup week never set it.
+    #: When this season's data was last fully synced from the provider. ``None`` means never
+    #: refreshed through the provider since the column existed; admin edits such as the cup week
+    #: never set it, and the active-week-only projection refresh leaves it unchanged.
     last_refreshed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

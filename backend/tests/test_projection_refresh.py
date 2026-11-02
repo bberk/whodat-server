@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import random
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -37,7 +37,6 @@ from app.providers.base import (
     ProjectionDTO,
     ProjectionSideDTO,
     ProviderAuthError,
-    ProviderError,
     ProviderLeagueNotFound,
     TeamDTO,
     WeekStatus,
@@ -1282,7 +1281,7 @@ def test_full_season_sync_survives_a_projection_provider_failure(
         def fetch_projections(
             self, league_ref: LeagueRef, season: int, week: int
         ) -> list[ProjectionDTO]:
-            raise ProviderError("box scores unavailable")
+            raise RuntimeError("box scores unavailable")
 
     failing = ProjectionFailure(
         {
@@ -1309,3 +1308,137 @@ def test_full_season_sync_survives_a_projection_provider_failure(
         assert repository.get_teams(league_id, SEASON)
         assert repository.get_week_scores(league_id, SEASON, 1)
         assert repository.get_week_projections(league_id, SEASON, 2) == []
+
+
+def test_projected_wapdate_offers_a_new_period(
+    db: tuple[sessionmaker[Session], Session],
+) -> None:
+    """A projected week that starts a new period offers that period as current."""
+    provider, _ = _seed(week_2_complete=True)
+    league_id = _sync(db, provider)
+    session = db[1]
+    with db[0]() as write:
+        repository = SyncRepository(write)
+        repository.upsert_league_season(
+            league_id,
+            SEASON,
+            {"regular_season_length": 5, "playoff_team_count": 4},
+        )
+        teams = {team.external_id: team.id for team in repository.get_teams(league_id, SEASON)}
+        for week in (3, 4, 5):
+            complete = week != 5
+            repository.upsert_matchup(
+                league_id, SEASON, week, teams["team-1"], teams["team-2"], False, complete
+            )
+            repository.upsert_matchup(
+                league_id, SEASON, week, teams["team-3"], teams["team-4"], False, complete
+            )
+            if complete:
+                for external_id, points in (
+                    ("team-1", "120"),
+                    ("team-2", "100"),
+                    ("team-3", "110"),
+                    ("team-4", "90"),
+                ):
+                    repository.upsert_score(
+                        teams[external_id],
+                        league_id,
+                        SEASON,
+                        week,
+                        Decimal(points),
+                    )
+        write.commit()
+    _store_projections(
+        db,
+        league_id,
+        5,
+        {"team-1": "130", "team-2": "90", "team-3": "100", "team-4": "80"},
+    )
+
+    wapdate = StandingsService(session).get_wapdate(league_id, SEASON, include_projected=True)
+
+    assert [period.period for period in wapdate.periods] == [1, 2]
+    period_two = wapdate.periods[1]
+    assert period_two.status == "current"
+    assert period_two.weeks == (5,)
+    assert len(period_two.rows) == 4
+
+
+def test_active_week_does_not_touch_last_refreshed_at(
+    db: tuple[sessionmaker[Session], Session],
+) -> None:
+    """The 15-minute path updates projections_refreshed_at, not the full-season timestamp."""
+    provider, _ = _seed(with_projections=False)
+    league_id = _sync(db, provider)
+    _, session = db
+    _add_credentials(session, league_id)
+    later = FIXED_NOW + timedelta(hours=1)
+    provider.set_projections(LeagueRef(external_id=LEAGUE), SEASON, {2: _valid_projection_list()})
+
+    SyncService(provider, session, clock=lambda: later).sync_active_week(
+        LeagueRef(external_id=LEAGUE), "fake", SEASON
+    )
+    session.commit()
+
+    with db[0]() as check:
+        season = SyncRepository(check).get_league_season(league_id, SEASON)
+        assert season is not None
+        assert season.last_refreshed_at is not None
+        assert season.last_refreshed_at.replace(tzinfo=UTC) == FIXED_NOW
+        assert season.projections_refreshed_at is not None
+        assert season.projections_refreshed_at.replace(tzinfo=UTC) == later
+
+
+def test_all_credential_holders_are_tried(
+    db: tuple[sessionmaker[Session], Session],
+) -> None:
+    """All holders are attempted, with no arbitrary cap that can hide a valid one."""
+    provider, _ = _seed(with_projections=False)
+    league_id = _sync(db, provider)
+    _, session = db
+    _add_credentials(session, league_id, count=12)
+
+    attempts = 0
+
+    def factory(**_: str | None):  # type: ignore[no-untyped-def]
+        nonlocal attempts
+        attempts += 1
+        if attempts < 12:
+            raise ProviderAuthError("rejected")
+        return provider
+
+    class NoShuffle(random.Random):
+        def shuffle(self, _items: list[tuple[str, str]]) -> None:
+            return None
+
+    results = refresh_active_weeks(
+        session_factory=db[0],
+        provider_id="fake",
+        provider_factory=factory,
+        clock=lambda: FIXED_NOW,
+        random_source=NoShuffle(),
+    )
+
+    assert [result.status for result in results] == ["ok"]
+    assert attempts == 12
+
+
+def test_projected_view_rejects_a_missing_later_week(
+    db: tuple[sessionmaker[Session], Session],
+) -> None:
+    """A missing schedule after the first incomplete week makes the projected view unavailable."""
+    provider, _ = _seed()
+    league_id = _sync(db, provider)
+    with db[0]() as write:
+        SyncRepository(write).upsert_league_season(
+            league_id,
+            SEASON,
+            {"regular_season_length": 3, "playoff_team_count": 4},
+        )
+        write.commit()
+
+    projected = StandingsService(db[1]).get_standings(league_id, SEASON, include_projected=True)
+
+    assert projected.projection is not None
+    assert projected.projection.week is None
+    assert projected.projection.reason == "no_active_week"
