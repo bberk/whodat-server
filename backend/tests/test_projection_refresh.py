@@ -1535,3 +1535,27 @@ def test_incomplete_schedule_is_reported_separately(
     assert results[0].summary.active_week is None
     assert results[0].summary.schedule_reason == "incomplete_schedule"
     assert _metric("projection", "incomplete_schedule") == before + 1
+
+
+def test_no_active_week_keeps_the_last_projection_as_of(
+    db: tuple[sessionmaker[Session], Session],
+) -> None:
+    """A path with no provider fetch does not make the projection as-of look fresh."""
+    provider, _ = _seed()
+    league_id = _sync(db, provider)
+    _, session = db
+    _add_credentials(session, league_id)
+    final_provider, _ = _seed(week_2_complete=True)
+    later = FIXED_NOW + timedelta(hours=1)
+
+    summary = SyncService(final_provider, session, clock=lambda: later).sync_active_week(
+        LeagueRef(external_id=LEAGUE), "fake", SEASON
+    )
+    session.commit()
+
+    assert summary.active_week is None
+    with db[0]() as check:
+        season = SyncRepository(check).get_league_season(league_id, SEASON)
+        assert season is not None
+        assert season.projections_refreshed_at is not None
+        assert season.projections_refreshed_at.replace(tzinfo=UTC) == FIXED_NOW

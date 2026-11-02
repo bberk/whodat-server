@@ -623,9 +623,12 @@ class SyncService:
     def _clear_no_active_week(
         self, league_id: int, season: int, *, outcome: str = "no_active_week"
     ) -> None:
-        """Clear projections and record one no-active-week or incomplete-schedule outcome."""
+        """Clear projections and record one no-active-week or incomplete-schedule outcome.
+
+        No provider fetch happened on this path, so the last successful fetch timestamp is left
+        untouched rather than making ``as_of`` look fresh.
+        """
         self._clear_all_projections(league_id, season)
-        self._repository.set_league_season_projections_refreshed(league_id, season, self._clock())
         WEEK_REFRESH_TOTAL.labels("projection", outcome).inc()
 
     def _active_week(
