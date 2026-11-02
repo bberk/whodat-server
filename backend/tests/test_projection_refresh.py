@@ -695,6 +695,24 @@ def _valid_projection_list() -> list[ProjectionDTO]:
                 is_playoff=True,
             ),
         ],
+        [
+            ProjectionDTO(
+                week=2,
+                home=ProjectionSideDTO("team-1", Decimal("-1.00")),
+                away=ProjectionSideDTO("team-3", Decimal("100.00")),
+                is_playoff=False,
+            ),
+            _valid_projection_list()[1],
+        ],
+        [
+            ProjectionDTO(
+                week=2,
+                home=ProjectionSideDTO("team-1", Decimal("NaN")),
+                away=ProjectionSideDTO("team-3", Decimal("100.00")),
+                is_playoff=False,
+            ),
+            _valid_projection_list()[1],
+        ],
     ],
     ids=[
         "empty",
@@ -704,6 +722,8 @@ def _valid_projection_list() -> list[ProjectionDTO]:
         "missing-matchup",
         "extra-team",
         "playoff-flag",
+        "negative-points",
+        "non-finite-points",
     ],
 )
 def test_invalid_projection_sets_clear_the_week(
@@ -1484,4 +1504,34 @@ def test_projected_view_rejects_a_missing_later_week(
 
     assert projected.projection is not None
     assert projected.projection.week is None
-    assert projected.projection.reason == "no_active_week"
+    assert projected.projection.reason == "incomplete_schedule"
+
+
+def test_incomplete_schedule_is_reported_separately(
+    db: tuple[sessionmaker[Session], Session],
+) -> None:
+    """A missing later week reports incomplete_schedule, not a finished season."""
+    provider, _ = _seed()
+    league_id = _sync(db, provider)
+    _add_credentials(db[1], league_id)
+    with db[0]() as write:
+        SyncRepository(write).upsert_league_season(
+            league_id,
+            SEASON,
+            {"regular_season_length": 3, "playoff_team_count": 4},
+        )
+        write.commit()
+    before = _metric("projection", "incomplete_schedule")
+
+    results = refresh_active_weeks(
+        session_factory=db[0],
+        provider_id="fake",
+        provider_factory=lambda **_: provider,
+        clock=lambda: FIXED_NOW,
+    )
+
+    assert [result.status for result in results] == ["incomplete_schedule"]
+    assert results[0].summary is not None
+    assert results[0].summary.active_week is None
+    assert results[0].summary.schedule_reason == "incomplete_schedule"
+    assert _metric("projection", "incomplete_schedule") == before + 1
