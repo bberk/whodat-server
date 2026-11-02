@@ -30,7 +30,6 @@ from app.providers.base import (
     LeagueRef,
     MatchupDTO,
     ProjectionDTO,
-    ProviderError,
     ProviderLeagueNotFound,
 )
 from app.validation import normalize_display_text
@@ -354,7 +353,8 @@ class SyncService:
         syncs the new active week's schedule, then stores that week's provider projections.
         Projections for every other week are removed, so a read can never pair projections with
         the wrong week. A missing, partial, or non-numeric projection clears the active week
-        instead of storing a guess.
+        instead of storing a guess. It updates ``projections_refreshed_at`` but deliberately leaves
+        ``last_refreshed_at`` alone: that timestamp describes a full-season refresh.
 
         Raises :class:`MissingRegularSeasonLengthError` when the season has no usable length and
         :class:`LeagueNotFoundError` when the league is not stored. Provider failures propagate so
@@ -409,9 +409,6 @@ class SyncService:
                 active = self._active_week(league.id, season, regular_season_length)
                 if active is None:
                     self._clear_no_active_week(league.id, season)
-                    self._repository.set_league_season_last_refreshed(
-                        league.id, season, self._clock()
-                    )
                     return ActiveWeekSyncSummary(
                         league_id=league.id,
                         season=season,
@@ -433,6 +430,7 @@ class SyncService:
                     projections_stored=0,
                 )
 
+            projections = provider.fetch_projections(league_ref, season, active)
             projections_stored = self._store_active_week_projections(
                 league_id=league.id,
                 season=season,
@@ -440,10 +438,8 @@ class SyncService:
                 rows=rows,
                 team_external_to_id=team_external_to_id,
                 team_id_to_external=team_id_to_external,
-                provider=provider,
-                league_ref=league_ref,
+                projections=projections,
             )
-            self._repository.set_league_season_last_refreshed(league.id, season, self._clock())
             return ActiveWeekSyncSummary(
                 league_id=league.id,
                 season=season,
@@ -549,20 +545,22 @@ class SyncService:
             team_id: external_id for external_id, team_id in team_external_to_id.items()
         }
         try:
-            self._store_active_week_projections(
-                league_id=league_id,
-                season=season,
-                active=active_week,
-                rows=rows,
-                team_external_to_id=team_external_to_id,
-                team_id_to_external=team_id_to_external,
-                provider=provider,
-                league_ref=league_ref,
-            )
-        except ProviderError:
-            # Projections are optional provider data. Keep the last successful rows so the UI can
-            # show their as-of time, and leave the successfully synced season intact.
+            projections = provider.fetch_projections(league_ref, season, active_week)
+        except Exception:
+            # Projection data is optional. Isolate only the provider call so a transport or
+            # adapter failure cannot undo the successful season sync, while database failures
+            # from the store below still propagate.
             WEEK_REFRESH_TOTAL.labels("projection", "failed").inc()
+            return
+        self._store_active_week_projections(
+            league_id=league_id,
+            season=season,
+            active=active_week,
+            rows=rows,
+            team_external_to_id=team_external_to_id,
+            team_id_to_external=team_id_to_external,
+            projections=projections,
+        )
 
     def _store_active_week_projections(
         self,
@@ -573,17 +571,14 @@ class SyncService:
         rows: Sequence[Matchup],
         team_external_to_id: Mapping[str, int],
         team_id_to_external: Mapping[int, str],
-        provider: LeagueProvider,
-        league_ref: LeagueRef,
+        projections: Sequence[ProjectionDTO],
     ) -> int:
-        """Fetch, validate, and persist one active week's projections; return rows stored.
+        """Validate and persist one active week's projections; return rows stored.
 
         Every participating team must have exactly one usable projection. A missing, partial,
         duplicate, negative, or non-regular-season set clears the week and records an explicit
-        outcome; a partial week is never stored. The as-of instant moves only after the fetch
-        succeeds, even when the result is an incomplete set.
+        outcome; a partial week is never stored. Database failures propagate to the caller.
         """
-        projections = provider.fetch_projections(league_ref, season, active)
         points_by_team = self._validated_projection_points(projections, rows, team_id_to_external)
         if points_by_team is None:
             self._clear_all_projections(league_id, season)
@@ -622,19 +617,18 @@ class SyncService:
     def _active_week(self, league_id: int, season: int, regular_season_length: int) -> int | None:
         """Return the first incomplete regular-season week, or None when there is none.
 
-        A missing stored schedule for any week before the end, or a playoff week inside the
-        regular season, is inconsistent data: the caller then reports no active week rather than
-        skipping ahead to a later week.
+        Every regular-season week must have a stored schedule and none may be a playoff week. The
+        scan continues after the first incomplete week so a missing or playoff-marked later week
+        is treated as incomplete schedule data rather than silently ignored.
         """
+        active: int | None = None
         for week in range(1, regular_season_length + 1):
             matchups = self._repository.get_week_matchups(league_id, season, week)
-            if not matchups:
+            if not matchups or any(matchup.is_playoff for matchup in matchups):
                 return None
-            if any(matchup.is_playoff for matchup in matchups):
-                return None
-            if any(not matchup.is_complete for matchup in matchups):
-                return week
-        return None
+            if active is None and any(not matchup.is_complete for matchup in matchups):
+                active = week
+        return active
 
     @staticmethod
     def _validated_projection_points(

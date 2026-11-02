@@ -603,6 +603,7 @@ describe("StandingsPage", () => {
       }),
     ).toBeInTheDocument();
     expect(screen.getByText(/projecting week 5/i)).toBeInTheDocument();
+    expect(screen.getByText(/espn projections as of/i)).toBeInTheDocument();
     expect(screen.getByText(/weeks marked with \*/i)).toBeInTheDocument();
     expect(screen.getByText(/safe-from-last bound treats it as played/i)).toBeInTheDocument();
     expect(
@@ -628,5 +629,53 @@ describe("StandingsPage", () => {
     });
     expect(toggle).toBeDisabled();
     expect(screen.getByText(/no active week to project/i)).toBeInTheDocument();
+  });
+
+  it("disables the switch when the stored projection is unavailable", async () => {
+    const baseStandings: StandingsResponse = { ...standingsResponse, active_week: 5 };
+    const unavailable: StandingsResponse = {
+      ...standingsResponse,
+      active_week: 5,
+      projection: {
+        status: "unavailable",
+        week: null,
+        reason: "projections_not_synced",
+        as_of: null,
+        is_cup_week: false,
+        teams: [],
+      },
+    };
+    mockFetch((url) => {
+      const path = requestPath(url);
+      const projected = new URL(String(url)).searchParams.get("include_projected") === "true";
+      if (path.endsWith("/standings")) {
+        return jsonResponse(projected ? unavailable : baseStandings);
+      }
+      if (path.endsWith("/vp-history")) {
+        return jsonResponse(historyResponse);
+      }
+      if (path.endsWith("/wapdate")) {
+        return jsonResponse(wapdateResponse);
+      }
+      if (path.endsWith("/playoff-odds")) {
+        return jsonResponse(playoffOddsResponse);
+      }
+      return errorResponse(404, { code: "not_found", message: "Not found" });
+    });
+
+    const user = userEvent.setup();
+    renderPage();
+    const toggle = await screen.findByRole("switch", {
+      name: /include projected week 5/i,
+    });
+    await user.click(toggle);
+
+    const disabled = await screen.findByRole("switch", {
+      name: /projected week unavailable/i,
+    });
+    expect(disabled).toBeDisabled();
+    expect(
+      screen.getByText(/projected results are unavailable \(projections_not_synced\)/i),
+    ).toBeInTheDocument();
   });
 });

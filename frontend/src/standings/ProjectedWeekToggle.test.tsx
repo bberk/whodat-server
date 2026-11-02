@@ -18,7 +18,22 @@ describe("ProjectedWeekToggle", () => {
     expect(onChange).toHaveBeenCalledWith(true);
   });
 
-  it("disables itself and explains why when the season has no active week", () => {
+  it("disables itself and explains why when the projection is unavailable", () => {
+    render(
+      <ProjectedWeekToggle
+        week={7}
+        checked={false}
+        disabled
+        reason="Projected results are unavailable (projections_not_synced)."
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("switch", { name: /projected week unavailable/i })).toBeDisabled();
+    expect(screen.getByText(/projections_not_synced/i)).toBeInTheDocument();
+  });
+
+  it("disables itself when there is no active week", () => {
     render(
       <ProjectedWeekToggle
         week={null}

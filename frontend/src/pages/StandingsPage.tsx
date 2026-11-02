@@ -21,6 +21,12 @@ import { WapdateSection } from "../standings/WapdateSection";
 
 const EMPTY_STYLES: ReadonlyMap<number, number> = new Map<number, number>();
 
+/** Render the projection as-of instant in the browser's local time, or the raw value if invalid. */
+function formatProjectionAsOf(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
 /**
  * The standings dashboard: overall and per-division tables and the cumulative VP chart, each with
  * loading, empty, and error states. Data comes from the API for the league and season selected in
@@ -120,12 +126,14 @@ export function StandingsPage() {
   const activeWeek = bundle === null ? null : bundle.standings.active_week;
   const projection = bundle === null ? null : bundle.standings.projection;
   const appliedProjectedWeek = projection?.week ?? null;
+  const projectionAsOf = projection?.as_of ?? null;
+  const projectionUnavailable = includeProjected && projection?.status === "unavailable";
   const canProject = showPlayoffOdds;
   const projectionReason =
     activeWeek === null
       ? "This season has no active week to project (it is complete, or the schedule is incomplete)."
-      : includeProjected && projection?.status === "unavailable"
-        ? `Projected results are unavailable (${projection.reason ?? "not synced"}); showing completed weeks.`
+      : projectionUnavailable
+        ? `Projected results are unavailable (${projection?.reason ?? "not synced"}); showing completed weeks.`
         : null;
   const visibleTeamIds = series
     .filter((entry) => !hiddenTeamIds.has(entry.teamId))
@@ -184,12 +192,20 @@ export function StandingsPage() {
           <VPRulesTooltip />
         </div>
         {canProject ? (
-          <ProjectedWeekToggle
-            week={activeWeek}
-            checked={includeProjected}
-            reason={projectionReason}
-            onChange={setIncludeProjected}
-          />
+          <>
+            <ProjectedWeekToggle
+              week={activeWeek}
+              checked={includeProjected && !projectionUnavailable}
+              disabled={projectionUnavailable}
+              reason={projectionReason}
+              onChange={setIncludeProjected}
+            />
+            {appliedProjectedWeek !== null && projectionAsOf !== null ? (
+              <p className="mt-1 text-[12px] text-ink-faint">
+                ESPN projections as of {formatProjectionAsOf(projectionAsOf)}.
+              </p>
+            ) : null}
+          </>
         ) : null}
         {bundle === null ? (
           <DataState
