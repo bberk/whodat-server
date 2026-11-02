@@ -25,6 +25,8 @@ export interface StandingsTableProps {
   weeks: number[];
   /** The one week whose values are an ESPN projection rather than a completed result. */
   projectedWeek?: number | null;
+  /** Provider-projected points per team for the active week, keyed by team id. */
+  projectedPointsByTeam?: ReadonlyMap<number, string>;
   showTies: boolean;
   selectedTeamId: number | null;
   onSelectTeam: (teamId: number) => void;
@@ -87,6 +89,7 @@ export function StandingsTable({
   rows,
   weeks,
   projectedWeek = null,
+  projectedPointsByTeam,
   showTies,
   selectedTeamId,
   onSelectTeam,
@@ -148,6 +151,11 @@ export function StandingsTable({
                 initialDirection="desc"
                 className={headCell}
               />
+              {projectedPointsByTeam !== undefined ? (
+                <th scope="col" className={headCell}>
+                  {projectedWeek === null ? "Proj. pts" : `W${projectedWeek} pts`}
+                </th>
+              ) : null}
               {weeks.map((week) => (
                 <SortableHeader
                   key={week}
@@ -224,6 +232,22 @@ export function StandingsTable({
                   <td className={`${numCell} ${BODY_CELL_DIVIDER} text-ink-subtle`}>
                     {formatPoints(row.points_for)}
                   </td>
+                  {projectedPointsByTeam !== undefined ? (
+                    <td
+                      className={`${numCell} ${BODY_CELL_DIVIDER} tabular-nums text-ink-muted ${
+                        projectedPointsByTeam.has(row.team_id) ? "bg-surface-muted" : ""
+                      }`}
+                      title={
+                        projectedWeek === null
+                          ? "ESPN projection"
+                          : `ESPN projection, week ${projectedWeek}`
+                      }
+                    >
+                      {projectedPointsByTeam.has(row.team_id)
+                        ? formatPoints(projectedPointsByTeam.get(row.team_id) ?? "")
+                        : "—"}
+                    </td>
+                  ) : null}
                   {row.weekly_vp.map((vp, index) => {
                     if (weeks[index] === undefined) {
                       return null;

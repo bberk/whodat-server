@@ -128,6 +128,10 @@ export function StandingsPage() {
   const appliedProjectedWeek = projection?.week ?? null;
   const projectionAsOf = projection?.as_of ?? null;
   const projectionUnavailable = includeProjected && projection?.status === "unavailable";
+  const projectedPointsByTeam =
+    projection?.status === "ok"
+      ? new Map(projection.teams.map((team) => [team.team_id, team.points]))
+      : undefined;
   const canProject = showPlayoffOdds;
   const projectionReason =
     activeWeek === null
@@ -227,6 +231,7 @@ export function StandingsPage() {
               rows={bundle.standings.overall}
               weeks={tableWeeks}
               projectedWeek={appliedProjectedWeek}
+              projectedPointsByTeam={projectedPointsByTeam}
               showTies={showTies}
               selectedTeamId={selectedTeamId}
               onSelectTeam={selectTeam}

@@ -602,6 +602,8 @@ describe("StandingsPage", () => {
         name: /week 5 vp, espn projection/i,
       }),
     ).toBeInTheDocument();
+    expect(within(overall).getByRole("columnheader", { name: /W5 pts/i })).toBeInTheDocument();
+    expect(within(overall).getAllByText("100.00").length).toBeGreaterThanOrEqual(4);
     expect(screen.getByText(/projecting week 5/i)).toBeInTheDocument();
     expect(screen.getByText(/espn projections as of/i)).toBeInTheDocument();
     expect(screen.getByText(/weeks marked with \*/i)).toBeInTheDocument();
