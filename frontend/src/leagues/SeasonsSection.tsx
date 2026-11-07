@@ -1,9 +1,8 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState } from "react";
 
 import { api } from "../api/endpoints";
-import { toDisplayError, type DisplayError } from "../api/errors";
+import { toDisplayError } from "../api/errors";
 import type { SeasonSettingsSummary } from "../api/types";
-import { ApiAlert } from "../components/ApiAlert";
 import { EmptyState, ErrorState, LoadingState } from "../components/DataStates";
 import { SortableHeader } from "../components/SortableHeader";
 import {
@@ -13,26 +12,16 @@ import {
   type SortState,
   type SortValue,
 } from "../components/sorting";
-import { BODY_CELL_DIVIDER_SUBTLE, LAST_ROW_NO_DIVIDER } from "../components/tableStyles";
-import {
-  dangerSecondaryButtonClass,
-  inputClass,
-  labelClass,
-  primaryButtonClass,
-  secondaryButtonClass,
-  selectClass,
-} from "../components/formStyles";
+import { LAST_ROW_NO_DIVIDER } from "../components/tableStyles";
+import { secondaryButtonClass } from "../components/formStyles";
+import { AddSeasonModal } from "./AddSeasonModal";
+import { DeleteSeasonModal } from "./DeleteSeasonModal";
 import { useLeague } from "./LeagueContext";
-import { formatLastRefreshed } from "./formatSeason";
-
-const MIN_SEASON = 2000;
-const MAX_SEASON = 2100;
+import { SeasonRow, type RowAction } from "./SeasonRow";
 
 const headCell =
   "whitespace-nowrap border-b border-line bg-surface-muted px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-faint";
-const bodyCell = `${BODY_CELL_DIVIDER_SUBTLE} px-3 py-2 align-middle`;
 const stickyHead = "sticky left-0 z-20 min-w-[88px] bg-surface-muted shadow-sticky";
-const stickyBody = "sticky left-0 z-10 min-w-[88px] bg-surface shadow-sticky";
 
 type SeasonsState =
   | { status: "loading" }
@@ -40,14 +29,8 @@ type SeasonsState =
   | { status: "empty" }
   | { status: "ready"; seasons: SeasonSettingsSummary[] };
 
-type RowAction = "cup" | "refresh" | "delete";
-
 type RowFlags = Readonly<Record<number, RowAction | undefined>>;
 type RowMessages = Readonly<Record<number, string | undefined>>;
-
-function currentYear(): number {
-  return new Date().getFullYear();
-}
 
 function syncedLabel(weeks: readonly number[]): string {
   if (weeks.length === 0) {
@@ -115,12 +98,7 @@ export function SeasonsSection({ leagueId }: { leagueId: number }) {
   const [sort, setSort] = useState<SortState | null>(null);
 
   const [addOpen, setAddOpen] = useState(false);
-  const [year, setYear] = useState(String(currentYear()));
-  const [addSaving, setAddSaving] = useState(false);
-  const [addFormError, setAddFormError] = useState<string | null>(null);
-  const [addError, setAddError] = useState<DisplayError | null>(null);
   const [pendingDelete, setPendingDelete] = useState<SeasonSettingsSummary | null>(null);
-  const [deleteError, setDeleteError] = useState<DisplayError | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -212,83 +190,28 @@ export function SeasonsSection({ leagueId }: { leagueId: number }) {
     }
   };
 
-  const closeAdd = () => {
-    if (addSaving) {
-      return;
-    }
+  const handleAddSuccess = (newSeason: number) => {
+    addStoredSeason(newSeason);
+    reloadSeasons();
     setAddOpen(false);
-    setAddFormError(null);
-    setAddError(null);
+    setActionMessage(`Season ${newSeason} added and synced.`);
+    setAttempt((current) => current + 1);
+    notifyDataChanged();
   };
 
-  const submitAdd = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setAddFormError(null);
-    setAddError(null);
-    const trimmed = year.trim();
-    const parsed = Number(trimmed);
-    if (trimmed === "" || !Number.isInteger(parsed)) {
-      setAddFormError(`Enter a whole season year between ${MIN_SEASON} and ${MAX_SEASON}.`);
-      return;
-    }
-    if (parsed < MIN_SEASON || parsed > MAX_SEASON) {
-      setAddFormError(`Season must be a whole year between ${MIN_SEASON} and ${MAX_SEASON}.`);
-      return;
-    }
-    setAddSaving(true);
-    try {
-      const response = await api.addSeason(leagueId, { season: parsed });
-      addStoredSeason(response.season);
-      reloadSeasons();
-      setAddOpen(false);
-      setActionMessage(`Season ${response.season} added and synced.`);
-      setAttempt((current) => current + 1);
-      notifyDataChanged();
-    } catch (failure) {
-      setAddError(toDisplayError(failure));
-    } finally {
-      setAddSaving(false);
-    }
-  };
-
-  const closeDelete = () => {
-    if (pendingDelete !== null && busy[pendingDelete.season] === "delete") {
-      return;
-    }
-    setDeleteError(null);
+  const handleDeleteSuccess = (deletedSeason: number) => {
+    setState((current) => {
+      if (current.status !== "ready") {
+        return current;
+      }
+      const remaining = current.seasons.filter((item) => item.season !== deletedSeason);
+      return remaining.length === 0 ? { status: "empty" } : { status: "ready", seasons: remaining };
+    });
     setPendingDelete(null);
+    setActionMessage(`Season ${deletedSeason} deleted.`);
+    reloadSeasons();
+    notifyDataChanged();
   };
-
-  const confirmDelete = async () => {
-    if (pendingDelete === null) {
-      return;
-    }
-    const row = pendingDelete;
-    setBusy((current) => withKey(current, row.season, "delete"));
-    setDeleteError(null);
-    try {
-      await api.deleteSeason(leagueId, row.season);
-      setState((current) => {
-        if (current.status !== "ready") {
-          return current;
-        }
-        const remaining = current.seasons.filter((item) => item.season !== row.season);
-        return remaining.length === 0
-          ? { status: "empty" }
-          : { status: "ready", seasons: remaining };
-      });
-      setPendingDelete(null);
-      setActionMessage(`Season ${row.season} deleted.`);
-      reloadSeasons();
-      notifyDataChanged();
-    } catch (failure) {
-      setDeleteError(toDisplayError(failure));
-    } finally {
-      setBusy((current) => withoutKey(current, row.season));
-    }
-  };
-
-  const deleting = pendingDelete !== null && busy[pendingDelete.season] === "delete";
 
   return (
     <section aria-labelledby="h-seasons" className="mt-7">
@@ -305,9 +228,6 @@ export function SeasonsSection({ leagueId }: { leagueId: number }) {
         <button
           type="button"
           onClick={() => {
-            setAddFormError(null);
-            setAddError(null);
-            setYear(String(currentYear()));
             setAddOpen(true);
           }}
           aria-label="Add a season"
@@ -387,210 +307,42 @@ export function SeasonsSection({ leagueId }: { leagueId: number }) {
               </tr>
             </thead>
             <tbody className={LAST_ROW_NO_DIVIDER}>
-              {orderedSeasons.map((row) => {
-                const rowBusy = busy[row.season];
-                const rowError = errors[row.season];
-                const rowNotice = notices[row.season];
-                return [
-                  <tr key={row.season}>
-                    <th scope="row" className={`${bodyCell} font-semibold ${stickyBody}`}>
-                      {row.season}
-                    </th>
-                    <td className={bodyCell}>
-                      <label htmlFor={`cup-week-${row.season}`} className="sr-only">
-                        Cup week for {row.season}
-                      </label>
-                      <select
-                        id={`cup-week-${row.season}`}
-                        className={selectClass}
-                        value={row.cup_week ?? ""}
-                        disabled={rowBusy !== undefined}
-                        onChange={(event) => {
-                          const value =
-                            event.target.value === "" ? null : Number(event.target.value);
-                          void saveCupWeek(row, value);
-                        }}
-                      >
-                        <option value="">No cup week</option>
-                        {Array.from(
-                          { length: row.regular_season_length },
-                          (_, index) => index + 1,
-                        ).map((week) => (
-                          <option key={week} value={week}>
-                            Week {week}
-                          </option>
-                        ))}
-                      </select>
-                      {rowBusy === "cup" ? (
-                        <span className="ml-2 text-[12px] text-ink-subtle">Saving…</span>
-                      ) : null}
-                    </td>
-                    <td className={bodyCell}>
-                      <span className="whitespace-nowrap">
-                        {formatLastRefreshed(row.last_refreshed_at)}
-                      </span>
-                    </td>
-                    <td className={bodyCell}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void refreshSeason(row);
-                        }}
-                        disabled={rowBusy !== undefined}
-                        aria-label={`Refresh season ${row.season}`}
-                        className={secondaryButtonClass}
-                      >
-                        {rowBusy === "refresh" ? "Refreshing…" : "Refresh"}
-                      </button>
-                    </td>
-                    <td className={bodyCell}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setDeleteError(null);
-                          setPendingDelete(row);
-                        }}
-                        disabled={rowBusy !== undefined}
-                        aria-label={`Delete season ${row.season}`}
-                        title={`Delete season ${row.season}`}
-                        className={dangerSecondaryButtonClass}
-                      >
-                        <span aria-hidden="true">×</span>
-                      </button>
-                    </td>
-                  </tr>,
-                  rowError !== undefined || rowNotice !== undefined ? (
-                    <tr key={`${row.season}-message`}>
-                      <td colSpan={5} className={BODY_CELL_DIVIDER_SUBTLE + " px-3 py-2"}>
-                        {rowError !== undefined ? (
-                          <p role="alert" className="text-[12.5px] text-danger-ink">
-                            {rowError}
-                          </p>
-                        ) : (
-                          <p role="status" className="text-[12.5px] text-ink-subtle">
-                            {rowNotice}
-                          </p>
-                        )}
-                      </td>
-                    </tr>
-                  ) : null,
-                ];
-              })}
+              {orderedSeasons.map((row) => (
+                <SeasonRow
+                  key={row.season}
+                  row={row}
+                  busyAction={busy[row.season]}
+                  errorMessage={errors[row.season]}
+                  noticeMessage={notices[row.season]}
+                  onSaveCupWeek={(r, week) => {
+                    void saveCupWeek(r, week);
+                  }}
+                  onRefresh={(r) => {
+                    void refreshSeason(r);
+                  }}
+                  onDelete={(r) => {
+                    setPendingDelete(r);
+                  }}
+                />
+              ))}
             </tbody>
           </table>
         </div>
       ) : null}
 
-      {addOpen ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-overlay/40 p-4 sm:items-center">
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="h-add-season"
-            className="w-full max-w-md rounded-xl border border-line bg-surface p-5 shadow-xl"
-          >
-            <h3 id="h-add-season" className="text-lg font-bold">
-              Add a season
-            </h3>
-            <p className="mt-2 text-[13px] text-ink-subtle">
-              Sync another season for this league using your stored credentials.
-            </p>
-            <form onSubmit={submitAdd} noValidate className="mt-3">
-              <label htmlFor="add-season-year" className={labelClass}>
-                Season year
-              </label>
-              <input
-                id="add-season-year"
-                name="season"
-                type="number"
-                inputMode="numeric"
-                min={MIN_SEASON}
-                max={MAX_SEASON}
-                step={1}
-                required
-                value={year}
-                onChange={(event) => setYear(event.target.value)}
-                className={inputClass}
-                disabled={addSaving}
-                aria-describedby="add-season-year-note"
-              />
-              <p id="add-season-year-note" className="mt-1 text-xs text-ink-faint">
-                A whole year from {MIN_SEASON} to {MAX_SEASON}.
-              </p>
-              {addFormError === null ? null : (
-                <p role="alert" className="mt-2 text-[13px] text-danger-ink">
-                  {addFormError}
-                </p>
-              )}
-              <ApiAlert error={addError} />
-              {addSaving ? (
-                <p role="status" className="mt-2 text-[13px] text-ink-muted">
-                  Adding and syncing season…
-                </p>
-              ) : null}
-              <div className="mt-4 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={closeAdd}
-                  disabled={addSaving}
-                  className={secondaryButtonClass}
-                  autoFocus
-                >
-                  Cancel
-                </button>
-                <button type="submit" disabled={addSaving} className={primaryButtonClass}>
-                  {addSaving ? "Adding…" : "Add season"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      ) : null}
+      <AddSeasonModal
+        leagueId={leagueId}
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        onSuccess={handleAddSuccess}
+      />
 
-      {pendingDelete === null ? null : (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-overlay/40 p-4 sm:items-center">
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="h-delete-season"
-            className="w-full max-w-md rounded-xl border border-line bg-surface p-5 shadow-xl"
-          >
-            <h3 id="h-delete-season" className="text-lg font-bold">
-              Delete season {pendingDelete.season}?
-            </h3>
-            <p className="mt-2 text-[13px] text-ink-subtle">
-              This removes only the {pendingDelete.season} season&rsquo;s teams, matchups, and
-              scores. The league, its owners, members, invites, and every other season stay.
-            </p>
-            {deleteError === null ? null : (
-              <div className="mt-3">
-                <ApiAlert error={deleteError} />
-              </div>
-            )}
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={closeDelete}
-                disabled={deleting}
-                className={secondaryButtonClass}
-                autoFocus
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  void confirmDelete();
-                }}
-                disabled={deleting}
-                className={dangerSecondaryButtonClass}
-              >
-                {deleting ? "Deleting…" : `Delete season ${pendingDelete.season}`}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <DeleteSeasonModal
+        leagueId={leagueId}
+        season={pendingDelete}
+        onClose={() => setPendingDelete(null)}
+        onSuccess={handleDeleteSuccess}
+      />
     </section>
   );
 }
