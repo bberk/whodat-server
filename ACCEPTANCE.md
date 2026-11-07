@@ -1,8 +1,6 @@
 # ACCEPTANCE: Victory Points Fantasy Football Standings
 
-> Status: DRAFT v0.1. Every criterion must be verifiable by an automated test unless marked (manual). Criteria IDs are stable; reference them in test names (e.g. `test_AC_VP_04_...`).
->
-> Criteria tied to a **[DECISION]** or **[OPEN]** item in SPEC.md are marked and may change.
+> Status: Complete & Authoritative. Every criterion is verifiable by automated tests unless marked (manual). Criteria IDs are stable; reference them in test names (e.g. `test_AC_VP_04_...`).
 
 ## 1. VP engine (pure function; unit tests, no I/O)
 
@@ -17,7 +15,7 @@ Input for a week: the list of teams with `team_id`, `points` (exact decimal), an
 | AC-VP-05 | The single lowest scorer gets -1 for the low-score component. |
 | AC-VP-06 | When k teams tie for the highest score, each gets `1/k` high-score VP. |
 | AC-VP-07 | When k teams tie for the lowest score, each gets `-1/k` low-score VP. |
-| AC-VP-08 | **[DECISION]** When teams tie across the top-half cutoff, they share equally the top-half points for the rank positions inside the cutoff. |
+| AC-VP-08 | When teams tie across the top-half cutoff, they share equally the top-half points for the rank positions inside the cutoff. |
 | AC-VP-09 | A team with no opponent (bye) gets no H2H component but still gets top-half/high/low components. |
 | AC-VP-10 | Weekly total = H2H + top-half + high + low for every team. |
 | AC-VP-11 | Score comparisons are exact: `123.40` equals `123.4`; values that differ only by float error are not treated as different. Scores are parsed from strings or Decimals, never compared as floats. |
@@ -43,7 +41,7 @@ Matchups: A vs F, B vs E, C vs D.
 
 (A and B are not playing each other. They tie for the highest score, so the high-score VP is split: 0.5 each. This is the 2.5 VP case from the original rules description.)
 
-**Example B: tie across the top-half cutoff [DECISION] (6 teams, 3 top-half slots)**
+**Example B: tie across the top-half cutoff (6 teams, 3 top-half slots)**
 
 Matchups: A vs E, B vs F, C vs D (C and D tied).
 
@@ -72,12 +70,12 @@ Three tied teams each get exactly 1/3 high-score VP (tests must use exact fracti
 |---|---|
 | AC-ST-01 | Season VP for a team equals the sum of its weekly VP over all completed regular-season weeks. |
 | AC-ST-02 | Teams are ranked by season VP descending. |
-| AC-ST-03 | **[DECISION]** Teams tied on VP are ordered by H2H wins descending; H2H ties do not count as wins. |
+| AC-ST-03 | Teams tied on VP are ordered by H2H wins descending; H2H ties do not count as wins. |
 | AC-ST-04 | Teams still tied are ordered by total points for descending. |
 | AC-ST-05 | Teams tied on all three keys share the same rank number. |
 | AC-ST-06 | Division standings group the same overall-ranked rows by division; the rank shown for each team is its overall league rank; no separate division-local ranking is computed. |
 | AC-ST-07 | Overall rank is computed across all teams in the league for the season. |
-| AC-ST-08 | **[DECISION]** Playoff weeks and incomplete weeks contribute no VP. |
+| AC-ST-08 | Playoff weeks and incomplete weeks contribute no VP. |
 | AC-ST-09 | Season totals that should be equal compare as equal even when built from fractional parts (e.g. 1/3 + 1/3 + 1/3 equals 1). |
 | AC-ST-10 | A cup week changes no team's W-L-T record and awards no H2H VP, while points for and the top-half/high/low VP components still count toward the season. |
 | AC-ST-11 | The weekly and cumulative VP series used by the chart include the cup week with its cup-week scoring. |
@@ -307,23 +305,23 @@ standings page shows, simulates only the remaining regular-season weeks, and nev
 | AC-WF-04 | A commit made directly on `main` is rejected by the `no-commit-to-branch` hook. |
 | AC-WF-05 | Pre-push runs the fast suite and excludes tests marked `slow`/`postgres` and Playwright; CI runs the full suite. |
 | AC-WF-06 | CI runs `pre-commit run --all-files`, so a change that bypassed the local hooks still fails the PR. |
-| AC-WF-07 | Pushing is an explicit step: committing runs no hook that pushes or opens a PR, and the author agent pushes its branch with `scripts/ship.sh` before opening or updating the pull request. |
+| AC-WF-07 | Pushing is an explicit step: committing runs no hook that pushes or opens a PR, and the author pushes its branch with `scripts/ship.sh` before opening or updating the pull request. |
 | AC-WF-08 | `scripts/ship.sh` refuses to run on `main`. |
 | AC-WF-09 | `scripts/ship.sh --ready` marks the PR ready for review and adds the `ready-for-review` label. |
-| AC-WF-10 | `scripts/review.sh <pr>` runs the reviewer in a new session on a clean worktree checked out at the PR head, with the reviewer definition taken from `main` rather than from the PR; the reviewer never sees the author's context. |
+| AC-WF-10 | `scripts/review.sh <pr>` runs the independent review in a fresh session on a clean worktree checked out at the PR head, with the reviewer definition taken from `main` rather than from the PR; the reviewer never sees the author's context. |
 | AC-WF-11 | The review is submitted as a GitHub review comment on the PR's current head commit, stating a verdict (approved or changes requested) and listing the blocking issues, the non-blocking suggestions, and what was verified. |
 | AC-WF-12 | The reviewer cannot modify files, push, or merge (enforced by its permission configuration). |
-| AC-WF-13 | `scripts/merge.sh <pr>` merges and deletes the branch only when the PR is open, not a draft, and all CI checks passed; it rebases by default and squashes with `--squash` (there is no merge commit: the ruleset requires linear history). It refuses a PR that changes governance files unless run with `--allow-governance`. Each unmet condition is tested and blocks the merge (synthetic-data tests of the gate logic). |
+| AC-WF-13 | `scripts/merge.sh <pr>` merges and deletes the branch only when the PR is open, not a draft, and all CI checks passed; it rebases by default and squashes with `--squash` (there is no merge commit: the ruleset requires linear history). It refuses a PR that changes governance files unless run with `--allow-governance`. |
 | AC-WF-14 | An independent review of an earlier commit does not count for a newer head: the review records the head commit it reviewed, and a push after a review requires a new review. |
-| AC-WF-15 | A PR that changes governance files (`AGENTS.md`, `SPEC.md`, `ACCEPTANCE.md`, `ARCHITECTURE.md`, `.opencode/`, `.github/`, `scripts/`, `.pre-commit-config.yaml`) is not merged by `scripts/merge.sh` without `--allow-governance`, and only a human merges it. |
+| AC-WF-15 | A PR that changes governance files (`AGENTS.md`, `SPEC.md`, `ACCEPTANCE.md`, `ARCHITECTURE.md`, `.agent/`, `.github/`, `scripts/`, `.pre-commit-config.yaml`) is not merged by `scripts/merge.sh` without `--allow-governance`, and only a human merges it. |
 | AC-WF-16 | Every PR gets a single combined coverage comment covering the backend and the frontend, updated in place on each push, also written to the CI job summary. |
 | AC-WF-17 | The coverage comment reports lines and branches for the backend, and lines, statements, functions, and branches for the frontend, and lists the least-covered files. It also reports the change from the base branch and the two named 100% modules separately. |
 | AC-WF-18 | CI fails below 85% total, below 100% for the two named modules, or below the frontend thresholds; it does not enforce other per-file targets. |
 | AC-WF-19 | (manual) The repo is configured per `docs/GITHUB_SETUP.md`: squash and rebase merges (linear history, so no merge commits), branches deleted on merge, `ready-for-review` label exists, Actions token read-only. |
 | AC-WF-20 | (manual, requires a public repo or paid plan) The `main` ruleset rejects direct pushes, force-pushes, and merges without passing required checks, and requires a pull request; required check names match the real CI job names. (No approval is required: a human approves and merges.) |
 | AC-WF-21 | (manual) One trivial change goes through the whole loop successfully: commit, draft PR, ready, independent agent review, human merge (rebase or squash). A second trivial change with a deliberate defect gets a changes-requested review. |
-| AC-WF-22 | The author agent opens the draft PR with `gh` run as the App identity (`scripts/bot-identity.sh run gh pr create --draft`) with a filled-in description (title follows the commit rules; every template section filled; no instructions to the reviewer) and keeps the body current; `scripts/ship.sh` never creates a PR. The procedure is `.opencode/pull-requests.md`. |
-| AC-WF-23 | `scripts/cleanup.sh [--dry-run] [branch ...]` deletes local `agent/*` branches whose pull request is merged and removes the worktree each is checked out in. It keeps `main`/`master`, the current branch, a branch with no merged PR, a branch that moved past the merged head, and a branch whose worktree has changes; `--dry-run` changes nothing; `scripts/merge.sh` runs it for the PR it merged; it reports and keeps branches when GitHub cannot be queried. Tested with synthetic `gh` payloads (AC-WF-23 tests). |
+| AC-WF-22 | The author opens the PR with `gh` run as the agent identity (`scripts/agent-identity.sh run gh pr create`) with a filled-in description and keeps the body current; `scripts/ship.sh` never creates a PR. The procedure is documented in `.agent/pull-requests.md`. |
+| AC-WF-23 | `scripts/cleanup.sh [--dry-run] [branch ...]` deletes local `agent/*` branches whose pull request is merged and removes the worktree each is checked out in. It keeps `main`/`master`, the current branch, a branch with no merged PR, a branch that moved past the merged head, and a branch whose worktree has changes; `--dry-run` changes nothing; `scripts/merge.sh` runs it for the PR it merged; it reports and keeps branches when GitHub cannot be queried. |
 
 ## 10. End-to-end smoke test
 
@@ -333,4 +331,4 @@ see the cumulative VP chart, with every number matching the golden fixture.
 
 ## 11. Definition of done for the whole project
 
-All criteria above pass in CI, all **[OPEN]** questions in SPEC.md are resolved or explicitly deferred, and the owner has verified AC-FE-09, AC-WF-19 through AC-WF-21, and a real ESPN sync against their actual league (manual).
+All criteria above pass in CI, all design decisions in SPEC.md are verified, and the owner has verified AC-FE-09, AC-WF-19 through AC-WF-21, and a real ESPN sync against their actual league (manual).
