@@ -191,7 +191,18 @@ if [[ "$post_review" -eq 1 ]]; then
     rm -f "$review_err_file"
   elif [[ "$exit_code" -eq 2 ]]; then
     echo "review.sh: requesting changes on PR #$pr..." >&2
-    gh pr review "$pr" --request-changes --body "$review_body"
+    review_err_file="$(mktemp)"
+    if ! gh pr review "$pr" --request-changes --body "$review_body" 2>"$review_err_file"; then
+      if grep -qi "on your own pull request" "$review_err_file"; then
+        echo "review.sh: cannot request changes on own pull request; posting as review comment..." >&2
+        gh pr review "$pr" --comment --body "$review_body"
+      else
+        cat "$review_err_file" >&2
+        rm -f "$review_err_file"
+        exit 1
+      fi
+    fi
+    rm -f "$review_err_file"
   else
     echo "review.sh: posting review comment to #$pr..." >&2
     gh pr review "$pr" --comment --body "$review_body"
