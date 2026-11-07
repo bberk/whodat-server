@@ -173,10 +173,18 @@ done
 # Print report to stdout
 printf '%s\n' "$review_body"
 
-# Submit comment if requested
+# Submit review if requested
 if [[ "$post_review" -eq 1 ]]; then
-  echo "review.sh: posting review comment to #$pr..." >&2
-  gh pr review "$pr" --comment --body "$review_body"
+  if [[ "$exit_code" -eq 0 ]]; then
+    echo "review.sh: approving PR #$pr..." >&2
+    gh pr review "$pr" --approve --body "$review_body"
+  elif [[ "$exit_code" -eq 2 ]]; then
+    echo "review.sh: requesting changes on PR #$pr..." >&2
+    gh pr review "$pr" --request-changes --body "$review_body"
+  else
+    echo "review.sh: posting review comment to #$pr..." >&2
+    gh pr review "$pr" --comment --body "$review_body"
+  fi
 fi
 
 exit "$exit_code"

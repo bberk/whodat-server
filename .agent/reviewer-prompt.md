@@ -63,11 +63,17 @@ If the diff changes any of these paths, make it a blocking issue and state that 
 
 Distinguish blocking issues (wrong behavior, missing or weakened tests, boundary or security problems, failing checks, scope violations) from non-blocking suggestions (style, naming, optional improvements). Non-blocking items never justify requesting changes.
 
-Submit **one review comment** with your verdict:
+Submit your verdict:
+- When there are no blocking issues, approve the pull request:
+  ```bash
+  gh pr review <number> --approve --body "<review>"
+  ```
+- When there is at least one blocking issue, request changes:
+  ```bash
+  gh pr review <number> --request-changes --body "<review>"
+  ```
 
-```
-gh pr review <number> --comment --body "<review>"
-```
+Do not add inline comments unless there is an open question or a requested change.
 
 Start the body with one verdict only: `Verdict: APPROVED` when there are no blocking issues, or `Verdict: CHANGES REQUESTED` when there is at least one. `scripts/review.sh` parses that first line; the rest is for the author and the human approver.
 
