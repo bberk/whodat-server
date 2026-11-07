@@ -1,5 +1,8 @@
 # Dependency audit — 2026-10-25
 
+> **Archive Note**: This document represents a point-in-time dependency audit conducted on 2026-10-25.
+> For current dependency specifications, refer to `backend/pyproject.toml` and `frontend/package.json`.
+
 Scope: every external dependency in `backend/`, `frontend/`, the Dockerfiles and Compose stacks,
 GitHub Actions, pre-commit hooks, and the pinned runtime/tooling versions. No application feature
 changed; the only source edits are compatibility fixes required by the upgrades and two
