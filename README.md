@@ -38,6 +38,7 @@ Production-ready and under active development. See the architecture milestones i
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — module boundaries, data model, interfaces, API contract.
 - [`AGENTS.md`](AGENTS.md) — how agents work in this repository (branch/PR/review workflow).
 - [`docs/GITHUB_SETUP.md`](docs/GITHUB_SETUP.md) — one-time repository and identity setup.
+- [`docs/DECISIONS.md`](docs/DECISIONS.md) — architectural decision records and historical questions.
 - [`docs/OPEN_QUESTIONS.md`](docs/OPEN_QUESTIONS.md) — unresolved questions and deviations.
 
 ## Tech stack

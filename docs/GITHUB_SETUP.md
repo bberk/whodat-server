@@ -26,7 +26,7 @@ secret scan plus a full-history scan keep secrets out of a public history.
 ## 1. Create the repo and push the skeleton
 
 1. Create the repo on GitHub (default branch `main`) and push the tooling files delivered with the
-   specs: `.pre-commit-config.yaml`, `.github/`, `.opencode/`, `scripts/`, `docs/`.
+   specs: `.pre-commit-config.yaml`, `.github/`, `.agent/`, `scripts/`, `docs/`.
 2. Install the GitHub CLI (`gh`) and log in as **yourself**: `gh auth login`.
 
 ## 2. Apply repo settings
@@ -52,10 +52,9 @@ Re-running it is safe.
 There is **no reviewer account and no token**. GitHub does not let an account approve its own pull
 request, and agents never merge, so the roles are split:
 
-- A separate **reviewer agent** reviews every ready PR with fresh eyes. `scripts/review.sh <pr>`
-  runs `opencode run --agent reviewer` in a clean worktree at the PR head, with the reviewer
-  definition taken from `main` (never from the PR). The reviewer posts its verdict as a review
-  **comment** — never an approval — and lists what it verified.
+- A separate **reviewer agent or script** reviews every ready PR with fresh eyes.
+  `scripts/review.sh <pr> [--post]` inspects the PR diff, state, and CI status checks.
+  The reviewer posts its verdict as a review **comment** — never an approval — and lists what it verified.
 - A **human reads the PR, the reviewer's report, and the CI result, then approves and merges**.
   Merge from the desktop app, with `gh pr merge <pr> --rebase` (or `--squash`), or with
   `scripts/merge.sh <pr>`
@@ -78,8 +77,8 @@ agents must change `.github/workflows/`). Install it on this repository only.
   repository. Never commit it.
 - Set `BRADS_BOTS_APP_ID` to the App's numeric ID in the agent environment. The key path can be
   overridden with `BRADS_BOTS_KEY`.
-- `scripts/bot-identity.sh` mints a one-hour installation token from the key. Only `scripts/ship.sh`
-  uses it, for pushing and for `gh`; the human's credentials are cleared for that push.
+- `scripts/agent-identity.sh` mints a one-hour installation token from the key. Only `scripts/ship.sh`
+  and agent commands use it, for pushing and for `gh`; the human's credentials are cleared for that push.
 - Reviewing and merging stay with you. `scripts/review.sh` and `scripts/merge.sh` run with your own
   `gh` login, so the reviewer's comments and your approval come from you, not from the bot.
 
@@ -90,15 +89,14 @@ Each agent's environment (worktree) needs:
 - `pre-commit install --hook-type pre-commit --hook-type pre-push` run in the worktree (hooks are
   per clone; for `git worktree` setups the hooks are shared via the main repo's `.git/hooks`, so
   install once in the main clone and verify it fires in a worktree);
-- `scripts/bot-identity.sh install` run once in the worktree, so its commits are authored by
+- `scripts/agent-identity.sh install` run once in the worktree, so its commits are authored by
   `brads-bots[bot]`. It refuses to run in the main checkout and changes only this worktree's config
   (it enables `extensions.worktreeConfig` for the repository, which leaves your own commits alone).
 - `BRADS_BOTS_APP_ID` set (see section 4), and `jq` and `openssl` installed.
 - `gh`, `uv`, `pnpm`, and Node 26 installed. The author agent pushes the branch with
-  `scripts/ship.sh`, which refuses to push commits not authored by the bot, and opens the draft PR
-  with `gh` (`.opencode/pull-requests.md`); no hook pushes on commit. Every `gh` call goes through
-  `scripts/bot-identity.sh run gh ...`, so it never falls back to your login. The GitHub MCP server
-  is not used by the agents.
+  `scripts/ship.sh`, which refuses to push commits not authored by the bot, and opens the PR
+  with `gh` (`.agent/pull-requests.md`); no hook pushes on commit. Every agent `gh` call goes through
+  `scripts/agent-identity.sh run gh ...`, so it never falls back to your login.
 
 ## 6. First CI run, then verify
 
@@ -109,7 +107,7 @@ After the skeleton milestone lands and CI has run once:
    `scripts/setup-github.sh`.
 2. Open a test PR with a deliberate lint error: CI and pre-commit must fail.
 3. Try `git push origin main` from a scratch clone: it must be rejected (ruleset).
-4. Run the whole loop once on a trivial change: agent commit -> agent opens the draft PR ->
+4. Run the whole loop once on a trivial change: agent commit -> agent opens the PR ->
    `scripts/ship.sh --ready` -> `scripts/review.sh <n>` -> review the report yourself and merge
    (desktop, `gh pr merge`, or `scripts/merge.sh <n>`). Confirm a coverage comment appears on the
    PR and updates when you push again.
@@ -117,20 +115,18 @@ After the skeleton milestone lands and CI has run once:
 ## 7. Day-to-day operation
 
 - A PR gets the `ready-for-review` label when the author runs `scripts/ship.sh --ready`. Run
-  `scripts/review.sh <pr>` then; it returns 0 when the reviewer found no blocking issues and 2 when
+  `scripts/review.sh <pr> --post` then; it returns 0 when the reviewer found no blocking issues and 2 when
   it requested changes.
 - A review exit code of 2 means changes requested: the author agent addresses them, pushes, and runs
-  `scripts/ship.sh --ready` again; a brand-new review session follows. After 3 rounds the
-  orchestrator stops and asks you.
+  `scripts/ship.sh --ready` again; a brand-new review session follows.
 - A human approves and merges every PR. PRs that touch rules, gates, or scripts (`AGENTS.md`, the
-  specs, `.github/`, `.opencode/`, `scripts/`, `.pre-commit-config.yaml`) always need your review;
+  specs, `.github/`, `.agent/`, `scripts/`, `.pre-commit-config.yaml`) always need your review;
   merge them with `scripts/merge.sh <pr> --allow-governance`.
 
 ## Troubleshooting
 
-- **`opencode run --agent` not recognized**: run `opencode run --help` and adjust
-  `scripts/review.sh` to your installed version's flag for choosing an agent; the agent file lives
-  at `.opencode/agents/reviewer.md`.
+- **`review.sh` reports unknown option or missing dependencies**: Ensure `gh`, `jq`, and `git` are
+  installed on `PATH`. If delegating to a custom reviewer CLI, set `REVIEWER_AGENT_CMD`.
 - **`review.sh` reports no parsable verdict**: the reviewer must post its review with
   `gh pr review <pr> --comment` and start the body with `Verdict: APPROVED` or
   `Verdict: CHANGES REQUESTED`.
