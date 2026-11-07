@@ -14,8 +14,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.api.league_route_helpers import _actor, _http_error
 from app.api.params import LeagueIdPath
-from app.api.routes_leagues import _actor, _http_error
 from app.api.routes_standings import MemberDep
 from app.api.schemas_auth import PublicUser, error_detail
 from app.api.schemas_elo import (
