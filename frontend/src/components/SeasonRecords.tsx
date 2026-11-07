@@ -1,4 +1,4 @@
-import { formatRecordCount } from "./recordFormat";
+import { formatRecordCount } from "./format";
 
 function plural(count: number, singular: string, pluralForm: string): string {
   return count === 1 ? `1 ${singular}` : `${count} ${pluralForm}`;

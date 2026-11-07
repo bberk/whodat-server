@@ -14,7 +14,7 @@ import {
   seasonSettingsResponse,
 } from "../test/fixtures";
 import { expectRowDividersAcrossEveryCell } from "../test/tableDividers";
-import { formatLastRefreshed } from "./formatSeason";
+import { formatLastRefreshed } from "../components/format";
 import { SeasonsSection } from "./SeasonsSection";
 
 function leagueValue(overrides: Partial<LeagueContextValue> = {}): LeagueContextValue {

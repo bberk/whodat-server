@@ -4,9 +4,16 @@ import {
   formatEloChange,
   formatEloValue,
   formatEloWhole,
+  formatLastRefreshed,
   formatPoints,
+  formatProjectionAsOf,
   formatRecord,
+  formatRecordCount,
   formatVP,
+  intervalLabel,
+  percentLabel,
+  probabilityDescription,
+  spokenPercent,
   toNumber,
   vpTone,
   vpToneClass,
@@ -102,5 +109,60 @@ describe("formatEloChange", () => {
     expect(formatEloChange("-12.6")).toBe("-12.60");
     expect(formatEloChange("0")).toBe("0.00");
     expect(formatEloChange("-0.001")).toBe("0.00");
+  });
+});
+
+describe("formatRecordCount", () => {
+  it("formats counts with keycap emojis", () => {
+    expect(formatRecordCount(0)).toBe("");
+    expect(formatRecordCount(1)).toBe("");
+    expect(formatRecordCount(2)).toBe("2️⃣");
+    expect(formatRecordCount(10)).toBe("🔟");
+    expect(formatRecordCount(12)).toBe("1️⃣2️⃣");
+  });
+});
+
+describe("formatLastRefreshed", () => {
+  it("handles null and invalid dates", () => {
+    expect(formatLastRefreshed(null)).toBe("Never");
+    expect(formatLastRefreshed("invalid-date")).toBe("Never");
+  });
+
+  it("formats valid ISO timestamp", () => {
+    const formatted = formatLastRefreshed("2026-10-20T15:30:00Z");
+    expect(formatted).not.toBe("Never");
+  });
+});
+
+describe("formatProjectionAsOf", () => {
+  it("handles invalid dates by returning raw value", () => {
+    expect(formatProjectionAsOf("not-a-date")).toBe("not-a-date");
+  });
+
+  it("formats valid date string", () => {
+    const formatted = formatProjectionAsOf("2026-10-20T15:30:00Z");
+    expect(formatted).not.toBe("not-a-date");
+  });
+});
+
+describe("probability formatters", () => {
+  it("formats percent labels with bounds", () => {
+    expect(percentLabel("0.002")).toBe("<1%");
+    expect(percentLabel("0.998")).toBe(">99%");
+    expect(percentLabel("0.45")).toBe("45%");
+  });
+
+  it("formats spoken percentage with bounds", () => {
+    expect(spokenPercent("0.002")).toBe("less than 1 percent");
+    expect(spokenPercent("0.998")).toBe("more than 99 percent");
+    expect(spokenPercent("0.45")).toBe("45 percent");
+  });
+
+  it("formats interval label and description", () => {
+    const interval = { probability: "0.84", low: "0.83", high: "0.85" };
+    expect(intervalLabel(interval)).toBe("83–85%");
+    expect(probabilityDescription("Playoffs", interval)).toBe(
+      "Playoffs 84 percent, 95 percent interval 83 percent to 85 percent",
+    );
   });
 });
