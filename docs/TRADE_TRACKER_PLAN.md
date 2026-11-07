@@ -1,21 +1,24 @@
 # Implementation Plan: Discord Trade Tracker & Projected Auction Bucks
 
 **Branch:** `discord_trade_tracker_plan`
-**Status:** Updated Draft / Incorporating Multi-Draft, Ledger Truncation & OpenCode Server Ingestion
+**Status:** Finalized Draft / Approved Architecture
 **Target Systems:** Discord, `bberk/whodat-trades` (GitHub), Production Server (OpenCode), `whodat-server` (Backend & Frontend)
 
 ---
 
 ## 1. Executive Summary & High-Level Architecture
 
-Fantasy football dynasty and keeper leagues frequently trade future assets—most notably **auction draft dollars** and future draft picks—via Discord text chat in channels like `#trades`. Often, trades involve assets across **multiple future drafts** (for example: *Team A sends Mahomes + $5 in 2027 + $10 in 2028 for Justin Jefferson*). Fantasy platforms like ESPN do not natively support multi-year future auction budgets or trade logs.
+Fantasy football dynasty and keeper leagues frequently trade future assets—most notably **auction draft dollars** and future draft picks—via Discord text chat in channels like `#trades`. In many leagues, trades involve assets across **multiple future draft years** (for example: *Team A sends Mahomes + $5 in 2027 + $10 in 2028 to Team B for Justin Jefferson*). Fantasy platforms like ESPN do not support multi-year future auction budgets or trade ledgers.
 
 This feature introduces an end-to-end, opt-in **Trade Tracker & Projected Auction Bucks Display** system:
-1. **Discord Ingestion & AI Parsing via OpenCode on Production Server**: An automated job running on the production server uses an **OpenCode** installation (configured with multi-provider LLM access) to fetch `#trades` messages, extract structured multi-draft trades and conditional clauses, and submit them as Pull Requests to a dedicated Git repository (`bberk/whodat-trades`).
-2. **Human-in-the-Loop Review**: League commissioners or managers review the PR diff on GitHub for accuracy and merge it into `main`.
-3. **Versioned Trade Repo & Prunable Ledger**: Immutable historical trade files are kept permanently in `trades/YYYY/*.yaml`. A compiled `ledger.json` tracks active obligations and can be truncated after each season's draft to remove fully executed trades while preserving full history in Git and the server database.
-4. **Whodat Server Sync**: The `whodat-server` backend fetches the trade ledger from GitHub using an encrypted token, calculates each team's net auction dollars adjustment for any target draft year, and computes projected auction budgets.
-5. **Website Display**: The frontend displays a rich, interactive **Projected Auction Bucks Table** (with draft year switcher) alongside an audited **Trade History Feed**, with admin controls for budget baselines, manual sync triggers, and team alias mapping.
+1. **Discord Ingestion & AI Parsing via OpenCode on Production Server**: An automated agent running separately on the production server uses an **OpenCode** installation (configured with multi-provider LLM access) to fetch `#trades` messages, extract structured multi-draft trades and conditional clauses, and submit them as Pull Requests to a dedicated Git repository (`bberk/whodat-trades`).
+2. **Dual-Trigger Execution**: The ingestion job runs on a daily schedule and can also be triggered on-demand by an administrator directly from the `whodat-server` Admin Page (**"Sync Discord Trades"**).
+3. **Human-in-the-Loop Review**: League commissioners or managers review the PR diff on GitHub for accuracy and merge it into `main`.
+4. **Versioned Trade Repo & Post-Draft PR Truncation**:
+   - Immutable historical trade YAML files are kept permanently in `trades/YYYY/*.yaml`.
+   - After each season's draft, a manual GitHub Action (`workflow_dispatch`) runs a truncation script that opens a Pull Request to retire fully executed trades from `ledger.json` while keeping multi-year trades with future obligations active.
+5. **Whodat Server Sync**: The `whodat-server` backend fetches the merged `ledger.json` from GitHub using an encrypted token (triggered periodically or on-demand via **"Sync Trade Repo"** in the Admin UI), calculates each team's net auction dollars adjustment for any target draft year, and computes projected auction budgets.
+6. **Website Display**: The frontend displays an interactive **Projected Auction Bucks Table** (with draft year switcher and multi-draft indicators) alongside an audited **Trade History Feed**, with full admin controls for budget baselines, sync triggers, and team alias mapping.
 
 ### End-to-End System Architecture
 
@@ -25,14 +28,15 @@ flowchart TD
         MSG["Trades posted in #trades"]
     end
 
-    subgraph Prod_Server["Production Server (whodat Host)"]
-        CRON["Scheduled Timer / Admin Trigger"]
-        FETCH["Discord Fetcher (Watermark Cursors)"]
-        OPENCODE["OpenCode Agent Runner"]
+    subgraph Prod_Server["Production Server (Host Environment)"]
+        DISCORD_SYNC["Admin Trigger: Sync Discord Trades"]
+        TIMER["Scheduled Timer (e.g. Daily at 04:00 UTC)"]
+        OPENCODE["OpenCode Agent Runner (Isolated Process / Service)"]
         PROVIDERS["Multi-Provider LLMs (Gemini / Anthropic / OpenAI)"]
-        PR_BUILD["Format Multi-Year YAML & Open PR"]
+        PR_BUILD["Commit Multi-Year YAML & Open PR"]
 
-        CRON --> FETCH --> OPENCODE
+        DISCORD_SYNC --> OPENCODE
+        TIMER --> OPENCODE
         PROVIDERS <--> OPENCODE
         OPENCODE --> PR_BUILD
     end
@@ -41,59 +45,63 @@ flowchart TD
         PR["Pull Request with Trade YAML"]
         REVIEW["Commissioner Review & Merge"]
         MAIN["main: trades/YYYY/*.yaml + ledger.json"]
-        ARCHIVE["Post-Draft Ledger Truncation"]
+        DISPATCH_WORKFLOW["Manual GitHub Action: settle-draft.yml"]
+        ARCHIVE_PR["Archive PR: Truncate settled trades from ledger.json"]
 
         PR --> REVIEW --> MAIN
-        MAIN --> ARCHIVE
+        DISPATCH_WORKFLOW --> ARCHIVE_PR --> REVIEW
     end
 
     subgraph Whodat_Server["Whodat Server (Backend)"]
+        REPO_SYNC["Admin Trigger: Sync Trade Repo"]
         CONFIG["LeagueTradeConfig (Encrypted GitHub PAT)"]
-        SYNC["TradeSyncService (Scheduled or Force Sync)"]
-        DB[("Database: LeagueTradeConfig, Trade, BudgetDelta")]
-        ENGINE["Domain: TradeBudgetEngine (Exact Decimal)"]
+        SYNC_SVC["TradeSyncService (httpx)"]
+        DB[("Database: LeagueTrade, BudgetDelta")]
+        ENGINE["TradeBudgetEngine (Exact Decimal)"]
         API["FastAPI: /trade-config, /trades, /auction-budgets"]
 
-        CONFIG --> SYNC
-        SYNC --> DB
+        REPO_SYNC --> SYNC_SVC
+        CONFIG --> SYNC_SVC
+        SYNC_SVC --> DB
         DB --> ENGINE --> API
     end
 
     subgraph Frontend["React / TypeScript Frontend"]
         NAV["AppShell Nav (Trades Tab)"]
-        ADMIN_UI["Admin: TradeTrackerSection"]
-        AUCTION_TABLE["Projected Auction Bucks Table (2027, 2028)"]
-        TRADE_FEED["Audited Trade History Cards"]
+        ADMIN_UI["Admin: TradeTrackerSection (Dual Sync Buttons)"]
+        AUCTION_TABLE["Projected Auction Bucks Table (Draft Switcher)"]
+        TRADE_FEED["Trade History Feed (Multi-Draft Tags)"]
 
         API --> AUCTION_TABLE
         API --> TRADE_FEED
-        ADMIN_UI --> API
+        ADMIN_UI --> DISCORD_SYNC
+        ADMIN_UI --> REPO_SYNC
     end
 
-    MSG --> FETCH
+    MSG --> OPENCODE
     PR_BUILD --> PR
-    MAIN -.-> SYNC
+    MAIN -.-> SYNC_SVC
 ```
 
 ---
 
 ## 2. Subsystem 1: Discord AI Trade Extraction Engine via OpenCode
 
-### 2.1 Execution Environment: Production Server with OpenCode
+### 2.1 Execution Environment & Isolation
 
-Rather than running on a local laptop (subject to sleep/disconnects) or purely inside GitHub Actions (subject to runner minute caps and secret management overhead), the extraction job runs directly on the **production server** using an **OpenCode** installation.
+The extraction engine runs on the production Linux server (described in `docs/DEPLOY_SERVER.md`) as an **isolated service** separate from the core uvicorn backend.
 
-#### Architecture on the Production Server
-The production server (described in `docs/DEPLOY_SERVER.md`) runs Docker Compose with Caddy, Postgres, and the backend. OpenCode can be integrated in one of two clean ways:
-1. **Sidecar Container (`whodat-trade-agent`) in `docker-compose.yml` (Recommended)**:
-   - Contains OpenCode CLI, Python 3.12, `git`, and `gh` (GitHub CLI).
-   - Mounts a persistent volume for the cloned `whodat-trades` working directory and `.watermark.json`.
-   - Configured via environment variables in `deploy/server/.env`.
-2. **Host Systemd Service / Timer**:
-   - Installed on the host OS, triggered every 6–12 hours (e.g., 04:00 and 16:00 UTC) via `systemd.timer`.
+#### Deployment Options:
+- **Option A (Recommended): Isolated Systemd Service on Host**:
+  - OpenCode installed in `/opt/opencode` or via virtualenv on the host OS.
+  - Managed via `whodat-trade-agent.service` and `whodat-trade-agent.timer`.
+  - The FastAPI backend can trigger execution asynchronously on-demand via a controlled local command or systemd socket without blocking the web process.
+- **Option B: Dedicated Sidecar Container in `docker-compose.yml`**:
+  - `trade-agent` service with OpenCode CLI, Python 3.12, `git`, and `gh` installed.
+  - Communicates with the backend via internal Docker network or IPC.
 
-#### Multi-Provider LLM Configuration
-OpenCode is configured to access multiple AI providers with automatic fallbacks:
+#### Multi-Provider LLM Configuration:
+OpenCode reads provider configurations from `deploy/server/.env`:
 ```json
 {
   "default_provider": "gemini",
@@ -116,30 +124,34 @@ OpenCode is configured to access multiple AI providers with automatic fallbacks:
   }
 }
 ```
-If the primary provider hits a quota limit or downtime, OpenCode seamlessly falls back to the secondary provider.
+If Gemini hits a rate limit or service interruption, OpenCode automatically falls back to Anthropic or OpenAI.
 
-### 2.2 Discord Ingestion & Watermarking
+### 2.2 Dual Trigger Modes
 
-1. **Discord REST Ingestion**:
-   - A lightweight helper fetches messages from `#trades` using a Discord Bot token with `Read Message History` permission.
-   - Paginates forward starting from `last_message_id` stored in `.watermark.json`:
-     ```json
-     {
-       "channel_id": "123456789012345678",
-       "last_message_id": "130458923485723490",
-       "last_sync_timestamp": "2026-11-07T18:00:00Z"
-     }
-     ```
-2. **Context Window Assembly**:
-   - Discord trades frequently span multiple messages (e.g., Manager A states terms; Manager B replies *"confirmed"* or reacts with a thumbs-up emoji).
-   - The ingestion script bundles root trade messages with their replies/reactions before feeding them to OpenCode.
+1. **Scheduled Daily Timer**: Runs automatically (e.g. daily at 04:00 UTC) to pick up new trades announced overnight.
+2. **Admin On-Demand Trigger**:
+   - The admin can click **"Run Discord AI Ingestion"** in the web interface.
+   - Route: `POST /api/v1/leagues/{league_id}/trades/discord-sync`.
+   - Triggers the OpenCode worker in the background, immediately fetching any messages posted since the last sync watermark.
 
-### 2.3 Multi-Draft Extraction Schema
+### 2.3 Discord Ingestion & Watermarking
+
+- **Watermark Persistence**: `.watermark.json` stored in the working clone of `bberk/whodat-trades`:
+  ```json
+  {
+    "channel_id": "123456789012345678",
+    "last_message_id": "130458923485723490",
+    "last_sync_timestamp": "2026-11-07T18:00:00Z"
+  }
+  ```
+- **Context Gathering**: Fetches messages forward from `last_message_id`. Gathers trade proposals, replies (e.g. "Accepted"), and emoji reactions (e.g. `white_check_mark`, `thumbsup`) to confirm mutual agreement before extracting.
+
+### 2.4 Multi-Draft Extraction Schema
 
 Trades frequently divide auction money across several upcoming draft years.
 *Example:* **"Alice trades Mahomes + $5 in 2027 and $10 in 2028 to Bob for Justin Jefferson."**
 
-The prompt instructs OpenCode to extract trades conforming to the following structured output:
+OpenCode produces structured JSON matching the multi-draft contract:
 
 ```json
 {
@@ -189,20 +201,20 @@ The prompt instructs OpenCode to extract trades conforming to the following stru
 }
 ```
 
-### 2.4 PR Automation Workflow
+### 2.5 PR Creation Automation
 
 When valid trades are parsed:
 1. OpenCode creates a git branch in the local clone of `bberk/whodat-trades`: `trade/sync-YYYY-MM-DD-HHMM`.
 2. Writes the trade YAML file to `trades/<agreement_season>/<date>_<slug>.yaml`.
 3. Updates `.watermark.json`.
-4. Pushes the branch to GitHub using the server's configured `GH_TOKEN`.
-5. Opens a Pull Request with a clear Markdown description, asset exchange tables broken down by draft year, and raw Discord quote.
+4. Pushes the branch to GitHub using `GH_TOKEN`.
+5. Opens a Pull Request via `gh pr create` with asset exchange tables broken down by draft year, raw Discord quotes, and reviewer assignment.
 
 ---
 
 ## 3. Subsystem 2: Trade Repository Architecture (`bberk/whodat-trades`)
 
-### 3.1 Adopted Structure: Hybrid Option 3 with Prunable Ledger
+### 3.1 Adopted Structure: Hybrid Option 3 with Prunable Working Ledger
 
 ```
 trades/
@@ -215,8 +227,8 @@ ledger.json          <-- Active/unsettled trades + draft balances
 .watermark.json      <-- Discord ingestion cursor
 ```
 
-- **`trades/` directory (Immutable History)**: Keeps every trade YAML permanently. Trade files are **never deleted**. This serves as the unalterable audit log of all transactions in league history.
-- **`ledger.json` (Active Working Ledger)**: The consolidated, lightweight index consumed by `whodat-server`. Only contains trades that have **active / unsettled obligations** for current or upcoming drafts.
+- **`trades/` directory (Permanent History)**: Keeps every trade YAML permanently. Trade files are **never deleted**. This serves as the unalterable audit log of all transactions in league history.
+- **`ledger.json` (Active Working Ledger)**: The lightweight index consumed by `whodat-server`. Only contains trades that have **active / unsettled obligations** for current or future drafts.
 - **Merge Conflict Freedom**: New trades are submitted as independent files in `trades/`, so multiple PRs never conflict with one another.
 
 ### 3.2 Canonical Trade Schema (`trades/YYYY/YYYY-MM-DD_<slug>.yaml`)
@@ -279,34 +291,23 @@ CI validates that for **every distinct `draft_year`** in a trade:
 $$\forall Y \in \text{DraftYears}, \quad \sum_{p \in \text{parties}} \text{auction\_dollars}(p, Y) = 0$$
 Auction money cannot be created or destroyed in any draft year.
 
-### 3.4 Ledger Truncation & Post-Draft Settling
+### 3.4 Post-Draft Settling & PR Truncation Workflow
 
 After each season's fantasy draft completes (typically late August):
-1. **Fully Executed Criteria**:
-   A trade is considered **fully executed** when:
-   - All `draft_year` values in its `auction_dollars` entries are $\le \text{settled\_draft\_year}$.
-   - All conditions attached to the trade have been resolved (`status: fulfilled` or `status: void`).
-2. **Partial Multi-Year Trades**:
-   If a trade has \$5 for 2026 and \$10 for 2028, after the 2026 draft finishes:
-   - The 2026 obligation is settled and no longer impacts active projections.
-   - The trade **remains** in `ledger.json` because its 2028 obligation is still pending!
-3. **Truncation Automation**:
-   - A script in the repo: `python scripts/compile_ledger.py --settle-through 2026`.
-   - Generates `ledger.json` containing only active future trades and updates metadata:
-     ```json
-     {
-       "settled_through_draft_year": 2026,
-       "active_draft_years": [2027, 2028],
-       "compiled_at": "2026-09-01T00:00:00Z",
-       "active_trades": [ ... ],
-       "projected_balances": {
-         "2027": { "Team Alice": -5.00, "Team Bob": 5.00 },
-         "2028": { "Team Alice": -10.00, "Team Bob": 10.00 }
-       }
-     }
-     ```
-   - All historical YAML files in `trades/2026/` remain untouched.
-   - The `whodat-server` retains all historical trades in its database for the audit log, but only uses active draft years for upcoming budget calculations.
+1. **Manual GitHub Action Trigger**:
+   - Commissioner navigates to the Actions tab in `bberk/whodat-trades` and triggers `settle-draft.yml` via `workflow_dispatch`.
+   - Input: `settle_through_year: 2026`.
+2. **Truncation Script Execution**:
+   - The workflow runs `python scripts/compile_ledger.py --settle-through 2026`.
+   - **Pruning Logic**:
+     - A trade is removed from `ledger.json` **only** if all of its `draft_year` entries are $\le 2026$ **and** all its conditions are resolved.
+     - Multi-year trades with future obligations (e.g., 2027 or 2028 dollars remaining) remain active in `ledger.json`.
+   - **Archival Snapshot**: Writes an archival snapshot `archives/ledger_2026.json`.
+3. **Automated PR Creation**:
+   - The Action creates a new branch `archive/settle-draft-2026` and opens a PR titled:
+     `Archive: Settle Draft 2026 and Prune Executed Trades`.
+   - PR description lists all fully settled trades being retired and summarizes active future balances.
+   - The commissioner reviews the diff and clicks **Merge**.
 
 ---
 
@@ -314,7 +315,7 @@ After each season's fantasy draft completes (typically late August):
 
 ### 4.1 Database Models & Alembic Migration (`0012_trade_tracker.py`)
 
-To handle multi-draft auction dollars cleanly, adjustments are stored in a normalized child table `league_trade_budget_delta`:
+Adjustments are stored in a normalized child table `league_trade_budget_delta`:
 
 ```python
 """Add league trade tracking and multi-draft auction budget tables."""
@@ -367,16 +368,15 @@ To handle multi-draft auction dollars cleanly, adjustments are stored in a norma
 ### 4.2 GitHub Sync Service (`TradeSyncService`)
 
 Located at `backend/src/app/services/trade_sync_service.py`:
-1. **GitHub Ingestion**: Reads `ledger.json` from the configured private repository using the AES-256-GCM decrypted GitHub token.
+1. **GitHub Ingestion**: Reads `ledger.json` from the configured repository using the decrypted token.
 2. **Alias Resolution**:
-   - Matches raw trade names (`"Team Alice"`, `"alice_ff"`) to canonical league `Owner` records.
+   - Matches raw trade names to canonical league `Owner` records.
    - Falls back to `league_trade_config.team_aliases` mapping.
-   - Flags unmapped names for admin review.
 3. **Database Upsert**:
-   - Upserts trades and budget deltas idempotently based on `(league_id, external_trade_id)`.
-   - If a trade was truncated from `ledger.json` because it was settled, `whodat-server` marks existing records as `is_settled = True` rather than deleting them, preserving league history.
-4. **Admin Force Sync**:
-   - Rate-limited to max 1 sync per 30 seconds per league to prevent GitHub API throttling.
+   - Idempotently upserts trades and budget deltas based on `(league_id, external_trade_id)`.
+   - When a trade is retired from `ledger.json` via draft archival, `whodat-server` marks existing database records as `is_settled = True` instead of deleting them.
+4. **Rate Limiting**:
+   - Ingest sync is rate-limited to max 1 sync per 30 seconds per league.
 
 ### 4.3 Domain Calculation Engine (`app.domain.trade_budget`)
 
@@ -393,7 +393,8 @@ Pure standard-library module with 100% test coverage using exact `Decimal` arith
 | :--- | :--- | :--- | :--- |
 | `GET` | `/leagues/{league_id}/trade-config` | Admin | Trade tracker settings, sync status, and team mappings. |
 | `PUT` | `/leagues/{league_id}/trade-config` | Admin | Update repo, token, base budget, and aliases. |
-| `POST` | `/leagues/{league_id}/trades/sync` | Admin | Trigger immediate GitHub sync. |
+| `POST` | `/leagues/{league_id}/trades/discord-sync` | Admin | Trigger OpenCode Discord AI ingestion on production server. |
+| `POST` | `/leagues/{league_id}/trades/sync` | Admin | Trigger GitHub trade repo ingest into whodat-server. |
 | `GET` | `/leagues/{league_id}/trades` | Member | List trade history log with filters (team, draft year). |
 | `GET` | `/leagues/{league_id}/auction-budgets?draft_year={year}` | Member | Table of projected auction budgets for the specified draft year. |
 
@@ -413,11 +414,13 @@ In `AdminPage.tsx`:
 - GitHub PAT (write-only, masked when saved).
 - Base starting budget input (default `$200.00`).
 - **Team Alias Mapping Tool**: Table showing unmapped names extracted from recent trades with a dropdown selector to assign them to official League Owners.
-- **Sync Control**: "Sync from GitHub" button with status badge ("Last synced 5 mins ago; commit `8c2f1d`").
+- **Dual Sync Action Controls**:
+  1. **"Run Discord AI Ingestion"**: Triggers OpenCode on the server to scan `#trades` and open a PR on GitHub.
+  2. **"Sync Trade Repo Now"**: Ingests the merged `ledger.json` from GitHub into the server's database.
 
 ### 5.3 Trades & Auction Page (`TradesPage.tsx`)
 
-#### View 1: Projected Auction Bucks
+#### View 1: Projected Auction Bucks Table
 - **Draft Year Picker**: Dropdown / toggle pills (e.g. `2027 Draft ($)`, `2028 Draft ($)`).
 - **Responsive Table**:
   - **Team / Owner** (sticky on mobile).
@@ -426,14 +429,17 @@ In `AdminPage.tsx`:
   - **Projected Budget** (e.g., **`$195.00`** in bold).
   - **Pending Conditions** (badge with popover: e.g. `+$5 pending MVP`).
   - **Active Trades Count**.
-- Clicking a team row opens a drawer/modal displaying every trade contributing to that team's delta for the selected draft year.
+- Clicking a team row opens a modal/drawer showing every trade contributing to that team's delta for the selected draft year.
 
 #### View 2: Trade History Feed
 - Searchable by player and filterable by team or draft year.
+- **Multi-Draft Indicator Pills**:
+  - If a trade spans multiple drafts, trade cards show interactive pills (e.g., `[Also includes -$10 in 2028 Draft]`).
+  - Clicking the pill switches the page's draft year filter directly to 2028.
 - Each trade card displays:
   - Date and Discord permalink button.
   - Multi-draft asset breakdown (players + \$ per draft year).
-  - Explicit badges for multi-year cash:
+  - Explicit badges for cash transfers:
     - `💸 2027: $5.00 from Alice to Bob`
     - `💸 2028: $10.00 from Alice to Bob`
   - Conditional clauses with status badge (`Pending`, `Fulfilled`, `Void`).
@@ -445,29 +451,30 @@ In `AdminPage.tsx`:
 
 ```mermaid
 flowchart LR
-    M1["Milestone 1:<br/>Trade Repo Schema & CI"] --> M2["Milestone 2:<br/>OpenCode Ingestion & PR"]
-    M1 --> M3["Milestone 3:<br/>Backend DB & Crypto"]
-    M3 --> M4["Milestone 4:<br/>Backend Sync & Multi-Year Budget API"]
-    M4 --> M5["Milestone 5:<br/>Frontend Admin UI"]
-    M4 --> M6["Milestone 6:<br/>Frontend Trades & Bucks Display"]
-    M5 --> M7["Milestone 7:<br/>E2E & Production Verification"]
+    M1["Milestone 1:<br/>Trade Repo Schema, CI & Settle Action"] --> M2["Milestone 2:<br/>OpenCode Ingestion & Discord Trigger"]
+    M1 --> M3["Milestone 3:<br/>Backend DB Models & Crypto"]
+    M3 --> M4["Milestone 4:<br/>Backend Ingest Sync & Multi-Year Engine"]
+    M4 --> M5["Milestone 5:<br/>Frontend Admin UI (Dual Sync)"]
+    M4 --> M6["Milestone 6:<br/>Frontend Trades & Multi-Draft Display"]
+    M5 --> M7["Milestone 7:<br/>E2E & Production Runbook"]
     M6 --> M7
 ```
 
-### Milestone 1: Trade Repository & Truncation Tooling (`bberk/whodat-trades`)
+### Milestone 1: Trade Repository, Schema & Post-Draft Action (`bberk/whodat-trades`)
 - [ ] Create repository `bberk/whodat-trades`.
 - [ ] Implement multi-draft YAML trade schema.
 - [ ] Implement GitHub Actions CI:
   - Validates zero-sum balance rule for **each individual draft year**.
   - Auto-compiles `ledger.json` on merge to `main`.
-- [ ] Add `scripts/compile_ledger.py` with `--settle-through <year>` for post-draft pruning.
+- [ ] Implement `settle-draft.yml` manual GitHub Action (`workflow_dispatch`) that runs `scripts/compile_ledger.py --settle-through <year>` and opens an archive PR.
 
-### Milestone 2: Production Server OpenCode Ingestion Service
-- [ ] Add `whodat-trade-agent` container / runner definition with OpenCode CLI.
+### Milestone 2: Production Server OpenCode Ingestion & Trigger API
+- [ ] Add `whodat-trade-agent` service definition with OpenCode CLI on production host.
 - [ ] Configure multi-provider LLM settings in `deploy/server/.env` (Gemini primary, Anthropic fallback).
 - [ ] Implement Discord message fetcher with `.watermark.json` cursor.
 - [ ] Implement OpenCode trade extraction prompt with multi-draft JSON schema.
 - [ ] Implement git commit and PR opening automation.
+- [ ] Implement backend endpoint `POST /api/v1/leagues/{league_id}/trades/discord-sync` to trigger the OpenCode worker.
 
 ### Milestone 3: Whodat Backend Models, Migrations & Encryption
 - [ ] Alembic migration `0012_trade_tracker.py` for `league_trade_config`, `league_trade`, `league_trade_party`, `league_trade_budget_delta`.
@@ -475,25 +482,25 @@ flowchart LR
 - [ ] AES-256-GCM encryption verification for GitHub PAT.
 - [ ] Database repositories and queries for draft-year-filtered trade data.
 
-### Milestone 4: Backend Domain Engine, Sync Service & API Endpoints
+### Milestone 4: Backend Domain Engine, GitHub Sync Service & API Endpoints
 - [ ] Implement pure domain logic in `backend/src/app/domain/trade_budget.py` (exact `Decimal` math, 100% coverage).
 - [ ] Implement `TradeSyncService` in `backend/src/app/services/trade_sync_service.py` with alias resolution and idempotent upsert.
-- [ ] Implement schemas and endpoints in `routes_trades.py` (`/trade-config`, `/trades`, `/auction-budgets`).
+- [ ] Implement schemas and endpoints in `routes_trades.py` (`/trade-config`, `/trades`, `/auction-budgets`, `/sync`).
 - [ ] Update `docs/openapi.json`.
 
-### Milestone 5: Frontend Admin Settings & Dynamic Navigation
+### Milestone 5: Frontend Admin Settings & Dual Sync Controls
 - [ ] Regenerate frontend API types with `pnpm gen:api`.
-- [ ] Add `TradeTrackerSection.tsx` to `AdminPage.tsx`.
+- [ ] Add `TradeTrackerSection.tsx` to `AdminPage.tsx` with separate **"Run Discord AI Ingestion"** and **"Sync Trade Repo"** buttons.
 - [ ] Add conditional `Trades` navigation tab in `AppShell.tsx`.
 - [ ] Unit tests for admin trade tracker configuration and alias mapper.
 
 ### Milestone 6: Frontend Trades & Projected Auction Bucks Page
 - [ ] Implement `frontend/src/pages/TradesPage.tsx`.
 - [ ] Implement `ProjectedAuctionTable.tsx` with draft year switcher and mobile sticky column.
-- [ ] Implement `TradeLogFeed.tsx` with multi-year cash badges, player search, and filters.
+- [ ] Implement `TradeLogFeed.tsx` with multi-year cash badges, interactive multi-draft indicator pills, player search, and filters.
 - [ ] Implement loading, empty, and error states.
 
 ### Milestone 7: End-to-End Verification & Production Runbook
-- [ ] Write integration tests for multi-draft trades, settling, and sync rate limits.
+- [ ] Write integration tests for multi-draft trades, post-draft settling, and sync rate limits.
 - [ ] Verify pre-commit hooks (`ruff`, `mypy`, `vitest`).
-- [ ] Document production server OpenCode setup in `docs/DEPLOY_SERVER.md`.
+- [ ] Document production server OpenCode setup and `settle-draft.yml` workflow in `docs/DEPLOY_SERVER.md`.
