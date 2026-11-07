@@ -1,4 +1,4 @@
-"""Tests for the workflow scripts (``scripts/ship.sh`` and ``scripts/merge.sh``).
+"""Tests for workflow scripts (ship.sh, merge.sh, cleanup.sh, agent-identity.sh, review.sh).
 
 Each test drives the real script inside a throwaway git repository with a stub ``gh`` first on
 ``PATH``, so the gate logic runs against synthetic ``gh pr view --json`` payloads and nothing ever
@@ -18,6 +18,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SHIP = REPO_ROOT / "scripts" / "ship.sh"
 MERGE = REPO_ROOT / "scripts" / "merge.sh"
 CLEANUP = REPO_ROOT / "scripts" / "cleanup.sh"
+AGENT_IDENTITY = REPO_ROOT / "scripts" / "agent-identity.sh"
+BOT_IDENTITY = REPO_ROOT / "scripts" / "bot-identity.sh"
+REVIEW = REPO_ROOT / "scripts" / "review.sh"
 WORK_BRANCH = "agent/test-task"
 BOT_NAME = "brads-bots[bot]"
 BOT_EMAIL = "344180581+brads-bots[bot]@users.noreply.github.com"
@@ -82,6 +85,10 @@ def _set_pr(env: dict[str, str], **payload: object) -> None:
 def _open_pr(**overrides: object) -> dict[str, object]:
     """A payload for a PR that passes every gate, with individual fields overridable."""
     payload: dict[str, object] = {
+        "number": 7,
+        "title": "Add test feature",
+        "body": "## Summary\nAll good.\n\n## Acceptance criteria\n- AC-1",
+        "url": "https://example.test/pr/7",
         "state": "OPEN",
         "isDraft": False,
         "headRefOid": "abc123",
@@ -179,6 +186,23 @@ def test_AC_WF_07_ship_refuses_commits_not_authored_by_the_bot(
     assert result.returncode != 0
     assert "not authored by" in result.stderr
     assert f"refs/heads/{WORK_BRANCH}" not in _git(repo, env, "ls-remote", "--heads", "origin")
+
+
+def test_ship_allows_any_author_when_flag_set(repo: Path, env: dict[str, str]) -> None:
+    human = {
+        **env,
+        "GIT_AUTHOR_NAME": "Human",
+        "GIT_AUTHOR_EMAIL": "human@example.test",
+        "ALLOW_ANY_AUTHOR": "1",
+    }
+    (repo / "change.txt").write_text("change\n")
+    _git(repo, env, "add", "-A")
+    _git(repo, human, "commit", "-m", "Human change")
+
+    result = _run(SHIP, repo, human)
+
+    assert result.returncode == 0, result.stderr
+    assert f"refs/heads/{WORK_BRANCH}" in _git(repo, env, "ls-remote", "--heads", "origin")
 
 
 def test_AC_WF_07_ship_pushes_later_commits_to_the_same_branch(
@@ -305,6 +329,8 @@ def test_AC_WF_13_merge_refuses_pending_or_failing_checks(
         "scripts/merge.sh",
         ".github/workflows/ci.yml",
         ".opencode/pull-requests.md",
+        ".agent/pull-requests.md",
+        ".agent/reviewer-prompt.md",
         ".pre-commit-config.yaml",
     ],
 )
@@ -537,3 +563,153 @@ def test_AC_WF_23_merge_cleans_up_a_branch_in_another_worktree(
     assert result.returncode == 0, result.stderr
     assert not wt.exists()
     assert not _has_branch(repo, env, "agent/done")
+
+
+# --- scripts/agent-identity.sh & scripts/bot-identity.sh ---------------------------------------
+
+
+def test_agent_identity_whoami_and_email_with_app_config(repo: Path, env: dict[str, str]) -> None:
+    result_whoami = _run(AGENT_IDENTITY, repo, env, "whoami")
+    assert result_whoami.returncode == 0, result_whoami.stderr
+    assert result_whoami.stdout.strip() == f"{BOT_NAME} <{BOT_EMAIL}>"
+
+    result_email = _run(AGENT_IDENTITY, repo, env, "email")
+    assert result_email.returncode == 0, result_email.stderr
+    assert result_email.stdout.strip() == BOT_EMAIL
+
+    result_token = _run(AGENT_IDENTITY, repo, env, "token")
+    assert result_token.returncode == 0, result_token.stderr
+    assert result_token.stdout.strip() == "test-token"
+
+
+def test_agent_identity_whoami_and_email_with_generic_agent(
+    repo: Path, env: dict[str, str]
+) -> None:
+    generic_env = {
+        **env,
+        "BRADS_BOTS_TOKEN": "",
+        "BRADS_BOTS_APP_ID": "",
+        "AGENT_NAME": "Custom Agent",
+        "AGENT_EMAIL": "custom@example.test",
+        "GH_TOKEN": "custom-gh-token",
+    }
+    result_whoami = _run(AGENT_IDENTITY, repo, generic_env, "whoami")
+    assert result_whoami.returncode == 0, result_whoami.stderr
+    assert result_whoami.stdout.strip() == "Custom Agent <custom@example.test>"
+
+    result_email = _run(AGENT_IDENTITY, repo, generic_env, "email")
+    assert result_email.returncode == 0, result_email.stderr
+    assert result_email.stdout.strip() == "custom@example.test"
+
+    result_token = _run(AGENT_IDENTITY, repo, generic_env, "token")
+    assert result_token.returncode == 0, result_token.stderr
+    assert result_token.stdout.strip() == "custom-gh-token"
+
+
+def test_agent_identity_token_fails_without_credentials(repo: Path, env: dict[str, str]) -> None:
+    no_cred_env = {
+        **env,
+        "BRADS_BOTS_TOKEN": "",
+        "BRADS_BOTS_APP_ID": "",
+        "GH_TOKEN": "",
+        "GITHUB_TOKEN": "",
+    }
+    result = _run(AGENT_IDENTITY, repo, no_cred_env, "token")
+    assert result.returncode != 0
+    assert "no auth token found" in result.stderr
+
+
+def test_agent_identity_run_exports_gh_token(repo: Path, env: dict[str, str]) -> None:
+    result = _run(AGENT_IDENTITY, repo, env, "run", "printenv", "GH_TOKEN")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "test-token"
+
+
+def test_agent_identity_run_requires_command(repo: Path, env: dict[str, str]) -> None:
+    result = _run(AGENT_IDENTITY, repo, env, "run")
+    assert result.returncode != 0
+    assert "usage: agent-identity.sh run" in result.stderr
+
+
+def test_agent_identity_install_refuses_main_checkout(repo: Path, env: dict[str, str]) -> None:
+    result = _run(AGENT_IDENTITY, repo, env, "install")
+    assert result.returncode != 0
+    assert "run 'install' in an agent worktree, not in the main checkout" in result.stderr
+
+
+def test_agent_identity_install_configures_worktree(repo: Path, env: dict[str, str]) -> None:
+    wt = repo.parent / "agent-wt"
+    _git(repo, env, "worktree", "add", str(wt), "-b", "agent/wt-test")
+
+    result = _run(AGENT_IDENTITY, wt, env, "install")
+    assert result.returncode == 0, result.stderr
+    assert f"commits in this worktree will be authored by {BOT_NAME}" in result.stderr
+    assert _git(wt, env, "config", "user.name").strip() == BOT_NAME
+    assert _git(wt, env, "config", "user.email").strip() == BOT_EMAIL
+
+
+def test_agent_identity_rejects_unknown_command(repo: Path, env: dict[str, str]) -> None:
+    result = _run(AGENT_IDENTITY, repo, env, "invalid-cmd")
+    assert result.returncode == 64
+    assert "usage: scripts/agent-identity.sh" in result.stderr
+
+
+def test_bot_identity_forwards_to_agent_identity(repo: Path, env: dict[str, str]) -> None:
+    result = _run(BOT_IDENTITY, repo, env, "whoami")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == f"{BOT_NAME} <{BOT_EMAIL}>"
+
+
+# --- scripts/review.sh ------------------------------------------------------------------------
+
+
+def test_review_requires_pr_number(repo: Path, env: dict[str, str]) -> None:
+    result = _run(REVIEW, repo, env)
+    assert result.returncode == 1
+    assert "usage: scripts/review.sh <pr-number>" in result.stderr
+
+
+def test_review_rejects_unknown_option(repo: Path, env: dict[str, str]) -> None:
+    result = _run(REVIEW, repo, env, "7", "--unknown")
+    assert result.returncode == 1
+    assert "review.sh: unknown option '--unknown'" in result.stderr
+
+
+def test_review_approves_clean_open_pr(repo: Path, env: dict[str, str]) -> None:
+    _set_pr(env, **_open_pr())
+
+    result = _run(REVIEW, repo, env, "7")
+    assert result.returncode == 0, result.stderr
+    assert "Verdict: APPROVED" in result.stdout
+    assert "Blocking issues:\n- None" in result.stdout
+    assert not any(call.startswith("pr review") for call in _gh_calls(env))
+
+
+def test_review_post_submits_approval(repo: Path, env: dict[str, str]) -> None:
+    _set_pr(env, **_open_pr())
+
+    result = _run(REVIEW, repo, env, "7", "--post")
+    assert result.returncode == 0, result.stderr
+    assert "Verdict: APPROVED" in result.stdout
+    calls = _gh_calls(env)
+    assert any(call.startswith("pr review 7 --approve") for call in calls), calls
+
+
+def test_review_requests_changes_on_failed_checks(repo: Path, env: dict[str, str]) -> None:
+    _set_pr(env, **_open_pr(statusCheckRollup=[{"conclusion": "FAILURE"}]))
+
+    result = _run(REVIEW, repo, env, "7", "--post")
+    assert result.returncode == 2
+    assert "Verdict: CHANGES REQUESTED" in result.stdout
+    assert "One or more CI checks failed or cancelled" in result.stdout
+    calls = _gh_calls(env)
+    assert any(call.startswith("pr review 7 --request-changes") for call in calls), calls
+
+
+def test_review_requests_changes_on_governance_files(repo: Path, env: dict[str, str]) -> None:
+    _set_pr(env, **_open_pr(files=[{"path": ".agent/pull-requests.md"}]))
+
+    result = _run(REVIEW, repo, env, "7")
+    assert result.returncode == 2
+    assert "Verdict: CHANGES REQUESTED" in result.stdout
+    assert "Touches governance files" in result.stdout
