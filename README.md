@@ -29,9 +29,7 @@ later without changing the VP engine, database, API, or frontend.
 
 ## Status
 
-`0.x` — under active development. See the milestones in `SPEC.md` (section 8). A single-host
-Docker Compose stack exists, along with a manually managed generic-server deployment kit; see
-[Deploy to production](#deploy-to-production).
+Production-ready and under active development. See the architecture milestones in [`SPEC.md`](SPEC.md) (section 8). A single-host Docker Compose stack is available; see [Deploy to production](#deploy-to-production).
 
 ## Documentation
 

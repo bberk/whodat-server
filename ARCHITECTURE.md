@@ -824,11 +824,9 @@ returned by the API. There is no environment `ESPN_S2`/`ESPN_SWID` credential pa
 - **API**: FastAPI `TestClient` tests including authorization matrices and golden JSON comparison.
 - **Frontend**: Vitest + Testing Library for components; Playwright for the end-to-end smoke test, responsive screenshots, and axe accessibility checks.
 - **Coverage**: pytest-cov (lines and branches) for the backend and vitest's v8 coverage for the frontend, both reported on every PR (section 13.5). Thresholds are enforced by CI, not just reported.
-- **Workflow scripts**: `scripts/ship.sh`, the gate logic in `scripts/merge.sh`, and
-  `scripts/cleanup.sh` are driven by `backend/tests/test_workflow_scripts.py`, which runs the real
-  scripts in a throwaway git repo with a stub `gh` first on `PATH` and replays synthetic `gh`
-  payloads (draft vs open, missing/pending/failing checks, governance paths, `--allow-governance`,
-  merge methods, merged vs unmerged branches): AC-WF-07/08/09/13/15/23.
+- **Workflow scripts**: `scripts/ship.sh`, `scripts/merge.sh`, `scripts/cleanup.sh`, and
+  `scripts/agent-identity.sh` are straightforward local developer and agent convenience scripts
+  enforcing branch hygiene, CI validation, and quality gates.
 
 ## 12. Design decisions and rationale
 
@@ -912,8 +910,9 @@ An end-to-end Playwright job is added in M6. The workflow's default token is rea
 
 | Script | Run by | Purpose |
 |---|---|---|
+| `scripts/agent-identity.sh [whoami\|run\|install\|token\|email]` | agents / developers | Manage agent identity and auth (App token or generic env vars) |
 | `scripts/ship.sh [--ready]` | author agent | Push the branch; `--ready` marks the PR ready and labels it |
-| `scripts/review.sh <pr>` | orchestrator | Run the reviewer in a fresh session; posts a review comment; exit 0 no blocking issues, 2 changes requested, 1 error |
+| `scripts/review.sh <pr> [--post]` | orchestrator / CI | Run independent PR review; posts review report |
 | `scripts/merge.sh <pr> [--rebase \| --squash] [--allow-governance]` | human | Verify the CI and governance gates and merge (rebase by default) |
 | `scripts/cleanup.sh [--dry-run] [branch ...]` | human after a web-UI merge, or `merge.sh` | Delete local `agent/*` branches whose PR is merged, and remove their worktrees |
 | `scripts/setup-github.sh` | repo owner, once | Repo settings, label, Actions token permissions, ruleset |
@@ -931,12 +930,11 @@ An end-to-end Playwright job is added in M6. The workflow's default token is rea
 | Identity | Used for | Holds |
 |---|---|---|
 | Owner (human) | one-time setup, and approving and merging every PR | admin on the repo |
-| Author identity (your account or your token) | agents pushing branches, opening PRs, and posting review comments; a human may run `scripts/merge.sh` | Contents + Pull requests: write |
+| Author identity (`brads-bots` App or standard env vars) | agents pushing branches, opening PRs, and posting review reports | Contents + Pull requests: write |
 
-There is **no separate reviewer account**. The reviewer agent runs in a fresh session and a clean worktree but with the author identity, so it can only post a review *comment*, never an approval; a human makes the formal approval and merge. The reviewer's agent definition is read from `main` and cannot be altered by the PR under review, and the reviewer treats PR text and code comments as untrusted input. Details are in `docs/GITHUB_SETUP.md`.
+There is **no separate reviewer account**. The reviewer runs in a fresh session and a clean worktree but with the author identity, so it can only post a review *comment*, never an approval; a human makes the formal approval and merge. The reviewer's agent definition is read from `main` and cannot be altered by the PR under review, and the reviewer treats PR text and code comments as untrusted input. Details are in `docs/GITHUB_SETUP.md`.
 
 ### 13.7 Known limits
 
-- GitHub enforces branch rulesets only for public repos on the Free plan, or any repo on a paid plan. Otherwise the gate is `scripts/merge.sh` and agent discipline only (SPEC open question 9).
-- `opencode run --agent` and the reviewer's permission syntax follow opencode's documented configuration; verify with the installed version (`opencode run --help`) during M0.
-- The scripts and workflow have not been run against a live GitHub repo; the gate logic in `merge.sh` was exercised against synthetic payloads. The first end-to-end PR in M0 (AC-WF-21) is the real test.
+- GitHub enforces branch rulesets only for public repos on the Free plan, or any repo on a paid plan.
+- The review script `scripts/review.sh` generates an independent quality audit report; formal approval and merge are performed by the human repository maintainer.
