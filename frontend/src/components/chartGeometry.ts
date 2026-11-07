@@ -196,3 +196,57 @@ export function spreadLabelPositions(
   });
   return result;
 }
+
+export interface Point {
+  x: number;
+  y: number;
+}
+
+export interface ChartDimensions {
+  width: number;
+  height: number;
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+/** Compute usable plot width and height inside chart margins. */
+export function plotDimensions(layout: ChartDimensions): { width: number; height: number } {
+  return {
+    width: layout.width - layout.left - layout.right,
+    height: layout.height - layout.top - layout.bottom,
+  };
+}
+
+/** Map a numeric value to a y-coordinate on the SVG canvas. */
+export function yPositionFor(value: number, scale: Scale, top: number, plotHeight: number): number {
+  if (scale.max === scale.min) {
+    return top + plotHeight / 2;
+  }
+  return top + ((scale.max - value) / (scale.max - scale.min)) * plotHeight;
+}
+
+/** Split a series of values into contiguous non-null coordinate segments so null gaps are not bridged. */
+export function segmentsFor(
+  values: readonly (string | null)[],
+  xFor: (index: number) => number,
+  yFor: (value: number) => number,
+): Point[][] {
+  const segments: Point[][] = [];
+  let current: Point[] = [];
+  values.forEach((value, index) => {
+    if (value === null) {
+      if (current.length > 0) {
+        segments.push(current);
+        current = [];
+      }
+      return;
+    }
+    current.push({ x: xFor(index), y: yFor(Number(value)) });
+  });
+  if (current.length > 0) {
+    segments.push(current);
+  }
+  return segments;
+}
