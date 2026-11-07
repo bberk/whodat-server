@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { formatRecordCount } from "./recordFormat";
+import { formatRecordCount } from "./format";
 import { SeasonRecords, SeasonRecordsLegend } from "./SeasonRecords";
 
 describe("formatRecordCount", () => {

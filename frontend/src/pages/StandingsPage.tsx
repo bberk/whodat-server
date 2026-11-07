@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { ClinchLegend } from "../components/ClinchBadge";
 import { DataState, EmptyState, ErrorState, LoadingState } from "../components/DataStates";
 import { FinalPlaceLegend } from "../components/FinalPlaceBadge";
+import { formatProjectionAsOf } from "../components/format";
 import { StandingsTable } from "../components/StandingsTable";
 import { VPRulesTooltip } from "../components/VPRulesTooltip";
 import { useMediaQuery } from "../components/useMediaQuery";
@@ -20,12 +21,6 @@ import { useStandingsData } from "../standings/useStandingsData";
 import { WapdateSection } from "../standings/WapdateSection";
 
 const EMPTY_STYLES: ReadonlyMap<number, number> = new Map<number, number>();
-
-/** Render the projection as-of instant in the browser's local time, or the raw value if invalid. */
-function formatProjectionAsOf(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
-}
 
 /**
  * The standings dashboard: overall and per-division tables and the cumulative VP chart, each with

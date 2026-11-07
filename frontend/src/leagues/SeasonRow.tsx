@@ -5,7 +5,7 @@ import {
   selectClass,
 } from "../components/formStyles";
 import { BODY_CELL_DIVIDER_SUBTLE } from "../components/tableStyles";
-import { formatLastRefreshed } from "./formatSeason";
+import { formatLastRefreshed } from "../components/format";
 
 const bodyCell = `${BODY_CELL_DIVIDER_SUBTLE} px-3 py-2 align-middle`;
 const stickyBody = "sticky left-0 z-10 min-w-[88px] bg-surface shadow-sticky";

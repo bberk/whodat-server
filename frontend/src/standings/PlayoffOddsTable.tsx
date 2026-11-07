@@ -7,7 +7,7 @@ import {
   type SortValue,
 } from "../components/sorting";
 import { BODY_CELL_DIVIDER, LAST_ROW_NO_DIVIDER } from "../components/tableStyles";
-import { intervalLabel, percentLabel, probabilityDescription } from "./playoffOddsFormat";
+import { intervalLabel, percentLabel, probabilityDescription } from "../components/format";
 
 const headCell =
   "whitespace-nowrap border-b border-line-strong px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-faint";
