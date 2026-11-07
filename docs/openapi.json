@@ -131,6 +131,57 @@
         "title": "AddSeasonResponse",
         "type": "object"
       },
+      "AuctionBudgetsResponse": {
+        "description": "Summary table of projected auction budgets for a target draft year.",
+        "properties": {
+          "base_auction_budget": {
+            "title": "Base Auction Budget",
+            "type": "string"
+          },
+          "draft_year": {
+            "title": "Draft Year",
+            "type": "integer"
+          },
+          "league_id": {
+            "title": "League Id",
+            "type": "integer"
+          },
+          "projections": {
+            "items": {
+              "$ref": "#/components/schemas/TeamBudgetProjectionItem"
+            },
+            "title": "Projections",
+            "type": "array"
+          }
+        },
+        "required": [
+          "league_id",
+          "draft_year",
+          "base_auction_budget",
+          "projections"
+        ],
+        "title": "AuctionBudgetsResponse",
+        "type": "object"
+      },
+      "BudgetDeltaItem": {
+        "description": "One auction budget adjustment leg.",
+        "properties": {
+          "amount": {
+            "title": "Amount",
+            "type": "string"
+          },
+          "draft_year": {
+            "title": "Draft Year",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "draft_year",
+          "amount"
+        ],
+        "title": "BudgetDeltaItem",
+        "type": "object"
+      },
       "CreateInviteRequest": {
         "additionalProperties": false,
         "description": "Generate one member invite for this league or one league-less admin invite.",
@@ -1895,6 +1946,55 @@
         "title": "StandingsRow",
         "type": "object"
       },
+      "TeamBudgetProjectionItem": {
+        "description": "Projected auction budget for a team in a target draft year.",
+        "properties": {
+          "base_trade_delta": {
+            "title": "Base Trade Delta",
+            "type": "string"
+          },
+          "fulfilled_conditional_delta": {
+            "title": "Fulfilled Conditional Delta",
+            "type": "string"
+          },
+          "is_negative_budget": {
+            "title": "Is Negative Budget",
+            "type": "boolean"
+          },
+          "net_delta": {
+            "title": "Net Delta",
+            "type": "string"
+          },
+          "pending_conditional_delta": {
+            "title": "Pending Conditional Delta",
+            "type": "string"
+          },
+          "projected_budget": {
+            "title": "Projected Budget",
+            "type": "string"
+          },
+          "starting_budget": {
+            "title": "Starting Budget",
+            "type": "string"
+          },
+          "team_id": {
+            "title": "Team Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "team_id",
+          "starting_budget",
+          "base_trade_delta",
+          "fulfilled_conditional_delta",
+          "net_delta",
+          "projected_budget",
+          "pending_conditional_delta",
+          "is_negative_budget"
+        ],
+        "title": "TeamBudgetProjectionItem",
+        "type": "object"
+      },
       "TeamPlayoffOdds": {
         "description": "One team's playoff, bye, division-title, and championship estimates.",
         "properties": {
@@ -1968,6 +2068,466 @@
           "cumulative"
         ],
         "title": "TeamVpHistory",
+        "type": "object"
+      },
+      "TradeConfigResponse": {
+        "description": "Public, credential-safe trade tracker configuration.",
+        "properties": {
+          "base_auction_budget": {
+            "title": "Base Auction Budget",
+            "type": "string"
+          },
+          "branch": {
+            "title": "Branch",
+            "type": "string"
+          },
+          "discord_channel_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discord Channel Id"
+          },
+          "discord_sync_status": {
+            "title": "Discord Sync Status",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "has_github_token": {
+            "title": "Has Github Token",
+            "type": "boolean"
+          },
+          "last_discord_sync_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Discord Sync At"
+          },
+          "last_discord_sync_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Discord Sync Error"
+          },
+          "last_sync_commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Sync Commit"
+          },
+          "last_sync_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Sync Error"
+          },
+          "last_sync_status": {
+            "title": "Last Sync Status",
+            "type": "string"
+          },
+          "last_synced_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Synced At"
+          },
+          "league_id": {
+            "title": "League Id",
+            "type": "integer"
+          },
+          "repo_name": {
+            "title": "Repo Name",
+            "type": "string"
+          },
+          "repo_owner": {
+            "title": "Repo Owner",
+            "type": "string"
+          },
+          "team_aliases": {
+            "additionalProperties": true,
+            "title": "Team Aliases",
+            "type": "object"
+          }
+        },
+        "required": [
+          "league_id",
+          "enabled",
+          "discord_channel_id",
+          "repo_owner",
+          "repo_name",
+          "branch",
+          "has_github_token",
+          "base_auction_budget",
+          "team_aliases",
+          "last_synced_at",
+          "last_sync_commit",
+          "last_sync_status",
+          "last_sync_error",
+          "last_discord_sync_at",
+          "discord_sync_status",
+          "last_discord_sync_error"
+        ],
+        "title": "TradeConfigResponse",
+        "type": "object"
+      },
+      "TradeConfigUpdateRequest": {
+        "additionalProperties": false,
+        "description": "Admin request body to update trade tracker configuration.",
+        "properties": {
+          "base_auction_budget": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Auction Budget"
+          },
+          "branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Branch"
+          },
+          "clear_github_token": {
+            "default": false,
+            "title": "Clear Github Token",
+            "type": "boolean"
+          },
+          "discord_channel_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discord Channel Id"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "github_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Github Token"
+          },
+          "repo_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repo Name"
+          },
+          "repo_owner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repo Owner"
+          },
+          "team_aliases": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Aliases"
+          }
+        },
+        "title": "TradeConfigUpdateRequest",
+        "type": "object"
+      },
+      "TradeItem": {
+        "description": "A recorded league trade.",
+        "properties": {
+          "agreement_season": {
+            "title": "Agreement Season",
+            "type": "integer"
+          },
+          "conditions": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Conditions",
+            "type": "array"
+          },
+          "discord_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discord Url"
+          },
+          "external_trade_id": {
+            "title": "External Trade Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_settled": {
+            "title": "Is Settled",
+            "type": "boolean"
+          },
+          "parties": {
+            "items": {
+              "$ref": "#/components/schemas/TradePartyItem"
+            },
+            "title": "Parties",
+            "type": "array"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "trade_date": {
+            "format": "date-time",
+            "title": "Trade Date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "external_trade_id",
+          "trade_date",
+          "agreement_season",
+          "is_settled",
+          "discord_url",
+          "summary",
+          "conditions",
+          "parties"
+        ],
+        "title": "TradeItem",
+        "type": "object"
+      },
+      "TradePartyItem": {
+        "description": "One party involved in a trade.",
+        "properties": {
+          "auction_dollars": {
+            "items": {
+              "$ref": "#/components/schemas/BudgetDeltaItem"
+            },
+            "title": "Auction Dollars",
+            "type": "array"
+          },
+          "draft_picks_received": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Draft Picks Received",
+            "type": "array"
+          },
+          "draft_picks_sent": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Draft Picks Sent",
+            "type": "array"
+          },
+          "franchise_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Franchise Key"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "owner_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Id"
+          },
+          "players_received": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Players Received",
+            "type": "array"
+          },
+          "players_sent": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Players Sent",
+            "type": "array"
+          },
+          "team_name_raw": {
+            "title": "Team Name Raw",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "owner_id",
+          "franchise_key",
+          "team_name_raw",
+          "players_sent",
+          "players_received",
+          "draft_picks_sent",
+          "draft_picks_received",
+          "auction_dollars"
+        ],
+        "title": "TradePartyItem",
+        "type": "object"
+      },
+      "TradeSyncResponse": {
+        "description": "Response returned upon completing a trade repository sync.",
+        "properties": {
+          "commit_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit Sha"
+          },
+          "league_id": {
+            "title": "League Id",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "synced_at": {
+            "format": "date-time",
+            "title": "Synced At",
+            "type": "string"
+          },
+          "trades_synced": {
+            "title": "Trades Synced",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "league_id",
+          "status",
+          "trades_synced",
+          "commit_sha",
+          "synced_at"
+        ],
+        "title": "TradeSyncResponse",
+        "type": "object"
+      },
+      "TradesListResponse": {
+        "description": "List of all trades recorded for a league.",
+        "properties": {
+          "league_id": {
+            "title": "League Id",
+            "type": "integer"
+          },
+          "trades": {
+            "items": {
+              "$ref": "#/components/schemas/TradeItem"
+            },
+            "title": "Trades",
+            "type": "array"
+          }
+        },
+        "required": [
+          "league_id",
+          "trades"
+        ],
+        "title": "TradesListResponse",
         "type": "object"
       },
       "ValidationError": {
@@ -2402,6 +2962,61 @@
         "summary": "Delete League",
         "tags": [
           "leagues"
+        ]
+      }
+    },
+    "/api/v1/leagues/{league_id}/auction-budgets": {
+      "get": {
+        "description": "Calculate and return projected auction budgets for all league teams.",
+        "operationId": "get_auction_budgets_api_v1_leagues__league_id__auction_budgets_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "league_id",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "League Id",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Target draft year to project",
+            "in": "query",
+            "name": "draft_year",
+            "required": true,
+            "schema": {
+              "description": "Target draft year to project",
+              "title": "Draft Year",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuctionBudgetsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Auction Budgets",
+        "tags": [
+          "trades"
         ]
       }
     },
@@ -3535,6 +4150,226 @@
         "summary": "Get Wapdate",
         "tags": [
           "standings"
+        ]
+      }
+    },
+    "/api/v1/leagues/{league_id}/trade-config": {
+      "get": {
+        "description": "Return a league's trade tracker settings for an admin member.",
+        "operationId": "get_trade_config_api_v1_leagues__league_id__trade_config_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "league_id",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "League Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradeConfigResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Trade Config",
+        "tags": [
+          "trades"
+        ]
+      },
+      "put": {
+        "description": "Update a league's trade tracker settings for an admin member.",
+        "operationId": "update_trade_config_api_v1_leagues__league_id__trade_config_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "league_id",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "League Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TradeConfigUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradeConfigResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Trade Config",
+        "tags": [
+          "trades"
+        ]
+      }
+    },
+    "/api/v1/leagues/{league_id}/trades": {
+      "get": {
+        "description": "Return all ingested trades for a league, optionally filtered by draft year or team.",
+        "operationId": "list_trades_api_v1_leagues__league_id__trades_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "league_id",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "League Id",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Filter by draft year",
+            "in": "query",
+            "name": "draft_year",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by draft year",
+              "title": "Draft Year"
+            }
+          },
+          {
+            "description": "Filter by team name",
+            "in": "query",
+            "name": "team",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by team name",
+              "title": "Team"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradesListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Trades",
+        "tags": [
+          "trades"
+        ]
+      }
+    },
+    "/api/v1/leagues/{league_id}/trades/sync": {
+      "post": {
+        "description": "Trigger a sync of the trade ledger from the configured GitHub repository.",
+        "operationId": "sync_trade_repo_api_v1_leagues__league_id__trades_sync_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "league_id",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "League Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradeSyncResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sync Trade Repo",
+        "tags": [
+          "trades"
         ]
       }
     },

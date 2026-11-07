@@ -35,3 +35,15 @@ def get_refresh_limiter() -> RefreshRateLimiter:
 def get_season_refresh_limiter() -> RefreshRateLimiter:
     """Return the application-wide per-season refresh rate limiter."""
     return _season_refresh_limiter
+
+
+_trade_sync_limiter = RefreshRateLimiter(
+    league_interval_seconds=10.0,
+    user_limit=30,
+    user_window_seconds=3600.0,
+)
+
+
+def get_trade_sync_limiter() -> RefreshRateLimiter:
+    """Return the application-wide trade-sync rate limiter."""
+    return _trade_sync_limiter
