@@ -14,6 +14,7 @@ from sqlalchemy import (
     Numeric,
     Text,
     UniqueConstraint,
+    false,
     func,
     true,
 )
@@ -66,8 +67,18 @@ class League(TimestampMixin, Base):
     show_wapdate: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=true()
     )
+    #: Whether this league has trade tracking and projected auction budget enabled.
+    has_trades_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
     seasons: Mapped[list[LeagueSeason]] = relationship(
         back_populates="league", order_by="LeagueSeason.season"
+    )
+    trade_config: Mapped[LeagueTradeConfig | None] = relationship(
+        back_populates="league", cascade="all, delete-orphan", uselist=False
+    )
+    trades: Mapped[list[LeagueTrade]] = relationship(
+        back_populates="league", cascade="all, delete-orphan"
     )
 
 
@@ -337,3 +348,170 @@ class UserLeague(TimestampMixin, Base):
     user: Mapped[AppUser] = relationship()
     league: Mapped[League] = relationship()
     owner: Mapped[Owner | None] = relationship()
+
+
+class LeagueTradeConfig(TimestampMixin, Base):
+    """Per-league settings for the trade tracker and auction budget display."""
+
+    __tablename__ = "league_trade_config"
+    __table_args__ = (UniqueConstraint("league_id", name="uq_league_trade_config_league_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    league_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "league.id",
+            name="fk_league_trade_config_league_id_league",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
+    discord_channel_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    repo_owner: Mapped[str] = mapped_column(
+        Text, nullable=False, default="bberk", server_default="bberk"
+    )
+    repo_name: Mapped[str] = mapped_column(
+        Text, nullable=False, default="whodat-trades", server_default="whodat-trades"
+    )
+    branch: Mapped[str] = mapped_column(Text, nullable=False, default="main", server_default="main")
+    github_token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    base_auction_budget: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), nullable=False, default=Decimal("200.00"), server_default="200.00"
+    )
+    team_aliases: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_sync_commit: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_sync_status: Mapped[str] = mapped_column(
+        Text, nullable=False, default="idle", server_default="idle"
+    )
+    last_sync_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_discord_sync_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    discord_sync_status: Mapped[str] = mapped_column(
+        Text, nullable=False, default="idle", server_default="idle"
+    )
+    last_discord_sync_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    league: Mapped[League] = relationship(back_populates="trade_config")
+
+
+class LeagueTrade(TimestampMixin, Base):
+    """An ingested trade from the trade repository."""
+
+    __tablename__ = "league_trade"
+    __table_args__ = (
+        UniqueConstraint(
+            "league_id", "external_trade_id", name="uq_league_trade_league_external_id"
+        ),
+        Index("ix_league_trade_league_id", "league_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    league_id: Mapped[int] = mapped_column(
+        ForeignKey("league.id", name="fk_league_trade_league_id_league", ondelete="CASCADE"),
+        nullable=False,
+    )
+    external_trade_id: Mapped[str] = mapped_column(Text, nullable=False)
+    trade_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    agreement_season: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_settled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
+    discord_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    raw_yaml: Mapped[str] = mapped_column(Text, nullable=False)
+    conditions: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
+
+    league: Mapped[League] = relationship(back_populates="trades")
+    parties: Mapped[list[LeagueTradeParty]] = relationship(
+        back_populates="trade", cascade="all, delete-orphan", order_by="LeagueTradeParty.id"
+    )
+
+
+class LeagueTradeParty(TimestampMixin, Base):
+    """One participant/team involved in a trade."""
+
+    __tablename__ = "league_trade_party"
+    __table_args__ = (
+        Index("ix_league_trade_party_trade_id", "trade_id"),
+        Index("ix_league_trade_party_league_id", "league_id"),
+        Index("ix_league_trade_party_owner_id", "owner_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    trade_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "league_trade.id",
+            name="fk_league_trade_party_trade_id_trade",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+    league_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "league.id",
+            name="fk_league_trade_party_league_id_league",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+    owner_id: Mapped[int | None] = mapped_column(
+        ForeignKey("owner.id", name="fk_league_trade_party_owner_id_owner", ondelete="SET NULL"),
+        nullable=True,
+    )
+    franchise_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    team_name_raw: Mapped[str] = mapped_column(Text, nullable=False)
+    players_sent: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
+    players_received: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON, nullable=False, default=list
+    )
+    draft_picks_sent: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON, nullable=False, default=list
+    )
+    draft_picks_received: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON, nullable=False, default=list
+    )
+
+    trade: Mapped[LeagueTrade] = relationship(back_populates="parties")
+    owner: Mapped[Owner | None] = relationship()
+    budget_deltas: Mapped[list[LeagueTradeBudgetDelta]] = relationship(
+        back_populates="party",
+        cascade="all, delete-orphan",
+        order_by="LeagueTradeBudgetDelta.draft_year",
+    )
+
+
+class LeagueTradeBudgetDelta(TimestampMixin, Base):
+    """An auction dollar adjustment for a specific draft year belonging to a trade party."""
+
+    __tablename__ = "league_trade_budget_delta"
+    __table_args__ = (
+        Index("ix_budget_delta_league_year", "league_id", "draft_year"),
+        Index("ix_budget_delta_party_id", "party_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    party_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "league_trade_party.id",
+            name="fk_league_trade_budget_delta_party_id_party",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+    league_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "league.id",
+            name="fk_league_trade_budget_delta_league_id_league",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+    draft_year: Mapped[int] = mapped_column(Integer, nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+
+    party: Mapped[LeagueTradeParty] = relationship(back_populates="budget_deltas")
+    league: Mapped[League] = relationship()
