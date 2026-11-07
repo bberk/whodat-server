@@ -4,9 +4,12 @@ import {
   niceIntegerScale,
   niceScale,
   niceValueScale,
+  plotDimensions,
   positionFor,
+  segmentsFor,
   selectWeekLabelIndices,
   spreadLabelPositions,
+  yPositionFor,
 } from "./chartGeometry";
 
 describe("niceScale", () => {
@@ -138,5 +141,65 @@ describe("selectWeekLabelIndices", () => {
   it("handles a single week and an empty range", () => {
     expect(selectWeekLabelIndices(0, 6, 40, (index) => index)).toEqual([]);
     expect(selectWeekLabelIndices(1, 6, 40, (index) => index)).toEqual([0]);
+  });
+});
+
+describe("plotDimensions", () => {
+  it("calculates plot width and height correctly", () => {
+    const layout = { width: 720, height: 380, top: 16, right: 96, bottom: 38, left: 44 };
+    expect(plotDimensions(layout)).toEqual({ width: 580, height: 326 });
+  });
+});
+
+describe("yPositionFor", () => {
+  it("maps value to canvas y-coordinate", () => {
+    const scale = { min: 0, max: 100, ticks: [0, 50, 100] };
+    expect(yPositionFor(100, scale, 20, 200)).toBe(20);
+    expect(yPositionFor(0, scale, 20, 200)).toBe(220);
+    expect(yPositionFor(50, scale, 20, 200)).toBe(120);
+  });
+
+  it("handles flat scale min === max", () => {
+    const scale = { min: 50, max: 50, ticks: [50] };
+    expect(yPositionFor(50, scale, 20, 200)).toBe(120);
+  });
+});
+
+describe("segmentsFor", () => {
+  it("splits series into contiguous non-null segments", () => {
+    const values = ["10", "20", null, "30", null, null, "40", "50"];
+    const segments = segmentsFor(
+      values,
+      (i) => i * 10,
+      (v) => v * 2,
+    );
+    expect(segments).toEqual([
+      [
+        { x: 0, y: 20 },
+        { x: 10, y: 40 },
+      ],
+      [{ x: 30, y: 60 }],
+      [
+        { x: 60, y: 80 },
+        { x: 70, y: 100 },
+      ],
+    ]);
+  });
+
+  it("handles empty or all-null series", () => {
+    expect(
+      segmentsFor(
+        [],
+        (i) => i,
+        (v) => v,
+      ),
+    ).toEqual([]);
+    expect(
+      segmentsFor(
+        [null, null],
+        (i) => i,
+        (v) => v,
+      ),
+    ).toEqual([]);
   });
 });

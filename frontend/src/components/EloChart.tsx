@@ -1,5 +1,12 @@
 import type { EloWeek } from "../api/types";
-import { niceIntegerScale, positionFor, selectWeekLabelIndices } from "./chartGeometry";
+import {
+  niceIntegerScale,
+  plotDimensions,
+  positionFor,
+  segmentsFor,
+  selectWeekLabelIndices,
+  yPositionFor,
+} from "./chartGeometry";
 import { formatEloValue, formatEloWhole } from "./format";
 import { seriesStyle } from "./series";
 import { BODY_CELL_DIVIDER, LAST_ROW_NO_DIVIDER } from "./tableStyles";
@@ -38,35 +45,6 @@ const MODE_LABELS = {
   actual_schedule: "Actual schedule",
   round_robin: "Round robin",
 } as const;
-
-interface Point {
-  x: number;
-  y: number;
-}
-
-/** Split a series into contiguous non-null segments so gaps are not bridged by a line. */
-function segmentsFor(
-  values: readonly (string | null)[],
-  xFor: (index: number) => number,
-  yFor: (value: number) => number,
-): Point[][] {
-  const segments: Point[][] = [];
-  let current: Point[] = [];
-  values.forEach((value, index) => {
-    if (value === null) {
-      if (current.length > 0) {
-        segments.push(current);
-        current = [];
-      }
-      return;
-    }
-    current.push({ x: xFor(index), y: yFor(Number(value)) });
-  });
-  if (current.length > 0) {
-    segments.push(current);
-  }
-  return segments;
-}
 
 function lastValue(series: EloChartSeries): string | null {
   for (let index = series.values.length - 1; index >= 0; index -= 1) {
@@ -121,8 +99,7 @@ export function EloChart({
   compact,
 }: EloChartProps) {
   const layout = compact ? LAYOUT.compact : LAYOUT.full;
-  const plotWidth = layout.width - layout.left - layout.right;
-  const plotHeight = layout.height - layout.top - layout.bottom;
+  const { width: plotWidth, height: plotHeight } = plotDimensions(layout);
   const visible = new Set(visibleTeamKeys);
 
   if (weeks.length === 0 || series.length === 0) {
@@ -139,8 +116,7 @@ export function EloChart({
   const start = Number(startingRating);
   const scale = niceIntegerScale(Math.min(...allValues, start), Math.max(...allValues, start), 5);
   const xFor = (index: number) => positionFor(index, weeks.length, layout.left, plotWidth);
-  const yFor = (value: number) =>
-    layout.top + ((scale.max - value) / (scale.max - scale.min)) * plotHeight;
+  const yFor = (value: number) => yPositionFor(value, scale, layout.top, plotHeight);
 
   const drawn = series
     .filter((entry) => visible.has(entry.teamKey))

@@ -1,4 +1,11 @@
-import { niceScale, positionFor, spreadLabelPositions } from "./chartGeometry";
+import {
+  niceScale,
+  plotDimensions,
+  positionFor,
+  spreadLabelPositions,
+  yPositionFor,
+} from "./chartGeometry";
+import { ChartMarker } from "./ChartMarker";
 import { formatVP, toNumber } from "./format";
 import { seriesStyle } from "./series";
 import { BODY_CELL_DIVIDER, LAST_ROW_NO_DIVIDER } from "./tableStyles";
@@ -35,66 +42,6 @@ function lastValue(series: ChartSeries): string {
   return series.cumulative[series.cumulative.length - 1];
 }
 
-interface MarkerProps {
-  shape: ReturnType<typeof seriesStyle>["marker"];
-  x: number;
-  y: number;
-  color: string;
-  size: number;
-}
-
-/** One point marker. The shape is the second non-color cue that identifies a series. */
-function Marker({ shape, x, y, color, size }: MarkerProps) {
-  switch (shape) {
-    case "circle":
-      return <circle cx={x} cy={y} r={size} style={{ fill: color }} />;
-    case "square":
-      return (
-        <rect
-          x={x - size}
-          y={y - size}
-          width={size * 2}
-          height={size * 2}
-          style={{ fill: color }}
-        />
-      );
-    case "triangle":
-      return (
-        <path
-          d={`M ${x} ${y - size} L ${x + size} ${y + size} L ${x - size} ${y + size} Z`}
-          style={{ fill: color }}
-        />
-      );
-    case "diamond":
-      return (
-        <path
-          d={`M ${x} ${y - size} L ${x + size} ${y} L ${x} ${y + size} L ${x - size} ${y} Z`}
-          style={{ fill: color }}
-        />
-      );
-    case "plus":
-      return (
-        <path
-          d={`M ${x - size} ${y} H ${x + size} M ${x} ${y - size} V ${y + size}`}
-          fill="none"
-          style={{ stroke: color }}
-          strokeWidth={2}
-          strokeLinecap="round"
-        />
-      );
-    case "cross":
-      return (
-        <path
-          d={`M ${x - size} ${y - size} L ${x + size} ${y + size} M ${x + size} ${y - size} L ${x - size} ${y + size}`}
-          fill="none"
-          style={{ stroke: color }}
-          strokeWidth={2}
-          strokeLinecap="round"
-        />
-      );
-  }
-}
-
 /**
  * Cumulative VP line chart, drawn as dependency-free inline SVG. Series differ by color, dash
  * pattern, and marker shape; the selected team is drawn last and thicker; legend chips toggle
@@ -111,8 +58,7 @@ export function VPChart({
   projectedWeeks = [],
 }: VPChartProps) {
   const layout = compact ? LAYOUT.compact : LAYOUT.full;
-  const plotWidth = layout.width - layout.left - layout.right;
-  const plotHeight = layout.height - layout.top - layout.bottom;
+  const { width: plotWidth, height: plotHeight } = plotDimensions(layout);
   const visible = new Set(visibleTeamIds);
   const projected = new Set(projectedWeeks);
   const firstProjectedIndex = weeks.findIndex((week) => projected.has(week));
@@ -129,8 +75,7 @@ export function VPChart({
   const allValues = series.flatMap((entry) => entry.cumulative.map(toNumber));
   const scale = niceScale(Math.min(...allValues), Math.max(...allValues), 4);
   const xFor = (index: number) => positionFor(index, weeks.length, layout.left, plotWidth);
-  const yFor = (value: number) =>
-    layout.top + ((scale.max - value) / (scale.max - scale.min)) * plotHeight;
+  const yFor = (value: number) => yPositionFor(value, scale, layout.top, plotHeight);
 
   const drawn = series
     .filter((entry) => visible.has(entry.teamId))
@@ -259,7 +204,7 @@ export function VPChart({
             const size = entry.teamId === selectedTeamId ? 4.6 : compact ? 3.4 : 4;
             return entry.cumulative.map((value, index) => (
               <g key={`${entry.teamId}-${weeks[index]}`}>
-                <Marker
+                <ChartMarker
                   shape={style.marker}
                   x={xFor(index)}
                   y={yFor(toNumber(value))}
@@ -336,7 +281,7 @@ export function VPChart({
                     strokeLinecap="round"
                     style={{ stroke: style.color }}
                   />
-                  <Marker shape={style.marker} x={15} y={5} color={style.color} size={3} />
+                  <ChartMarker shape={style.marker} x={15} y={5} color={style.color} size={3} />
                 </svg>
                 <span className={selected ? "font-semibold text-brand-ink" : ""}>
                   {entry.teamName}
