@@ -48,6 +48,14 @@ for tool in gh jq; do
   command -v "$tool" >/dev/null 2>&1 || { echo "merge.sh: '$tool' is required" >&2; exit 1; }
 done
 
+# Resolve token if available
+if [[ -z "${GH_TOKEN:-}" ]]; then
+  tok="$("$(dirname "$0")/agent-identity.sh" token 2>/dev/null || true)"
+  if [[ -n "$tok" ]]; then
+    export GH_TOKEN="$tok"
+  fi
+fi
+
 fail() {
   echo "merge.sh: NOT merging #$pr: $*" >&2
   exit 1
@@ -73,7 +81,7 @@ esac
 
 if [[ "$allow_governance" -eq 0 ]]; then
   governance="$(jq -r '.files[].path' <<<"$json" \
-    | grep -E '^(AGENTS\.md|SPEC\.md|ACCEPTANCE\.md|ARCHITECTURE\.md|\.opencode/|\.github/|scripts/|\.pre-commit-config\.yaml)' || true)"
+    | grep -E '^(AGENTS\.md|SPEC\.md|ACCEPTANCE\.md|ARCHITECTURE\.md|\.opencode/|\.agent/|\.github/|scripts/|\.pre-commit-config\.yaml)' || true)"
   [[ -z "$governance" ]] || fail "touches governance files, a human must merge it (--allow-governance):
 $governance"
 fi

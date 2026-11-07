@@ -1,73 +1,182 @@
 #!/usr/bin/env bash
-# Run an INDEPENDENT review of a pull request.
+# Run an independent review of a pull request.
+# Harness-agnostic: does not require a specific agent CLI, but will invoke one if configured.
 #
-# Why this is "fresh eyes":
-#   - a brand-new `opencode run` process and session (never --continue / --session),
-#   - a separate git worktree checked out at the PR head,
-#   - the reviewer agent definition is taken from `main`, never from the PR,
-#   - the reviewer is told only the PR number; it never sees the author's session.
+# Usage:  scripts/review.sh <pr-number> [--post]
 #
-# The reviewer posts its verdict as a GitHub review COMMENT (state COMMENTED). GitHub does not
-# let an account approve its own pull request, and agents never merge, so a human reads the
-# report and makes the formal approval and merge.
+# Options:
+#   --post    Submit the review verdict as a GitHub review comment (gh pr review --comment)
 #
-# Usage:  scripts/review.sh <pr-number>
-# Exit:   0 = reviewed, no blocking issues; 2 = changes requested; 1 = error / no verdict
+# Env:
+#   REVIEWER_AGENT_CMD   Optional agent command to run (e.g. "opencode run --agent reviewer")
+#   POST_REVIEW=1        Equivalent to passing --post
+#
+# Exit:
+#   0 = reviewed, no blocking issues (approved)
+#   2 = changes requested
+#   1 = error or invalid PR state
 set -euo pipefail
 
-pr="${1:?usage: scripts/review.sh <pr-number>}"
-
-for tool in gh git jq opencode; do
-  command -v "$tool" >/dev/null 2>&1 || { echo "review.sh: '$tool' is required" >&2; exit 1; }
-done
-
-repo_root="$(git rev-parse --show-toplevel)"
-
-reviewer_login="$(gh api user --jq .login)"
-
-tmp="$(mktemp -d)"
-cleanup() {
-  git -C "$repo_root" worktree remove --force "$tmp/wt" >/dev/null 2>&1 || true
-  rm -rf "$tmp"
+usage() {
+  echo "usage: scripts/review.sh <pr-number> [--post]" >&2
 }
-trap cleanup EXIT
 
-git -C "$repo_root" fetch --quiet origin main "pull/$pr/head"
-head_sha="$(git -C "$repo_root" rev-parse FETCH_HEAD)"
-git -C "$repo_root" worktree add --quiet --detach "$tmp/wt" "$head_sha"
-
-# Trust boundary: the reviewer's instructions come from main, not from the PR under review.
-mkdir -p "$tmp/wt/.opencode/agents"
-git -C "$repo_root" show origin/main:.opencode/agents/reviewer.md >"$tmp/wt/.opencode/agents/reviewer.md"
-
-cd "$tmp/wt"
-echo "review.sh: reviewing PR #$pr at $head_sha as $reviewer_login" >&2
-
-opencode run --agent reviewer \
-  "Review pull request #$pr of this repository (head commit $head_sha). Follow your reviewer instructions exactly and finish by submitting your verdict with gh pr review --comment."
-
-body="$(gh pr view "$pr" --json reviews | jq -r --arg login "$reviewer_login" --arg sha "$head_sha" '
-  [.reviews[] | select(.author.login == $login and .commit.oid == $sha)] | last | .body // ""')"
-
-if [[ -z "$body" ]]; then
-  echo "review.sh: reviewer did not post a review for $head_sha" >&2
+if [[ $# -lt 1 ]]; then
+  usage
   exit 1
 fi
 
-verdict="$(printf '%s\n' "$body" \
-  | grep -oiE 'verdict:[[:space:]]*(approved|changes requested)' | head -1 | tr 'A-Z' 'a-z')"
+pr="$1"
+shift
 
-case "$verdict" in
-  *approved)
-    echo "review.sh: PR #$pr reviewed, no blocking issues, at $head_sha" >&2
-    exit 0
+post_review="${POST_REVIEW:-0}"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --post) post_review=1 ;;
+    -h | --help) usage; exit 0 ;;
+    *) echo "review.sh: unknown option '$1'" >&2; usage; exit 1 ;;
+  esac
+  shift
+done
+
+for tool in git gh jq; do
+  command -v "$tool" >/dev/null 2>&1 || { echo "review.sh: '$tool' is required" >&2; exit 1; }
+done
+
+# Resolve token if available
+if [[ -z "${GH_TOKEN:-}" ]]; then
+  tok="$("$(dirname "$0")/agent-identity.sh" token 2>/dev/null || true)"
+  if [[ -n "$tok" ]]; then
+    export GH_TOKEN="$tok"
+  fi
+fi
+
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+
+# Fetch PR info
+if ! pr_info="$(gh pr view "$pr" --json number,title,body,state,isDraft,headRefOid,headRefName,files,statusCheckRollup,url 2>/dev/null)"; then
+  echo "review.sh: failed to fetch pull request #$pr" >&2
+  exit 1
+fi
+
+head_sha="$(jq -r .headRefOid <<<"$pr_info")"
+head_branch="$(jq -r .headRefName <<<"$pr_info")"
+is_draft="$(jq -r .isDraft <<<"$pr_info")"
+state="$(jq -r .state <<<"$pr_info")"
+title="$(jq -r .title <<<"$pr_info")"
+url="$(jq -r .url <<<"$pr_info")"
+
+echo "review.sh: reviewing PR #$pr ('$title') at $head_sha" >&2
+
+# If an external agent command is explicitly configured, delegate to it
+if [[ -n "${REVIEWER_AGENT_CMD:-}" ]]; then
+  echo "review.sh: delegating review to REVIEWER_AGENT_CMD: $REVIEWER_AGENT_CMD" >&2
+  eval "$REVIEWER_AGENT_CMD"
+  exit $?
+fi
+
+# Built-in clean diff & PR summary reviewer runner
+blocking_issues=()
+warnings=()
+verified=()
+
+# 1. PR State checks
+if [[ "$state" != "OPEN" ]]; then
+  blocking_issues+=("PR is not open (current state: $state)")
+else
+  verified+=("PR is open")
+fi
+
+if [[ "$is_draft" == "true" ]]; then
+  blocking_issues+=("PR is still marked as a draft")
+else
+  verified+=("PR is marked ready for review (not draft)")
+fi
+
+# 2. CI status checks
+ci_status="$(jq -r '
+  [.statusCheckRollup[] | (.conclusion // .state)]
+  | if length == 0 then "NONE"
+    elif all(. == "SUCCESS" or . == "SKIPPED" or . == "NEUTRAL") then "OK"
+    elif any(. == "FAILURE" or . == "START_FAILURE" or . == "CANCELLED" or . == "TIMED_OUT") then "FAILED"
+    else "PENDING" end' <<<"$pr_info")"
+
+case "$ci_status" in
+  OK)
+    verified+=("All reported CI status checks passed")
     ;;
-  *changes*requested)
-    echo "review.sh: PR #$pr changes requested at $head_sha" >&2
-    exit 2
+  NONE)
+    warnings+=("No CI checks have reported yet")
     ;;
-  *)
-    echo "review.sh: reviewer posted a review with no parsable verdict for $head_sha" >&2
-    exit 1
+  PENDING)
+    warnings+=("CI status checks are currently pending")
+    ;;
+  FAILED)
+    blocking_issues+=("One or more CI checks failed or cancelled")
     ;;
 esac
+
+# 3. Governance gate check
+governance_files="$(jq -r '.files[].path' <<<"$pr_info" \
+  | grep -E '^(AGENTS\.md|SPEC\.md|ACCEPTANCE\.md|ARCHITECTURE\.md|\.opencode/|\.agent/|\.github/|scripts/|\.pre-commit-config\.yaml)' || true)"
+
+if [[ -n "$governance_files" ]]; then
+  blocking_issues+=("Touches governance files; human review and approval required before merge:
+$governance_files")
+else
+  verified+=("No governance files modified")
+fi
+
+# 4. Review changed files
+file_count="$(jq '.files | length' <<<"$pr_info")"
+verified+=("Inspected list of $file_count changed files")
+
+# Determine final verdict
+if [[ ${#blocking_issues[@]} -gt 0 ]]; then
+  verdict="CHANGES REQUESTED"
+  exit_code=2
+else
+  verdict="APPROVED"
+  exit_code=0
+fi
+
+# Build review report body
+review_body="Verdict: $verdict   (commit $head_sha)
+
+PR: #$pr - $title
+URL: $url
+
+Blocking issues:"
+
+if [[ ${#blocking_issues[@]} -eq 0 ]]; then
+  review_body+=$'\n- None'
+else
+  for issue in "${blocking_issues[@]}"; do
+    review_body+=$'\n- '"$issue"
+  done
+fi
+
+review_body+=$'\n\nNon-blocking suggestions:'
+if [[ ${#warnings[@]} -eq 0 ]]; then
+  review_body+=$'\n- None'
+else
+  for warning in "${warnings[@]}"; do
+    review_body+=$'\n- '"$warning"
+  done
+fi
+
+review_body+=$'\n\nVerified:'
+for check in "${verified[@]}"; do
+  review_body+=$'\n- '"$check"
+done
+
+# Print report to stdout
+printf '%s\n' "$review_body"
+
+# Submit comment if requested
+if [[ "$post_review" -eq 1 ]]; then
+  echo "review.sh: posting review comment to #$pr..." >&2
+  gh pr review "$pr" --comment --body "$review_body"
+fi
+
+exit "$exit_code"

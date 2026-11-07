@@ -38,6 +38,14 @@ for tool in git gh jq; do
   command -v "$tool" >/dev/null 2>&1 || { echo "cleanup.sh: '$tool' is required" >&2; exit 1; }
 done
 
+# Resolve token if available
+if [[ -z "${GH_TOKEN:-}" ]]; then
+  tok="$("$(dirname "$0")/agent-identity.sh" token 2>/dev/null || true)"
+  if [[ -n "$tok" ]]; then
+    export GH_TOKEN="$tok"
+  fi
+fi
+
 current="$(git rev-parse --abbrev-ref HEAD)"
 git fetch --prune --quiet origin 2>/dev/null || true
 
