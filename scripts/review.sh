@@ -177,7 +177,18 @@ printf '%s\n' "$review_body"
 if [[ "$post_review" -eq 1 ]]; then
   if [[ "$exit_code" -eq 0 ]]; then
     echo "review.sh: approving PR #$pr..." >&2
-    gh pr review "$pr" --approve --body "$review_body"
+    review_err_file="$(mktemp)"
+    if ! gh pr review "$pr" --approve --body "$review_body" 2>"$review_err_file"; then
+      if grep -qi "Can not approve your own pull request" "$review_err_file"; then
+        echo "review.sh: cannot approve own pull request; posting as review comment..." >&2
+        gh pr review "$pr" --comment --body "$review_body"
+      else
+        cat "$review_err_file" >&2
+        rm -f "$review_err_file"
+        exit 1
+      fi
+    fi
+    rm -f "$review_err_file"
   elif [[ "$exit_code" -eq 2 ]]; then
     echo "review.sh: requesting changes on PR #$pr..." >&2
     gh pr review "$pr" --request-changes --body "$review_body"
