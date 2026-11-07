@@ -354,7 +354,12 @@ describe("SeasonsSection", () => {
     await screen.findByRole("rowheader", { name: "2026" });
     await user.click(screen.getByRole("button", { name: "Add a season" }));
 
-    const dialog = screen.getByRole("dialog", { name: "Add a season" });
+    let dialog = screen.getByRole("dialog", { name: "Add a season" });
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Add a season" }));
+    dialog = screen.getByRole("dialog", { name: "Add a season" });
     const input = within(dialog).getByLabelText("Season year");
     expect(input).toHaveValue(new Date().getFullYear());
     expect(input).toHaveAttribute("min", "2000");
