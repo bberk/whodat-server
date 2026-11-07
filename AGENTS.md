@@ -169,9 +169,9 @@ Many agents work in parallel on the same repo. Treat these as **serialized** —
 
 ### Budgets, model choice, and escalation
 
-- Prefer the strongest available model for planning, architecture, the VP engine, and reviews. Reserve smaller models for mechanical, well-specified edits.
-- When hitting rate limits or quotas on one model or provider, switch gracefully to another strong model or provider.
-- Do not let cost saving shorten the VP-engine test suite or lower any coverage threshold.
+- Model choice is directed by the user prompting the harness; agents follow user instructions and harness configuration rather than unilaterally selecting or switching models.
+- When hitting rate limits or provider quotas, notify and escalate to the user rather than looping.
+- Never shorten test suites, weaken assertions, or lower any coverage threshold to save cost or quota.
 - Stop and escalate to the human (do not loop) when: the spec is ambiguous (record it in `docs/OPEN_QUESTIONS.md`); a change touches governance files, security/auth, secrets, or the data schema; a change would alter a shared contract; the same failure repeats after three genuine attempts with different approaches; or the CI-fix/review loop has run three rounds without a clean review.
 
 ### Commits, pull requests, and review
