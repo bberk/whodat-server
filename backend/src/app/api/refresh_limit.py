@@ -10,7 +10,7 @@ their own limiters into a service) with a fake clock.
 from __future__ import annotations
 
 from app.config import get_settings
-from app.services.league_service import RefreshRateLimiter
+from app.services.refresh_limiter import RefreshRateLimiter
 
 _settings = get_settings()
 
