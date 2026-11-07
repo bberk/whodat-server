@@ -24,13 +24,8 @@ text.
 
 from __future__ import annotations
 
-import math
-import threading
-import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Protocol
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
@@ -64,6 +59,54 @@ from app.security.invite_codes import (
     hash_invite_code,
     invite_code_matches,
 )
+from app.services.league_exceptions import (
+    AdminRequiredError,
+    AlreadyMemberError,
+    CredentialsRequiredError,
+    DuplicateSeasonError,
+    IncompleteCredentialsError,
+    InvalidCupWeekError,
+    InvalidInviteRequestError,
+    InvalidLeagueRequestError,
+    InvalidSeasonSettingsError,
+    InviteNotRedeemableError,
+    LastAdminError,
+    LeagueAccessError,
+    LeagueMemberNotFoundError,
+    LeagueProviderError,
+    LeagueSeasonNotFoundError,
+    LeagueServiceError,
+    LeagueSyncError,
+    NotAMemberError,
+    OwnerNotFoundError,
+    RefreshRateLimitedError,
+)
+from app.services.league_models import (
+    AddLeagueResult,
+    AddSeasonResult,
+    CreatedInviteView,
+    CupWeekView,
+    EncryptedCredentials,
+    EspnCredentials,
+    LeagueMemberView,
+    LeagueUser,
+    MembershipView,
+    OwnerView,
+    ProviderFactory,
+    RefreshResult,
+    SeasonRefreshResult,
+    SeasonSettingsView,
+)
+from app.services.refresh_limiter import (
+    DEFAULT_LEAGUE_REFRESH_INTERVAL_SECONDS,
+    DEFAULT_SEASON_REFRESH_INTERVAL_SECONDS,
+    DEFAULT_SEASON_REFRESH_USER_LIMIT,
+    DEFAULT_SEASON_REFRESH_USER_WINDOW_SECONDS,
+    DEFAULT_USER_REFRESH_LIMIT,
+    DEFAULT_USER_REFRESH_WINDOW_SECONDS,
+    RefreshRateLimitDecision,
+    RefreshRateLimiter,
+)
 from app.services.sync_service import (
     PROVIDER_CONFIG_REF,
     SyncError,
@@ -75,344 +118,52 @@ from app.validation import normalize_external_id
 #: The only provider the HTTP API currently stores leagues for.
 PROVIDER_ID = "espn"
 
-#: A league-wide refresh is allowed once per league in this interval.
-DEFAULT_LEAGUE_REFRESH_INTERVAL_SECONDS = 5 * 60.0
-
-#: A user may trigger this many refreshes in the rolling window below.
-DEFAULT_USER_REFRESH_LIMIT = 3
-
-#: Rolling window for the per-user refresh limit.
-DEFAULT_USER_REFRESH_WINDOW_SECONDS = 60 * 60.0
-
-#: Admin per-season refresh allows consecutive seasons; the default has no per-league interval.
-DEFAULT_SEASON_REFRESH_INTERVAL_SECONDS = 0.0
-
-#: A season refresh is allowed this many times per user in the rolling window below.
-DEFAULT_SEASON_REFRESH_USER_LIMIT = 60
-
-#: Rolling window for the per-season refresh user limit.
-DEFAULT_SEASON_REFRESH_USER_WINDOW_SECONDS = 60 * 60.0
-
-
-@dataclass(frozen=True)
-class LeagueUser:
-    """The authenticated caller identity needed by this service."""
-
-    user_id: int
-    role: str
-
-
-@dataclass(frozen=True)
-class EspnCredentials:
-    """Plaintext credentials supplied by an admin for one add-league request.
-
-    The fields are excluded from ``repr`` so an accidental log or traceback does not expose them.
-    The service encrypts them immediately and never stores or returns the plaintext.
-    """
-
-    espn_s2: str = field(repr=False)
-    espn_swid: str = field(repr=False)
-
-
-@dataclass(frozen=True)
-class EncryptedCredentials:
-    """Opaque credential tokens handed to the provider factory and stored on a membership."""
-
-    espn_s2_encrypted: str = field(repr=False)
-    espn_swid_encrypted: str = field(repr=False)
-
-
-class ProviderFactory(Protocol):
-    """Build a provider, decrypting only behind the provider layer when tokens are supplied."""
-
-    def __call__(
-        self,
-        *,
-        espn_s2_encrypted: str | None = None,
-        espn_swid_encrypted: str | None = None,
-    ) -> LeagueProvider: ...
-
-
-@dataclass(frozen=True)
-class MembershipView:
-    """A membership and its league, safe to return to a browser."""
-
-    league_id: int
-    provider: str
-    external_id: str
-    name: str
-    owner_id: int | None
-    has_credentials: bool
-    show_wapdate: bool
-
-
-@dataclass(frozen=True)
-class OwnerView:
-    """A league owner available for the caller's owner association."""
-
-    id: int
-    external_id: str
-    display_name: str
-
-
-@dataclass(frozen=True)
-class CupWeekView:
-    """One league season's cup week and the week range the admin UI offers.
-
-    ``cup_week`` is ``None`` when the season has no cup week; ``regular_season_length`` comes from
-    the season's stored metadata and bounds every non-null value.
-    """
-
-    season: int
-    cup_week: int | None
-    regular_season_length: int
-
-
-@dataclass(frozen=True)
-class SeasonSettingsView:
-    """One stored season's admin settings, all safe to return to a browser.
-
-    ``last_refreshed_at`` is ``None`` when the season has never been synced through the provider;
-    the UI shows "Never". A cup-week edit never changes it.
-    """
-
-    season: int
-    cup_week: int | None
-    regular_season_length: int
-    last_refreshed_at: datetime | None
-
-
-@dataclass(frozen=True)
-class LeagueMemberView:
-    """One account associated with a league, with no credential or password material."""
-
-    user_id: int
-    email: str
-    role: str
-    owner_id: int | None
-    owner_name: str | None
-    has_credentials: bool
-
-
-@dataclass(frozen=True)
-class CreatedInviteView:
-    """A freshly created invite and the raw code returned to the admin exactly once."""
-
-    code: str = field(repr=False)
-    role: str
-    league_id: int | None
-    expires_at: datetime
-
-
-@dataclass(frozen=True)
-class AddLeagueResult:
-    """Outcome of adding or joining a league."""
-
-    membership: MembershipView
-    season: int
-    weeks_synced: tuple[int, ...]
-
-
-@dataclass(frozen=True)
-class RefreshResult:
-    """Outcome of a league-wide refresh."""
-
-    league_id: int
-    season: int
-    weeks_synced: tuple[int, ...]
-    weeks_with_vp_recomputed: tuple[int, ...]
-
-
-@dataclass(frozen=True)
-class AddSeasonResult:
-    """Outcome of adding and syncing one season for an existing league."""
-
-    league_id: int
-    season: int
-    weeks_synced: tuple[int, ...]
-
-
-@dataclass(frozen=True)
-class SeasonRefreshResult:
-    """Outcome of refreshing exactly one stored season through the provider."""
-
-    league_id: int
-    season: int
-    weeks_synced: tuple[int, ...]
-
-
-class LeagueServiceError(Exception):
-    """Base class for expected league-service failures."""
-
-
-class InvalidLeagueRequestError(LeagueServiceError):
-    """The requested league id, season, or credential pair is not usable."""
-
-
-class AdminRequiredError(LeagueServiceError):
-    """A non-admin tried to add a league; members join only by redeeming a member invite."""
-
-
-class InviteNotRedeemableError(LeagueServiceError):
-    """The invite code is unknown, expired, wrong-role, or not bound to a league."""
-
-
-class NotAMemberError(LeagueServiceError, LookupError):
-    """The caller has no membership in the requested league."""
-
-
-class AlreadyMemberError(LeagueServiceError):
-    """The caller already holds a membership in the league."""
-
-
-class OwnerNotFoundError(LeagueServiceError, LookupError):
-    """The requested owner does not belong to the league."""
-
-
-class LeagueMemberNotFoundError(LeagueServiceError, LookupError):
-    """The requested user holds no membership in the league."""
-
-
-class LastAdminError(LeagueServiceError):
-    """Removing this member would leave the league with no admin member."""
-
-
-class InvalidInviteRequestError(LeagueServiceError):
-    """The requested invite role, league binding, or lifetime is not usable."""
-
-
-class LeagueSeasonNotFoundError(LeagueServiceError, LookupError):
-    """The league exists but the requested season is not stored."""
-
-
-class InvalidCupWeekError(LeagueServiceError):
-    """The cup week is outside 1..the season's stored regular-season length."""
-
-
-class InvalidSeasonSettingsError(LeagueServiceError):
-    """The season's stored metadata has no usable regular-season length."""
-
-
-class CredentialsRequiredError(LeagueServiceError):
-    """The caller's membership holds no credentials for a refresh or a new season."""
-
-
-class DuplicateSeasonError(LeagueServiceError):
-    """The league already stores data for the requested season."""
-
-
-class IncompleteCredentialsError(InvalidLeagueRequestError):
-    """Only one of the two ESPN cookies was supplied, or a supplied value is empty."""
-
-
-class LeagueProviderError(LeagueServiceError):
-    """The provider could not be configured or did not recognize the league season."""
-
-
-class LeagueAccessError(LeagueProviderError):
-    """The provider could not reach the league, as with a private league and no credentials."""
-
-
-class LeagueSyncError(LeagueServiceError):
-    """The provider-backed sync failed after validation."""
-
-
-class RefreshRateLimitedError(LeagueServiceError):
-    """The refresh was rejected by the per-league or per-user rate limit."""
-
-    def __init__(self, retry_after: int) -> None:
-        """Record the whole seconds a caller should wait before trying again."""
-        self.retry_after = retry_after
-        super().__init__("league refresh is rate limited")
-
-
-@dataclass(frozen=True)
-class RefreshRateLimitDecision:
-    """Outcome of one league-refresh rate-limit check."""
-
-    allowed: bool
-    retry_after: int
-
-
-class RefreshRateLimiter:
-    """A thread-safe refresh limiter with independent per-league and per-user limits.
-
-    The defaults allow one refresh per league every five minutes and three refreshes per user per
-    rolling hour. The clock is injectable (seconds, monotonically non-decreasing in tests) so the
-    behaviour is deterministic. A denied attempt does not consume quota; an allowed attempt is
-    recorded before the provider call, so a failed sync still counts.
-
-    State is process-local, like the auth limiter: a multi-worker deployment needs a shared store.
-    """
-
-    def __init__(
-        self,
-        *,
-        clock: Callable[[], float] = time.monotonic,
-        league_interval_seconds: float = DEFAULT_LEAGUE_REFRESH_INTERVAL_SECONDS,
-        user_limit: int = DEFAULT_USER_REFRESH_LIMIT,
-        user_window_seconds: float = DEFAULT_USER_REFRESH_WINDOW_SECONDS,
-    ) -> None:
-        """Configure the limits and clock; non-negative intervals and a positive limit are valid."""
-        if league_interval_seconds < 0:
-            raise ValueError("league_interval_seconds must not be negative")
-        if user_limit < 1:
-            raise ValueError("user_limit must be at least 1")
-        if user_window_seconds <= 0:
-            raise ValueError("user_window_seconds must be positive")
-        self._clock = clock
-        self._league_interval_seconds = float(league_interval_seconds)
-        self._user_limit = user_limit
-        self._user_window_seconds = float(user_window_seconds)
-        self._last_league_refresh: dict[int, float] = {}
-        self._user_attempts: dict[int, list[float]] = {}
-        self._lock = threading.Lock()
-
-    def check(self, *, league_id: int, user_id: int) -> RefreshRateLimitDecision:
-        """Record one allowed refresh or report how long the caller must wait.
-
-        Both limits are evaluated before either counter changes, so a denial by one limit does not
-        consume the other. ``retry_after`` is the largest whole-second wait implied by the two
-        limits (at least one when denied).
-        """
-        now = float(self._clock())
-        with self._lock:
-            league_retry = self._league_retry(league_id, now)
-            attempts = [
-                attempt
-                for attempt in self._user_attempts.get(user_id, [])
-                if now - attempt < self._user_window_seconds
-            ]
-            self._user_attempts[user_id] = attempts
-            user_retry = self._user_retry(attempts, now)
-
-            if league_retry > 0 or user_retry > 0:
-                return RefreshRateLimitDecision(
-                    allowed=False, retry_after=max(league_retry, user_retry)
-                )
-
-            self._last_league_refresh[league_id] = now
-            attempts.append(now)
-            return RefreshRateLimitDecision(allowed=True, retry_after=0)
-
-    def reset(self) -> None:
-        """Forget every counter (used by tests and administrative resets)."""
-        with self._lock:
-            self._last_league_refresh.clear()
-            self._user_attempts.clear()
-
-    def _league_retry(self, league_id: int, now: float) -> int:
-        """Return whole seconds until this league may refresh again, or zero when allowed."""
-        last = self._last_league_refresh.get(league_id)
-        if last is None or now >= last + self._league_interval_seconds:
-            return 0
-        return max(1, math.ceil(last + self._league_interval_seconds - now))
-
-    def _user_retry(self, attempts: list[float], now: float) -> int:
-        """Return whole seconds until this user's oldest attempt leaves the window, or zero."""
-        if len(attempts) < self._user_limit:
-            return 0
-        return max(1, math.ceil(attempts[0] + self._user_window_seconds - now))
+__all__ = [
+    "DEFAULT_LEAGUE_REFRESH_INTERVAL_SECONDS",
+    "DEFAULT_SEASON_REFRESH_INTERVAL_SECONDS",
+    "DEFAULT_SEASON_REFRESH_USER_LIMIT",
+    "DEFAULT_SEASON_REFRESH_USER_WINDOW_SECONDS",
+    "DEFAULT_USER_REFRESH_LIMIT",
+    "DEFAULT_USER_REFRESH_WINDOW_SECONDS",
+    "PROVIDER_ID",
+    "AddLeagueResult",
+    "AddSeasonResult",
+    "AdminRequiredError",
+    "AlreadyMemberError",
+    "CreatedInviteView",
+    "CredentialsRequiredError",
+    "CupWeekView",
+    "DuplicateSeasonError",
+    "EncryptedCredentials",
+    "EspnCredentials",
+    "IncompleteCredentialsError",
+    "InvalidCupWeekError",
+    "InvalidInviteRequestError",
+    "InvalidLeagueRequestError",
+    "InvalidSeasonSettingsError",
+    "InviteNotRedeemableError",
+    "LastAdminError",
+    "LeagueAccessError",
+    "LeagueMemberNotFoundError",
+    "LeagueMemberView",
+    "LeagueProviderError",
+    "LeagueSeasonNotFoundError",
+    "LeagueService",
+    "LeagueServiceError",
+    "LeagueSyncError",
+    "LeagueUser",
+    "MembershipView",
+    "NotAMemberError",
+    "OwnerNotFoundError",
+    "OwnerView",
+    "ProviderFactory",
+    "RefreshRateLimitDecision",
+    "RefreshRateLimitedError",
+    "RefreshRateLimiter",
+    "RefreshResult",
+    "SeasonRefreshResult",
+    "SeasonSettingsView",
+]
 
 
 def _utc_now() -> datetime:
