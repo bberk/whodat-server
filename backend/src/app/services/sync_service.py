@@ -32,6 +32,7 @@ from app.providers.base import (
     ProjectionDTO,
     ProviderLeagueNotFound,
 )
+from app.services.projection_helpers import determine_active_week
 from app.validation import normalize_display_text
 
 #: Fixed non-secret value stored in ``league.provider_config_ref``. The column is a legacy pointer:
@@ -634,20 +635,8 @@ class SyncService:
     def _active_week(
         self, league_id: int, season: int, regular_season_length: int
     ) -> tuple[int | None, str | None]:
-        """Return the first incomplete week and an incomplete-schedule reason, if any.
-
-        Every regular-season week must have a stored schedule and none may be a playoff week. The
-        scan continues after the first incomplete week so a missing or playoff-marked later week
-        is reported as an incomplete schedule rather than a finished season.
-        """
-        active: int | None = None
-        for week in range(1, regular_season_length + 1):
-            matchups = self._repository.get_week_matchups(league_id, season, week)
-            if not matchups or any(matchup.is_playoff for matchup in matchups):
-                return None, "incomplete_schedule"
-            if active is None and any(not matchup.is_complete for matchup in matchups):
-                active = week
-        return active, None
+        """Return the first incomplete week and an incomplete-schedule reason, if any."""
+        return determine_active_week(self._repository, league_id, season, regular_season_length)
 
     @staticmethod
     def _validated_projection_points(
