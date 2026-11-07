@@ -15,6 +15,7 @@ from app.api.routes_health import router as health_router
 from app.api.routes_leagues import router as leagues_router
 from app.api.routes_predictions import router as predictions_router
 from app.api.routes_standings import router as standings_router
+from app.api.routes_trades import router as trades_router
 from app.api.schemas_auth import validation_exception_handler
 from app.config import DEFAULT_SECRET_KEY, get_settings
 from app.projection_refresh import start_projection_scheduler
@@ -61,6 +62,7 @@ def create_app() -> FastAPI:
     app.include_router(standings_router)
     app.include_router(predictions_router)
     app.include_router(elo_router)
+    app.include_router(trades_router)
     # Installed last so its middleware is outermost and observes the full request, including
     # CORS and body-limit responses. `/metrics` stays out of the OpenAPI schema.
     configure_monitoring(app, version=app.version, environment=settings.env)
