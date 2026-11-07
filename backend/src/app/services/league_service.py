@@ -41,6 +41,10 @@ from app.db.models import (
     League,
     LeagueEloConfig,
     LeagueSeason,
+    LeagueTrade,
+    LeagueTradeBudgetDelta,
+    LeagueTradeConfig,
+    LeagueTradeParty,
     Matchup,
     Owner,
     ProjectedScore,
@@ -667,6 +671,10 @@ class LeagueService:
         self._require_admin(user)
         with self._session.begin_nested():
             for model in (
+                LeagueTradeBudgetDelta,
+                LeagueTradeParty,
+                LeagueTrade,
+                LeagueTradeConfig,
                 ProjectedScore,
                 Score,
                 Matchup,
