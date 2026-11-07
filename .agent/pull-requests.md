@@ -3,8 +3,7 @@
 You author the branch, and a **human** reads the description before deciding whether to merge. Write
 it as a factual case for the change: no requests, no instructions to the reviewer, no marketing.
 `scripts/ship.sh` only pushes the branch — **you open the pull request yourself** with `gh`,
-running as the App identity through `scripts/bot-identity.sh run` (never a bare `gh`, which would
-act as the owner).
+running as your agent identity (e.g. `scripts/agent-identity.sh run gh ...`).
 
 ## Open it early, as a draft
 
@@ -12,7 +11,7 @@ Push your branch first with `scripts/ship.sh` (nothing pushes on commit). Write 
 outside the repository (for example under `$TMPDIR`), then open a **draft** PR:
 
 ```bash
-scripts/bot-identity.sh run gh pr create --draft --base main \
+scripts/agent-identity.sh run gh pr create --draft --base main \
   --head "agent/<task-id>-<slug>" \
   --title "<imperative summary, about 50 characters, no trailing period>" \
   --body-file "$TMPDIR/pr-body.md"
@@ -23,11 +22,11 @@ useful: CI runs and the work is visible. Keep committing to the same branch and 
 PR. Update the description whenever the scope changes — never leave stale text:
 
 ```bash
-scripts/bot-identity.sh run gh pr edit <pr-number> --body-file "$TMPDIR/pr-body.md"
+scripts/agent-identity.sh run gh pr edit <pr-number> --body-file "$TMPDIR/pr-body.md"
 ```
 
-Find the PR later with `scripts/bot-identity.sh run gh pr view <branch> --json url,number`. If `gh`
-fails with an authentication error, stop and tell the orchestrator; do not fall back to your own
+Find the PR later with `scripts/agent-identity.sh run gh pr view <branch> --json url,number`. If `gh`
+fails with an authentication error, stop and report the error; do not fall back to unverified
 credentials.
 
 ## Fill in the body
@@ -56,7 +55,7 @@ squash-merged. `Add tie-splitting for lowest score`, not `VP fixes (WIP)`.
 
 1. Rebase on `main` and re-read the body against the final diff; fix anything stale.
 2. Run `scripts/ship.sh --ready`. It pushes, marks the PR ready, and adds the `ready-for-review`
-   label, which is the orchestrator's cue to start a review.
+   label, which is the cue to start a review.
 3. Address a `changes requested` review by fixing, committing, and running `scripts/ship.sh --ready`
    again; a new reviewer session starts from scratch.
 
