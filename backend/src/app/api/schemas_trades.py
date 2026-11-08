@@ -7,7 +7,12 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain.trade_budget import TeamBudgetProjection
-from app.services.trade_sync_service import TradeConfigView, TradeSyncResult
+from app.services.trade_sync_service import (
+    AuctionBudgetsView,
+    TradeConfigView,
+    TradeSyncResult,
+    TradeView,
+)
 
 
 class TradeConfigResponse(BaseModel):
@@ -165,4 +170,51 @@ def to_team_budget_projection_item(p: TeamBudgetProjection) -> TeamBudgetProject
         projected_budget=p.projected_budget_str,
         pending_conditional_delta=p.pending_conditional_delta_str,
         is_negative_budget=p.is_negative_budget,
+    )
+
+
+def to_trades_list_response(league_id: int, trades: list[TradeView]) -> TradesListResponse:
+    """Format service trade views into the public API response."""
+    items: list[TradeItem] = []
+    for t in trades:
+        parties = [
+            TradePartyItem(
+                id=p.id,
+                owner_id=p.owner_id,
+                franchise_key=p.franchise_key,
+                team_name_raw=p.team_name_raw,
+                players_sent=p.players_sent,
+                players_received=p.players_received,
+                draft_picks_sent=p.draft_picks_sent,
+                draft_picks_received=p.draft_picks_received,
+                auction_dollars=[
+                    BudgetDeltaItem(draft_year=d.draft_year, amount=f"{d.amount:.2f}")
+                    for d in p.auction_dollars
+                ],
+            )
+            for p in t.parties
+        ]
+        items.append(
+            TradeItem(
+                id=t.id,
+                external_trade_id=t.external_trade_id,
+                trade_date=t.trade_date,
+                agreement_season=t.agreement_season,
+                is_settled=t.is_settled,
+                discord_url=t.discord_url,
+                summary=t.summary,
+                conditions=t.conditions,
+                parties=parties,
+            )
+        )
+    return TradesListResponse(league_id=league_id, trades=items)
+
+
+def to_auction_budgets_response(view: AuctionBudgetsView) -> AuctionBudgetsResponse:
+    """Format service auction budgets view into the public API response."""
+    return AuctionBudgetsResponse(
+        league_id=view.league_id,
+        draft_year=view.draft_year,
+        base_auction_budget=f"{view.base_auction_budget:.2f}",
+        projections=[to_team_budget_projection_item(p) for p in view.projections],
     )

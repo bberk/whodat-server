@@ -14,16 +14,14 @@ from app.api.refresh_limit import get_trade_sync_limiter
 from app.api.schemas_auth import PublicUser, error_detail
 from app.api.schemas_trades import (
     AuctionBudgetsResponse,
-    BudgetDeltaItem,
     TradeConfigResponse,
     TradeConfigUpdateRequest,
-    TradeItem,
-    TradePartyItem,
     TradesListResponse,
     TradeSyncResponse,
-    to_team_budget_projection_item,
+    to_auction_budgets_response,
     to_trade_config_response,
     to_trade_sync_response,
+    to_trades_list_response,
 )
 from app.db.session import get_session
 from app.services.league_exceptions import LeagueServiceError
@@ -163,42 +161,7 @@ def list_trades(
     except Exception as exc:
         raise _trade_http_error(exc) from None
 
-    trade_items: list[TradeItem] = []
-    for t in trades:
-        parties: list[TradePartyItem] = []
-        for p in t.parties:
-            deltas = [
-                BudgetDeltaItem(draft_year=d.draft_year, amount=f"{d.amount:.2f}")
-                for d in p.budget_deltas
-            ]
-            parties.append(
-                TradePartyItem(
-                    id=p.id,
-                    owner_id=p.owner_id,
-                    franchise_key=p.franchise_key,
-                    team_name_raw=p.team_name_raw,
-                    players_sent=p.players_sent,
-                    players_received=p.players_received,
-                    draft_picks_sent=p.draft_picks_sent,
-                    draft_picks_received=p.draft_picks_received,
-                    auction_dollars=deltas,
-                )
-            )
-        trade_items.append(
-            TradeItem(
-                id=t.id,
-                external_trade_id=t.external_trade_id,
-                trade_date=t.trade_date,
-                agreement_season=t.agreement_season,
-                is_settled=t.is_settled,
-                discord_url=t.discord_url,
-                summary=t.summary,
-                conditions=t.conditions,
-                parties=parties,
-            )
-        )
-
-    return TradesListResponse(league_id=league_id, trades=trade_items)
+    return to_trades_list_response(league_id, trades)
 
 
 @router.get(
@@ -213,16 +176,10 @@ def get_auction_budgets(
 ) -> AuctionBudgetsResponse:
     """Calculate and return projected auction budgets for all league teams."""
     try:
-        projections = service.get_auction_budgets(
+        view = service.get_auction_budgets(
             actor(current_user), league_id, target_draft_year=draft_year
         )
-        config = service.get_or_create_config(league_id)
     except Exception as exc:
         raise _trade_http_error(exc) from None
 
-    return AuctionBudgetsResponse(
-        league_id=league_id,
-        draft_year=draft_year,
-        base_auction_budget=f"{config.base_auction_budget:.2f}",
-        projections=[to_team_budget_projection_item(p) for p in projections],
-    )
+    return to_auction_budgets_response(view)
