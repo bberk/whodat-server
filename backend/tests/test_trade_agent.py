@@ -13,6 +13,7 @@ from scripts.trade_agent.discord_trade_ingest import (
     build_opencode_trade_prompt,
     extract_trades_from_text,
     fetch_discord_messages,
+    run_ingest,
     save_trades_to_repo,
     update_ledger_with_trades,
     validate_trade_payload,
@@ -233,3 +234,71 @@ def test_validate_trade_payload_path_traversal() -> None:
     for bad_id in invalid_ids:
         with pytest.raises(ValueError, match="invalid: must only contain"):
             validate_trade_payload({**valid_trade, "id": bad_id})
+
+
+def test_run_ingest_orchestration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """run_ingest fetches messages, extracts trades, updates repo, and creates PR."""
+    import subprocess
+
+    discord_payload = [
+        {
+            "id": "2001",
+            "content": "Trade: Alice gives Mahomes to Bob for Jefferson and $5 in 2027",
+            "timestamp": "2026-11-07T12:00:00.000Z",
+            "author": {"id": "u1", "username": "alice"},
+        }
+    ]
+
+    def mock_http(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=discord_payload)
+
+    http_client = httpx.Client(transport=httpx.MockTransport(mock_http))
+
+    model_output = """```yaml
+id: "trade-2027-01"
+date: "2026-11-07T16:00:00Z"
+agreement_season: 2026
+source:
+  jump_url: "https://discord.com/1"
+parties:
+  - team_name: "Alice"
+    auction_dollars: [{"draft_year": 2027, "amount": -5.00}]
+  - team_name: "Bob"
+    auction_dollars: [{"draft_year": 2027, "amount": 5.00}]
+conditions: []
+```"""
+
+    def mock_opencode(prompt: str) -> str:
+        assert "MESSAGES:" in prompt
+        return model_output
+
+    calls: list[list[str]] = []
+
+    def mock_subprocess(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", mock_subprocess)
+
+    # Initialize mock git repo
+    (tmp_path / ".git").mkdir()
+
+    count = run_ingest(
+        channel_id="999",
+        bot_token="test-bot-token",
+        repo_dir=tmp_path,
+        repo="custom/trades",
+        opencode_runner=mock_opencode,
+        http_client=http_client,
+    )
+    assert count == 1
+
+    # Verify git and gh commands were invoked
+    cmd_names = [c[0] for c in calls]
+    assert "git" in cmd_names
+    assert "gh" in cmd_names
+    # gh pr create was called
+    pr_calls = [c for c in calls if c[0] == "gh" and c[1:3] == ["pr", "create"]]
+    assert len(pr_calls) == 1
+    assert "--repo" in pr_calls[0]
+    assert pr_calls[0][pr_calls[0].index("--repo") + 1] == "custom/trades"

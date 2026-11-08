@@ -334,29 +334,7 @@ def run_ingest(
             print(yaml.safe_dump(t, sort_keys=False))
         return len(trades)
 
-    if not dry_run and repo:
-        if not (repo_path / ".git").exists():
-            _LOG.info("Trade repository not found at %s. Cloning %s...", repo_path, repo)
-            repo_path.parent.mkdir(parents=True, exist_ok=True)
-            subprocess.run(["gh", "repo", "clone", repo, str(repo_path)], check=True)
-        else:
-            _LOG.info("Pulling latest changes in trade repository at %s...", repo_path)
-            subprocess.run(
-                ["git", "-C", str(repo_path), "checkout", "main"],
-                check=False,
-                capture_output=True,
-            )
-            subprocess.run(
-                ["git", "-C", str(repo_path), "pull", "--ff-only"],
-                check=False,
-                capture_output=True,
-            )
-
-    _LOG.info("Saving trades to repository at %s...", repo_path)
-    written = save_trades_to_repo(repo_path, trades)
-    _LOG.info("Wrote %d files: %s", len(written), [str(f.name) for f in written])
-
-    # Git operations: branch, commit, PR
+    # Git operations: author setup, clone/pull, branch, commit, PR
     git_env = {
         **os.environ,
         "GIT_AUTHOR_NAME": os.environ.get("GIT_AUTHOR_NAME", "Whodat Trade Agent"),
@@ -366,6 +344,30 @@ def run_ingest(
     }
     if os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"):
         subprocess.run(["gh", "auth", "setup-git"], check=False, env=git_env)
+
+    if repo:
+        if not (repo_path / ".git").exists():
+            _LOG.info("Trade repository not found at %s. Cloning %s...", repo_path, repo)
+            repo_path.parent.mkdir(parents=True, exist_ok=True)
+            subprocess.run(["gh", "repo", "clone", repo, str(repo_path)], check=True, env=git_env)
+        else:
+            _LOG.info("Pulling latest changes in trade repository at %s...", repo_path)
+            subprocess.run(
+                ["git", "-C", str(repo_path), "checkout", "main"],
+                check=False,
+                capture_output=True,
+                env=git_env,
+            )
+            subprocess.run(
+                ["git", "-C", str(repo_path), "pull", "--ff-only"],
+                check=False,
+                capture_output=True,
+                env=git_env,
+            )
+
+    _LOG.info("Saving trades to repository at %s...", repo_path)
+    written = save_trades_to_repo(repo_path, trades)
+    _LOG.info("Wrote %d files: %s", len(written), [str(f.name) for f in written])
 
     branch_name = f"trade-sync-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
     subprocess.run(
