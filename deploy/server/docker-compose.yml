@@ -90,7 +90,8 @@ services:
     build:
       context: ../../
       dockerfile: deploy/server/trade-agent/Dockerfile
-    restart: unless-stopped
+    profiles: ["tools"]
+    restart: "no"
     environment:
       DATABASE_URL: "${DATABASE_URL:?Set DATABASE_URL in deploy/server/.env}"
       LEAGUE_CREDENTIALS_KEY: >-
