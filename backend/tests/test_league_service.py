@@ -1283,7 +1283,7 @@ def test_AC_AU_07_encryption_key_failure_fails_closed(
 ) -> None:
     admin = _create_user(session, "admin@example.com", "admin")
     service = LeagueService(session, RecordingFactory(_seed()), provider_id="fake")
-    monkeypatch.delenv("LEAGUE_CREDENTIALS_KEY", raising=False)
+    monkeypatch.setenv("LEAGUE_CREDENTIALS_KEY", "")
     get_settings.cache_clear()
 
     try:
