@@ -91,7 +91,8 @@
       }
     }
   ],
-  "last_compiled_at": "2026-11-07T18:00:00Z",
-  "settle_through_year": 2025,
-  "settled_trade_ids": []
+  "last_compiled_at": "2026-11-08T01:41:59.952089+00:00",
+  "settle_through_year": 2026,
+  "settled_trade_ids": [],
+  "version": 1
 }

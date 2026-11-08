@@ -204,3 +204,60 @@ After each league's annual draft completes:
 3. The workflow moves trades that are fully executed through that draft year from `active_trades` to `settled_trade_ids` in `ledger.json`.
 4. Review and merge the generated PR.
 5. In Whodat Server, click **Sync Trades from GitHub** (or wait for the next sync). The settled trades are archived while all historical YAML records remain intact.
+
+---
+
+## 7. Troubleshooting Runbook
+
+This section details common operational errors, diagnostic steps, and remediation procedures.
+
+### 7.1 GitHub PAT Authentication & Ingestion Failures
+- **Symptom:** Sync fails with `401 Unauthorized` or `404 Not Found` when syncing `ledger.json`.
+- **Root Cause:**
+  - Token has expired or lacks required repository access.
+  - Repository owner or name is misspelled.
+  - Target branch does not exist.
+- **Remediation:**
+  1. For private trade repos, verify the PAT has `repo` (classic) or `Repository permissions: Contents (Read)` (fine-grained).
+  2. In Whodat Server Admin -> **Trade Tracker Settings**, enter the new token and click **Save Trade Tracker Settings**.
+  3. Click **Sync Trades from GitHub** and verify the status reports success.
+
+### 7.2 CI Verification Failures on Pull Requests
+- **Symptom:** GitHub Actions check `verify-ledger.yml` fails on a trade PR.
+- **Root Cause:**
+  - `Auction dollars for draft year <Y> are not zero-sum: total is <delta>`: One party's dollar deduction does not equal the other party's addition.
+  - `Draft picks sent do not match draft picks received`: Pick round or year mismatch between parties.
+  - `ledger.json` active trades do not match YAML files in `trades/`.
+- **Remediation:**
+  1. Open the PR and inspect the `verify_ledger.py` step output.
+  2. Verify the exact arithmetic: every dollar given (`-X.XX`) must be balanced by an exact dollar received (`+X.XX`).
+  3. Update the YAML file and `ledger.json` on the PR branch, push, and confirm CI turns green before merging.
+
+### 7.3 Unmapped Team & Discord User Aliases
+- **Symptom:** Trades appear in the feed under a raw Discord handle or unlinked team name, and budget deltas do not attach to the correct league franchise.
+- **Root Cause:** The trade record references a Discord username or nickname that differs from the canonical ESPN team name.
+- **Remediation:**
+  1. Navigate to Whodat Server Admin -> **Trade Tracker Settings** -> **Team & Discord Aliases**.
+  2. Under **Add Alias Mapping**, enter the raw Discord handle or trade team name (e.g. `alice_ff`).
+  3. Select the matching ESPN franchise from the dropdown.
+  4. Click **Add Alias** and **Save Trade Tracker Settings**.
+  5. Click **Sync Trades from GitHub**; the server will re-resolve all trade legs to the correct team.
+
+### 7.4 Discord Bot Ingestion & Watermark Issues
+- **Symptom:** Discord trade agent reports `No new messages found` or duplicate trades are suspected.
+- **Root Cause:**
+  - Watermark cursor message ID in the database is ahead of channel history.
+  - Discord bot lacks `Read Messages` or `Read Message History` permissions in `#trades`.
+- **Remediation:**
+  1. In Discord Server Settings -> Channel Permissions for `#trades`, ensure the bot role has `View Channel`, `Read Message History`, and `Send Messages`.
+  2. The agent automatically checks existing trade message IDs and open GitHub PRs before creating a new PR.
+  3. If a trade was missed, trigger a manual agent sync or manually author the trade YAML in the trade repo.
+
+### 7.5 Resolving Conditional Trades
+- **Symptom:** A contingent trade clause has reached its trigger event (e.g. player won MVP, team made playoffs) but auction dollars are still marked `pending`.
+- **Root Cause:** Conditional clauses remain informational until their status is explicitly updated to `fulfilled` or `void`.
+- **Remediation:**
+  1. In `bberk/whodat-trades`, open a PR modifying the trade's YAML file and `ledger.json`.
+  2. Change `status: "pending"` to `status: "fulfilled"` (to apply the dollar transfer) or `status: "void"` (if the condition failed).
+  3. Merge the PR into `main`.
+  4. Trigger a GitHub sync in Whodat Server. The fulfilled conditional delta is now added into the team's confirmed `Net Delta`.
