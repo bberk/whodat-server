@@ -748,3 +748,82 @@ def test_discord_sync_authorization_and_validation(api_factory: Callable[..., Ap
     # Outsider -> 404 Not Found
     login(api, outsider_id)
     assert api.client.post(sync_path).status_code == 404
+
+
+def test_run_discord_sync_job_worker_execution(
+    api_factory: Callable[..., Api], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import subprocess
+    from typing import Any
+
+    from app.config import _REPO_ROOT
+
+    api = api_factory()
+    league_id = seed_league(api)
+    admin_id = create_user(api, "admin@example.com", league_id=league_id, role="admin")
+    login(api, admin_id)
+
+    # Configure channel ID and repo
+    api.client.put(
+        f"/api/v1/leagues/{league_id}/trade-config",
+        json={
+            "enabled": True,
+            "discord_channel_id": "999888",
+            "repo_owner": "bberk",
+            "repo_name": "whodat-trades",
+        },
+    )
+
+    # Configure bot token in settings
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "fake-bot-token")
+    monkeypatch.setenv("OPENCODE_MODEL", "opencode-custom")
+    get_settings.cache_clear()
+
+    calls: list[dict[str, Any]] = []
+
+    def mock_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        calls.append({"cmd": cmd, **kwargs})
+        return subprocess.CompletedProcess(cmd, returncode=0, stdout="Success", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", mock_run)
+
+    with api.factory() as session:
+        service = TradeSyncService(session)
+        service.run_discord_sync_job(league_id)
+        session.commit()
+
+    assert len(calls) == 1
+    call = calls[0]
+    assert call["cmd"][1:3] == ["-m", "scripts.trade_agent.discord_trade_ingest"]
+    assert "--channel-id" in call["cmd"]
+    assert call["cmd"][call["cmd"].index("--channel-id") + 1] == "999888"
+    assert "--repo" in call["cmd"]
+    assert call["cmd"][call["cmd"].index("--repo") + 1] == "bberk/whodat-trades"
+    assert call["cwd"] == str(_REPO_ROOT)
+    assert call["env"]["PYTHONPATH"] == str(_REPO_ROOT)
+    assert call["env"]["DISCORD_BOT_TOKEN"] == "fake-bot-token"
+    assert call["env"]["OPENCODE_MODEL"] == "opencode-custom"
+
+    # Status should be success
+    cfg_resp = api.client.get(f"/api/v1/leagues/{league_id}/trade-config")
+    assert cfg_resp.json()["discord_sync_status"] == "success"
+
+    # Now test failure with CalledProcessError
+    def mock_run_error(cmd: list[str], **kwargs: Any) -> None:
+        raise subprocess.CalledProcessError(
+            returncode=1,
+            cmd=cmd,
+            output="",
+            stderr="Discord API error: rate limit exceeded",
+        )
+
+    monkeypatch.setattr(subprocess, "run", mock_run_error)
+
+    with api.factory() as session:
+        service = TradeSyncService(session)
+        service.run_discord_sync_job(league_id)
+        session.commit()
+
+    cfg_resp = api.client.get(f"/api/v1/leagues/{league_id}/trade-config")
+    assert cfg_resp.json()["discord_sync_status"] == "error"
+    assert "Discord API error: rate limit exceeded" in cfg_resp.json()["last_discord_sync_error"]

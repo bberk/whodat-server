@@ -29,12 +29,13 @@ jobs:
       - name: Run draft settlement script
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SETTLE_YEAR: ${{ github.event.inputs.settle_year }}
         run: |
           python -c '
-          import json, sys
+          import json, os, sys
           from datetime import datetime, timezone
 
-          settle_year = int("${{ github.event.inputs.settle_year }}")
+          settle_year = int(os.environ["SETTLE_YEAR"])
           with open("ledger.json", "r", encoding="utf-8") as f:
               ledger = json.load(f)
 

@@ -193,6 +193,11 @@ def validate_trade_payload(trade: dict[str, Any]) -> None:
     if "id" not in trade:
         raise ValueError("Trade missing required 'id' field")
     ext_id = str(trade["id"])
+    if not re.match(r"^[A-Za-z0-9_-]+$", ext_id):
+        raise ValueError(
+            f"Trade id {ext_id!r} is invalid: must only contain alphanumeric, dash, "
+            "and underscore characters"
+        )
 
     parties = trade.get("parties", [])
     if len(parties) < 2:
@@ -265,13 +270,16 @@ def save_trades_to_repo(repo_dir: Path, trades: list[dict[str, Any]]) -> list[Pa
 
     # Write trade YAMLs
     for trade in trades:
+        validate_trade_payload(trade)
         season = str(trade.get("agreement_season", 2026))
         season_dir = trades_dir / season
         season_dir.mkdir(parents=True, exist_ok=True)
 
         trade_date = str(trade.get("date", "2026-01-01"))[:10]
         trade_id = str(trade["id"])
-        file_path = season_dir / f"{trade_date}-{trade_id}.yml"
+        file_path = (season_dir / f"{trade_date}-{trade_id}.yml").resolve()
+        if not file_path.is_relative_to(trades_dir.resolve()):
+            raise ValueError(f"Path traversal detected in trade id {trade_id}")
 
         file_path.write_text(yaml.safe_dump(trade, sort_keys=False), encoding="utf-8")
         written_files.append(file_path)
@@ -357,7 +365,7 @@ def run_ingest(
     ]
     if repo:
         pr_cmd.extend(["--repo", repo])
-    subprocess.run(pr_cmd, check=True)
+    subprocess.run(pr_cmd, check=True, cwd=str(repo_path))
     _LOG.info("Pull request opened successfully.")
     return len(trades)
 
@@ -382,8 +390,13 @@ def main() -> None:
         raise RuntimeError("DISCORD_BOT_TOKEN environment variable required")
 
     def run_opencode_cli(p: str) -> str:
+        cmd = ["opencode", "run"]
+        model = os.environ.get("OPENCODE_MODEL")
+        if model:
+            cmd.extend(["--model", model])
+        cmd.append(p)
         res = subprocess.run(
-            ["opencode", "run", "--prompt", p],
+            cmd,
             capture_output=True,
             text=True,
             check=True,

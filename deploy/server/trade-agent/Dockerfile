@@ -3,11 +3,13 @@ FROM python:3.15-alpine
 
 COPY --from=ghcr.io/astral-sh/uv:0.13.5-alpine /usr/local/bin/uv /usr/local/bin/uvx /usr/local/bin/
 
-RUN apk add --no-cache git github-cli
+RUN apk add --no-cache bash curl git github-cli tar && \
+    curl -fsSL https://opencode.ai/install | bash
 
 ENV UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
-    UV_PROJECT_ENVIRONMENT=/usr/local
+    UV_PROJECT_ENVIRONMENT=/usr/local \
+    PATH="/root/.opencode/bin:${PATH}"
 
 WORKDIR /app
 
