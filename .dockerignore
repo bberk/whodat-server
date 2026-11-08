@@ -1,0 +1,18 @@
+# Keep host artefacts out of the build context.
+.git
+.venv
+backend/.venv
+frontend/node_modules
+frontend/dist
+__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.hypothesis
+.coverage
+coverage.xml
+htmlcov
+*.db
+.env
+.env.*

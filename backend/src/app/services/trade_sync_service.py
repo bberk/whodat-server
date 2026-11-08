@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -483,6 +484,18 @@ class TradeSyncService:
                 )
                 return
 
+        github_token: str | None = None
+        if config.github_token_encrypted:
+            try:
+                github_token = crypto.decrypt(config.github_token_encrypted)
+            except Exception:
+                self.complete_discord_sync(
+                    league_id,
+                    success=False,
+                    error_message="Decryption error for GitHub token",
+                )
+                return
+
         settings = get_settings()
         if not discord_token:
             discord_token = settings.discord_bot_token
@@ -495,6 +508,10 @@ class TradeSyncService:
         import os
         import subprocess
         import sys
+
+        repo_root = _REPO_ROOT
+        if not (repo_root / "scripts").exists() and Path("/app/scripts").exists():
+            repo_root = Path("/app")
 
         cmd = [
             sys.executable,
@@ -510,13 +527,24 @@ class TradeSyncService:
 
         env = {
             **os.environ,
-            "PYTHONPATH": str(_REPO_ROOT),
+            "PYTHONPATH": str(repo_root),
             "DISCORD_BOT_TOKEN": discord_token,
         }
+        if github_token:
+            env["GH_TOKEN"] = github_token
+            env["GITHUB_TOKEN"] = github_token
         if settings.opencode_model:
             env["OPENCODE_MODEL"] = settings.opencode_model
         if settings.opencode_api_key:
             env["OPENCODE_API_KEY"] = settings.opencode_api_key
+        if settings.gemini_api_key:
+            env["GEMINI_API_KEY"] = settings.gemini_api_key
+        elif settings.opencode_api_key and "gemini" in settings.opencode_model.lower():
+            env["GEMINI_API_KEY"] = settings.opencode_api_key
+        if settings.anthropic_api_key:
+            env["ANTHROPIC_API_KEY"] = settings.anthropic_api_key
+        if settings.openai_api_key:
+            env["OPENAI_API_KEY"] = settings.openai_api_key
 
         try:
             subprocess.run(
@@ -524,7 +552,7 @@ class TradeSyncService:
                 check=True,
                 capture_output=True,
                 text=True,
-                cwd=str(_REPO_ROOT),
+                cwd=str(repo_root),
                 env=env,
             )
             self.complete_discord_sync(league_id, success=True)

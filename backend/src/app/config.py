@@ -52,8 +52,11 @@ class Settings(BaseSettings):
 
     # Trade tracker Discord & OpenCode agent configuration
     discord_bot_token: str | None = None
-    opencode_model: str = "anthropic/claude-3-7-sonnet"
+    opencode_model: str = "google/gemini-2.5-flash"
     opencode_api_key: str | None = None
+    gemini_api_key: str | None = None
+    anthropic_api_key: str | None = None
+    openai_api_key: str | None = None
     trade_agent_repo_path: str = "./whodat-trades"
 
 
