@@ -6,8 +6,8 @@ Rules enforced:
 2. Zero-sum auction dollars: For every trade and draft year, the sum of auction dollars
    across all parties must equal 0.00.
 3. Matching draft picks: For every draft year and round, picks sent must match picks received.
-4. Unique trade IDs and source message IDs.
-5. ledger.json consistency: active_trades must match all non-settled trades.
+4. Unique trade IDs and source message IDs across all trade files.
+5. ledger.json consistency: active_trades must match all non-settled trades in trades/.
 """
 
 from __future__ import annotations
@@ -47,7 +47,8 @@ def verify_trade(path: Path, data: dict[str, Any]) -> list[str]:
             if year is None or amount is None:
                 errors.append(f"{path}: Invalid auction dollar entry: {dollar_entry}")
                 continue
-            dollar_balances[year] = dollar_balances.get(year, Decimal("0.00")) + Decimal(str(amount))
+            delta = Decimal(str(amount))
+            dollar_balances[year] = dollar_balances.get(year, Decimal("0.00")) + delta
 
     for year, bal in dollar_balances.items():
         if bal != Decimal("0.00"):
@@ -68,7 +69,7 @@ def verify_trade(path: Path, data: dict[str, Any]) -> list[str]:
 
     if sorted(picks_sent) != sorted(picks_received):
         errors.append(
-            f"{path}: Draft picks sent {picks_sent} do not match draft picks received {picks_received}"
+            f"{path}: Draft picks sent {picks_sent} do not match received {picks_received}"
         )
 
     return errors
@@ -77,7 +78,8 @@ def verify_trade(path: Path, data: dict[str, Any]) -> list[str]:
 def verify_repo(root: Path) -> int:
     errors: list[str] = []
     trade_files = sorted(glob.glob(str(root / "trades" / "**" / "*.yaml"), recursive=True))
-    seen_ids: set[str] = set()
+    seen_ids: dict[str, Path] = {}
+    seen_message_ids: dict[str, Path] = {}
     trades_by_id: dict[str, dict[str, Any]] = {}
 
     for file_str in trade_files:
@@ -94,11 +96,24 @@ def verify_repo(root: Path) -> int:
             continue
 
         t_id = content.get("id")
-        if t_id in seen_ids:
-            errors.append(f"{path}: Duplicate trade id '{t_id}'")
-        elif t_id:
-            seen_ids.add(t_id)
-            trades_by_id[t_id] = content
+        if t_id:
+            if t_id in seen_ids:
+                errors.append(f"{path}: Duplicate trade id '{t_id}' (first in {seen_ids[t_id]})")
+            else:
+                seen_ids[t_id] = path
+                trades_by_id[t_id] = content
+
+        source = content.get("source", {})
+        if isinstance(source, dict):
+            msg_id = source.get("message_id")
+            if msg_id:
+                if msg_id in seen_message_ids:
+                    errors.append(
+                        f"{path}: Duplicate message_id '{msg_id}' (first in "
+                        f"{seen_message_ids[msg_id]})"
+                    )
+                else:
+                    seen_message_ids[msg_id] = path
 
         errors.extend(verify_trade(path, content))
 
@@ -113,13 +128,34 @@ def verify_repo(root: Path) -> int:
         else:
             settled_ids = set(ledger.get("settled_trade_ids", []))
             active_trades = ledger.get("active_trades", [])
+            active_ids: set[str] = set()
+
             for at in active_trades:
                 at_id = at.get("id")
                 if not at_id:
                     errors.append("ledger.json: Active trade missing 'id'")
-                elif at_id in settled_ids:
+                    continue
+                if at_id in settled_ids:
                     errors.append(
-                        f"ledger.json: Trade '{at_id}' is in both active_trades and settled_trade_ids"
+                        f"ledger.json: Trade '{at_id}' is in both active_trades and "
+                        f"settled_trade_ids"
+                    )
+                if at_id in active_ids:
+                    errors.append(f"ledger.json: Duplicate trade '{at_id}' in active_trades")
+                active_ids.add(at_id)
+
+                if at_id not in trades_by_id:
+                    errors.append(
+                        f"ledger.json: Active trade '{at_id}' does not exist as a YAML "
+                        f"file in trades/"
+                    )
+
+            # Ensure all parsed trades in trades/ are accounted for
+            for t_id in trades_by_id:
+                if t_id not in active_ids and t_id not in settled_ids:
+                    errors.append(
+                        f"ledger.json: Trade '{t_id}' exists in trades/ but is missing from "
+                        f"both active_trades and settled_trade_ids"
                     )
 
     if errors:
@@ -128,7 +164,9 @@ def verify_repo(root: Path) -> int:
             print(f"  - {err}", file=sys.stderr)
         return 1
 
-    print(f"SUCCESS: Verified {len(trade_files)} trade file(s). All zero-sum rules and schemas pass.")
+    print(
+        f"SUCCESS: Verified {len(trade_files)} trade file(s). All zero-sum rules and schemas pass."
+    )
     return 0
 
 

@@ -39,7 +39,8 @@ def is_trade_settled(trade: dict[str, Any], target_draft_year: int) -> bool:
         year = cond.get("draft_year")
         if year and year > target_draft_year:
             return False
-        # If a condition is still pending for <= target_draft_year, it cannot be automatically settled
+        # If a condition is still pending for <= target_draft_year,
+        # it cannot be automatically settled
         status = str(cond.get("status", "pending")).lower()
         if status == "pending":
             return False
