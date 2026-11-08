@@ -84,6 +84,15 @@ if ! gh pr view "$branch" --json number >/dev/null 2>&1; then
   exit 1
 fi
 
+pr_author_is_bot="$(gh pr view "$branch" --json author --jq '.author.is_bot // false' 2>/dev/null || true)"
+pr_author_login="$(gh pr view "$branch" --json author --jq '.author.login // ""' 2>/dev/null || true)"
+if [[ "$pr_author_is_bot" != "true" && "$pr_author_login" != "app/brads-bots" && "$pr_author_login" != "brads-bots"* ]]; then
+  echo "ship.sh: refusing --ready: PR is authored by '$pr_author_login' (not a bot)." >&2
+  echo "         GitHub prevents authors from reviewing or approving their own PRs." >&2
+  echo "         Re-create the PR using: scripts/agent-identity.sh run gh pr create" >&2
+  exit 1
+fi
+
 gh pr ready "$branch"
 gh pr edit "$branch" --add-label "ready-for-review"
 gh pr view "$branch" --json url --jq .url
