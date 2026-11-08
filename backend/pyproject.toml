@@ -16,16 +16,16 @@ dependencies = [
     "cryptography>=50.0.2",  # AES-256-GCM for league-credential encryption
     "argon2-cffi>=25.1",  # Argon2id password hashing (AC-AU-02)
     "prometheus-fastapi-instrumentator>=8.1.0",  # /metrics for the self-hosted Prometheus stack
+    "httpx>=0.28.1",  # HTTP client for GitHub ledger and Discord API sync
+    "pyyaml>=6.0.3",  # Trade YAML parsing and serialization
 ]
 
 [dependency-groups]
 dev = [
     "hypothesis>=6.170.11",
-    "httpx>=0.28.1",
     "mypy>=2.4.0",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
-    "pyyaml>=6.0.3",  # parse the Compose/Caddy deployment files in config regression tests
     "ruff>=0.17.2",
 ]
 

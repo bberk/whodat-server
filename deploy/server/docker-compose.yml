@@ -31,8 +31,8 @@ services:
 
   backend:
     build:
-      context: ../../backend
-      dockerfile: Dockerfile
+      context: ../../
+      dockerfile: backend/Dockerfile
     restart: unless-stopped
     environment:
       DATABASE_URL: "${DATABASE_URL:?Set DATABASE_URL in deploy/server/.env}"
@@ -50,6 +50,11 @@ services:
       PROJECTION_REFRESH_ENABLED: "${PROJECTION_REFRESH_ENABLED:-true}"
       PROJECTION_REFRESH_TIMEZONE: "${PROJECTION_REFRESH_TIMEZONE:-America/New_York}"
       PROJECTION_REFRESH_LEAGUES: "${PROJECTION_REFRESH_LEAGUES:-}"
+      OPENCODE_MODEL: "${OPENCODE_MODEL:-google/gemini-2.5-flash}"
+      OPENCODE_API_KEY: "${OPENCODE_API_KEY:-}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
     depends_on:
       postgres:
         condition: service_healthy

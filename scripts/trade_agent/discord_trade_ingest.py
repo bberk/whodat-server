@@ -334,17 +334,61 @@ def run_ingest(
             print(yaml.safe_dump(t, sort_keys=False))
         return len(trades)
 
+    if not dry_run and repo:
+        if not (repo_path / ".git").exists():
+            _LOG.info("Trade repository not found at %s. Cloning %s...", repo_path, repo)
+            repo_path.parent.mkdir(parents=True, exist_ok=True)
+            subprocess.run(["gh", "repo", "clone", repo, str(repo_path)], check=True)
+        else:
+            _LOG.info("Pulling latest changes in trade repository at %s...", repo_path)
+            subprocess.run(
+                ["git", "-C", str(repo_path), "checkout", "main"],
+                check=False,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(repo_path), "pull", "--ff-only"],
+                check=False,
+                capture_output=True,
+            )
+
     _LOG.info("Saving trades to repository at %s...", repo_path)
     written = save_trades_to_repo(repo_path, trades)
     _LOG.info("Wrote %d files: %s", len(written), [str(f.name) for f in written])
 
     # Git operations: branch, commit, PR
+    git_env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": os.environ.get("GIT_AUTHOR_NAME", "Whodat Trade Agent"),
+        "GIT_AUTHOR_EMAIL": os.environ.get("GIT_AUTHOR_EMAIL", "trade-agent@whodat.local"),
+        "GIT_COMMITTER_NAME": os.environ.get("GIT_COMMITTER_NAME", "Whodat Trade Agent"),
+        "GIT_COMMITTER_EMAIL": os.environ.get("GIT_COMMITTER_EMAIL", "trade-agent@whodat.local"),
+    }
+    if os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"):
+        subprocess.run(["gh", "auth", "setup-git"], check=False, env=git_env)
+
     branch_name = f"trade-sync-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
-    subprocess.run(["git", "-C", str(repo_path), "checkout", "-b", branch_name], check=True)
-    subprocess.run(["git", "-C", str(repo_path), "add", "trades/", "ledger.json"], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo_path), "checkout", "-b", branch_name],
+        check=True,
+        env=git_env,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo_path), "add", "trades/", "ledger.json"],
+        check=True,
+        env=git_env,
+    )
     commit_msg = f"Sync {len(trades)} trade(s) from Discord\n\nAutomated trade ingestion."
-    subprocess.run(["git", "-C", str(repo_path), "commit", "-m", commit_msg], check=True)
-    subprocess.run(["git", "-C", str(repo_path), "push", "-u", "origin", branch_name], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo_path), "commit", "-m", commit_msg],
+        check=True,
+        env=git_env,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo_path), "push", "-u", "origin", branch_name],
+        check=True,
+        env=git_env,
+    )
 
     pr_title = f"Sync {len(trades)} trade(s) from Discord"
     pr_body = (
@@ -365,7 +409,7 @@ def run_ingest(
     ]
     if repo:
         pr_cmd.extend(["--repo", repo])
-    subprocess.run(pr_cmd, check=True, cwd=str(repo_path))
+    subprocess.run(pr_cmd, check=True, cwd=str(repo_path), env=git_env)
     _LOG.info("Pull request opened successfully.")
     return len(trades)
 

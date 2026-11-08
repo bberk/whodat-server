@@ -27,7 +27,9 @@ services:
       retries: 10
 
   backend:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     environment:
       DATABASE_URL: "${DATABASE_URL:-postgresql+psycopg://app:app@postgres:5432/app}"
       ENV: "${ENV:-local}"
@@ -45,6 +47,11 @@ services:
       PROJECTION_REFRESH_ENABLED: "${PROJECTION_REFRESH_ENABLED:-false}"
       PROJECTION_REFRESH_TIMEZONE: "${PROJECTION_REFRESH_TIMEZONE:-America/New_York}"
       PROJECTION_REFRESH_LEAGUES: "${PROJECTION_REFRESH_LEAGUES:-}"
+      OPENCODE_MODEL: "${OPENCODE_MODEL:-google/gemini-2.5-flash}"
+      OPENCODE_API_KEY: "${OPENCODE_API_KEY:-}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
     ports:
       # Loopback only: the SPA dev server and a local TLS proxy reach it, but other hosts cannot.
       # This also keeps the unauthenticated /metrics endpoint (user/league attribution series) off

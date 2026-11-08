@@ -900,7 +900,7 @@ def test_sync_trade_repo_missing_repo_config_error(api_factory: Callable[..., Ap
 def test_run_discord_sync_job_with_league_discord_token(
     api_factory: Callable[..., Api], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """When a per-league Discord token is configured, worker decrypts and uses it."""
+    """When per-league tokens are configured, worker decrypts and uses them in env."""
     import subprocess
     from typing import Any
 
@@ -909,7 +909,7 @@ def test_run_discord_sync_job_with_league_discord_token(
     admin_id = create_user(api, "admin@example.com", league_id=league_id, role="admin")
     login(api, admin_id)
 
-    # Configure per-league encrypted discord bot token
+    # Configure per-league encrypted discord bot token and github PAT
     api.client.put(
         f"/api/v1/leagues/{league_id}/trade-config",
         json={
@@ -918,11 +918,13 @@ def test_run_discord_sync_job_with_league_discord_token(
             "repo_owner": "custom-owner",
             "repo_name": "custom-trades",
             "discord_token": "league-specific-bot-token",
+            "github_token": "league-specific-gh-pat",
         },
     )
 
-    # Server environment has a different token or none
+    # Server environment has a different token or none, plus Gemini API key
     monkeypatch.setenv("DISCORD_BOT_TOKEN", "global-fallback-token")
+    monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-key")
     get_settings.cache_clear()
 
     calls: list[dict[str, Any]] = []
@@ -940,8 +942,11 @@ def test_run_discord_sync_job_with_league_discord_token(
 
     assert len(calls) == 1
     call = calls[0]
-    # Encrypted league token takes priority over global fallback
+    # Encrypted league tokens take priority over global fallback
     assert call["env"]["DISCORD_BOT_TOKEN"] == "league-specific-bot-token"
+    assert call["env"]["GH_TOKEN"] == "league-specific-gh-pat"
+    assert call["env"]["GITHUB_TOKEN"] == "league-specific-gh-pat"
+    assert call["env"]["GEMINI_API_KEY"] == "test-gemini-key"
 
 
 def test_trade_config_owners_and_aliases_mapping(api_factory: Callable[..., Api]) -> None:
