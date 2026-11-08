@@ -13,6 +13,7 @@ import logging
 import os
 import re
 import subprocess
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -416,6 +417,54 @@ def run_ingest(
     return len(trades)
 
 
+def extract_opencode_error(stderr: str, stdout: str) -> str:
+    """Extract a concise, human-readable error from OpenCode execution output."""
+    combined = (stderr + "\n" + stdout).strip()
+    if not combined:
+        return "OpenCode failed with no output"
+
+    # 1. Check for specific provider or model error logged at ERROR level
+    error_match = re.search(r'\blevel=ERROR\b.*?error="([^"]+)"', combined)
+    if error_match:
+        err_msg = error_match.group(1).strip()
+        if not err_msg.startswith("Unexpected server error"):
+            return err_msg[:400]
+
+    # 2. Check for known AI SDK / OpenCode error classes in line text
+    known_markers = ("ProviderModelNotFoundError", "AI_LoadAPIKeyError", "AI_APICallError")
+    for line in reversed(combined.splitlines()):
+        line_clean = line.strip()
+        if any(marker in line_clean for marker in known_markers):
+            return line_clean[:400]
+
+    # 3. Check for "Error: <msg>" or JSON error payloads
+    error_lines = [
+        line.strip() for line in combined.splitlines() if line.strip().startswith("Error:")
+    ]
+    if error_lines:
+        last_error = error_lines[-1]
+        msg = last_error.removeprefix("Error:").strip()
+        if msg.startswith("{") and msg.endswith("}"):
+            try:
+                data = json.loads(msg)
+                if isinstance(data, dict):
+                    inner_msg = data.get("data", {}).get("message") or data.get("message")
+                    if inner_msg and "Unexpected server error" not in str(inner_msg):
+                        return str(inner_msg)[:400]
+            except Exception:
+                pass
+        elif msg:
+            return msg[:400]
+
+    # 4. Fallback to the last non-empty line that isn't a timestamp log line
+    for line in reversed(combined.splitlines()):
+        line_clean = line.strip()
+        if line_clean and not line_clean.startswith("timestamp="):
+            return line_clean[:400]
+
+    return "OpenCode extraction failed (check logs for details)"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Ingest fantasy football trades from Discord.")
     parser.add_argument("--channel-id", required=True, help="Discord trade channel ID")
@@ -436,18 +485,28 @@ def main() -> None:
         raise RuntimeError("DISCORD_BOT_TOKEN environment variable required")
 
     def run_opencode_cli(p: str) -> str:
-        cmd = ["opencode", "run"]
+        cmd = ["opencode", "run", "--print-logs"]
         model = os.environ.get("OPENCODE_MODEL")
         if model:
             cmd.extend(["--model", model])
         cmd.append(p)
-        res = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        return res.stdout
+
+        env = dict(os.environ)
+        if "GEMINI_API_KEY" in env and "GOOGLE_GENERATIVE_AI_API_KEY" not in env:
+            env["GOOGLE_GENERATIVE_AI_API_KEY"] = env["GEMINI_API_KEY"]
+
+        try:
+            res = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=True,
+                env=env,
+            )
+            return res.stdout
+        except subprocess.CalledProcessError as exc:
+            err = extract_opencode_error(exc.stderr or "", exc.stdout or "")
+            raise RuntimeError(f"OpenCode extraction failed: {err}") from None
 
     run_ingest(
         channel_id=args.channel_id,
@@ -460,4 +519,12 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except subprocess.CalledProcessError as exc:
+        err = (exc.stderr or exc.stdout or str(exc)).strip()
+        _LOG.error("Command failed: %s", err)
+        sys.exit(f"Error: {err[:300]}")
+    except Exception as exc:
+        _LOG.error("Discord trade ingest failed: %s", exc)
+        sys.exit(f"Error: {exc}")

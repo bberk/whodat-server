@@ -169,6 +169,26 @@ class AuctionBudgetsView:
     projections: list[TeamBudgetProjection]
 
 
+def _sanitize_process_error(raw: str) -> str:
+    """Extract a concise, safe error message from a process failure, preventing UI bloat."""
+    if not raw:
+        return "Process failed with no output"
+    lines = [line.strip() for line in raw.splitlines() if line.strip()]
+    if not lines:
+        return "Process failed with no output"
+    for line in reversed(lines):
+        if line.startswith("Error:"):
+            return line[:500]
+        if line.startswith("RuntimeError:"):
+            return line.removeprefix("RuntimeError:").strip()[:500]
+        if line.startswith("ValueError:"):
+            return line.removeprefix("ValueError:").strip()[:500]
+    last_line = lines[-1]
+    if "CalledProcessError" in last_line and "Command" in last_line:
+        return "Trade extraction process failed (check server logs for details)"
+    return last_line[:500]
+
+
 class TradeSyncService:
     """Manages trade configuration, GitHub repo syncs, and projected auction budgets."""
 
@@ -539,8 +559,12 @@ class TradeSyncService:
             env["OPENCODE_API_KEY"] = settings.opencode_api_key
         if settings.gemini_api_key:
             env["GEMINI_API_KEY"] = settings.gemini_api_key
+            env["GOOGLE_GENERATIVE_AI_API_KEY"] = settings.gemini_api_key
         elif settings.opencode_api_key and "gemini" in settings.opencode_model.lower():
             env["GEMINI_API_KEY"] = settings.opencode_api_key
+            env["GOOGLE_GENERATIVE_AI_API_KEY"] = settings.opencode_api_key
+        if "GOOGLE_GENERATIVE_AI_API_KEY" not in env and "GEMINI_API_KEY" in env:
+            env["GOOGLE_GENERATIVE_AI_API_KEY"] = env["GEMINI_API_KEY"]
         if settings.anthropic_api_key:
             env["ANTHROPIC_API_KEY"] = settings.anthropic_api_key
         if settings.openai_api_key:
@@ -558,9 +582,11 @@ class TradeSyncService:
             self.complete_discord_sync(league_id, success=True)
         except subprocess.CalledProcessError as exc:
             err = (exc.stderr or exc.stdout or str(exc)).strip()
-            self.complete_discord_sync(league_id, success=False, error_message=err)
+            self.complete_discord_sync(
+                league_id, success=False, error_message=_sanitize_process_error(err)
+            )
         except Exception as exc:
-            self.complete_discord_sync(league_id, success=False, error_message=str(exc))
+            self.complete_discord_sync(league_id, success=False, error_message=str(exc)[:500])
 
     def _ingest_ledger(
         self, league_id: int, config: LeagueTradeConfig, ledger_data: dict[str, Any]
