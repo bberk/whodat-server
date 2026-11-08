@@ -407,4 +407,31 @@ describe("TradeTrackerSection", () => {
       expect(screen.getByText("Discord trade sync job started in background.")).toBeInTheDocument();
     });
   });
+
+  it("links to the trade repo template setup docs on github", async () => {
+    mockFetch((url) => {
+      if (requestPath(url) === "/api/v1/leagues/1/trade-config") {
+        return jsonResponse(sampleTradeConfig);
+      }
+      return errorResponse(404, { code: "not_found", message: requestPath(url) });
+    });
+
+    renderSection();
+    await waitFor(() => {
+      expect(screen.getByRole("switch", { name: "Toggle trade tracker" })).toBeInTheDocument();
+    });
+
+    const expectedUrl =
+      "https://github.com/bberk/whodat-server/blob/main/docs/trade-repo-template/README.md";
+
+    const headerDocLink = screen.getByRole("link", { name: /Setup instructions/i });
+    expect(headerDocLink).toHaveAttribute("href", expectedUrl);
+    expect(headerDocLink).toHaveAttribute("target", "_blank");
+    expect(headerDocLink).toHaveAttribute("rel", "noopener noreferrer");
+
+    const guideLink = screen.getByRole("link", { name: "Trade Repository Setup Guide" });
+    expect(guideLink).toHaveAttribute("href", expectedUrl);
+    expect(guideLink).toHaveAttribute("target", "_blank");
+    expect(guideLink).toHaveAttribute("rel", "noopener noreferrer");
+  });
 });
