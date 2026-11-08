@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 
 import { api } from "../api/endpoints";
 import { toDisplayError, type DisplayError } from "../api/errors";
-import type { TradeConfigResponse } from "../api/types";
+import type { OwnerTeamAliasSummary, TradeConfigResponse } from "../api/types";
 import { ApiAlert } from "../components/ApiAlert";
 import { ErrorState, LoadingState } from "../components/DataStates";
 import {
@@ -13,11 +13,6 @@ import {
   secondaryButtonClass,
 } from "../components/formStyles";
 import { useLeague } from "./LeagueContext";
-
-interface AliasEntry {
-  alias: string;
-  team: string;
-}
 
 const TRADE_REPO_SETUP_DOCS_URL =
   "https://github.com/bberk/whodat-server/blob/main/docs/trade-repo-template/README.md";
@@ -30,7 +25,7 @@ const TRADE_REPO_SETUP_DOCS_URL =
  * - Set the starting base auction budget (e.g. $200.00).
  * - Configure the GitHub trade repository (owner, name, branch, personal access token).
  * - Configure the Discord trade announcements channel ID and encrypted bot token.
- * - Manage team & owner alias mappings.
+ * - Manage ESPN team & owner alias mappings with current season team names.
  * - Manually trigger GitHub trade sync or Discord trade ingestion.
  * - Inspect the latest sync statuses, timestamps, commit SHAs, and errors.
  */
@@ -56,9 +51,8 @@ export function TradeTrackerSection({ leagueId }: { leagueId: number }) {
   const [clearDiscordToken, setClearDiscordToken] = useState(false);
   const [hasDiscordToken, setHasDiscordToken] = useState(false);
   const [discordChannelId, setDiscordChannelId] = useState("");
-  const [aliases, setAliases] = useState<AliasEntry[]>([]);
-  const [newAliasKey, setNewAliasKey] = useState("");
-  const [newAliasVal, setNewAliasVal] = useState("");
+  const [owners, setOwners] = useState<OwnerTeamAliasSummary[]>([]);
+  const [ownerAliasesInput, setOwnerAliasesInput] = useState<Record<number, string>>({});
 
   // Sync state tracking from server
   const [syncStatus, setSyncStatus] = useState<TradeConfigResponse | null>(null);
@@ -96,13 +90,13 @@ export function TradeTrackerSection({ leagueId }: { leagueId: number }) {
         setDiscordToken("");
         setDiscordChannelId(data.discord_channel_id ?? "");
 
-        const aliasEntries: AliasEntry[] = Object.entries(data.team_aliases ?? {}).map(
-          ([k, v]) => ({
-            alias: k,
-            team: String(v),
-          }),
-        );
-        setAliases(aliasEntries);
+        const ownersList = data.owners ?? [];
+        setOwners(ownersList);
+        const initialInputs: Record<number, string> = {};
+        ownersList.forEach((o) => {
+          initialInputs[o.owner_id] = (o.aliases ?? []).join(", ");
+        });
+        setOwnerAliasesInput(initialInputs);
         setLoading(false);
       } catch (err) {
         if (signal?.aborted) return;
@@ -160,20 +154,11 @@ export function TradeTrackerSection({ leagueId }: { leagueId: number }) {
     }
   };
 
-  const handleAddAlias = () => {
-    const trimmedKey = newAliasKey.trim();
-    const trimmedVal = newAliasVal.trim();
-    if (!trimmedKey || !trimmedVal) return;
-
-    // Filter out duplicate keys
-    const filtered = aliases.filter((a) => a.alias !== trimmedKey);
-    setAliases([...filtered, { alias: trimmedKey, team: trimmedVal }]);
-    setNewAliasKey("");
-    setNewAliasVal("");
-  };
-
-  const handleRemoveAlias = (aliasToRemove: string) => {
-    setAliases(aliases.filter((a) => a.alias !== aliasToRemove));
+  const handleOwnerAliasesChange = (ownerId: number, value: string) => {
+    setOwnerAliasesInput((prev) => ({
+      ...prev,
+      [ownerId]: value,
+    }));
   };
 
   const handleSave = async (event: FormEvent<HTMLFormElement>) => {
@@ -183,11 +168,16 @@ export function TradeTrackerSection({ leagueId }: { leagueId: number }) {
     setSaveSuccess(null);
 
     const team_aliases: Record<string, string> = {};
-    for (const a of aliases) {
-      if (a.alias.trim() && a.team.trim()) {
-        team_aliases[a.alias.trim()] = a.team.trim();
-      }
-    }
+    owners.forEach((o) => {
+      const rawInput = ownerAliasesInput[o.owner_id] ?? "";
+      const parts = rawInput
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      parts.forEach((alias) => {
+        team_aliases[alias] = o.display_name;
+      });
+    });
 
     try {
       const updated = await api.updateTradeConfig(leagueId, {
@@ -211,6 +201,13 @@ export function TradeTrackerSection({ leagueId }: { leagueId: number }) {
       setHasDiscordToken(updated.has_discord_token);
       setClearDiscordToken(false);
       setDiscordToken("");
+      const updatedOwners = updated.owners ?? [];
+      setOwners(updatedOwners);
+      const updatedInputs: Record<number, string> = {};
+      updatedOwners.forEach((o) => {
+        updatedInputs[o.owner_id] = (o.aliases ?? []).join(", ");
+      });
+      setOwnerAliasesInput(updatedInputs);
       setSaveSuccess("Trade tracker configuration saved.");
 
       // Sync league context navigation tab visibility
@@ -635,62 +632,92 @@ export function TradeTrackerSection({ leagueId }: { leagueId: number }) {
             <div className="border-t border-line-subtle pt-4">
               <label className={labelClass}>Team & Owner Alias Mappings</label>
               <p className="mt-1 text-xs text-ink-faint">
-                Map Discord usernames or informal trade nicknames to official ESPN team names or
-                IDs.
+                List of ESPN owners and their current team names. Enter a comma-separated list of
+                aliases for each owner (real names, Discord usernames, or nicknames) to map trade
+                messages and ledger records to the actual ESPN team.
               </p>
 
-              <div className="mt-3 space-y-2">
-                {aliases.map((a) => (
-                  <div key={a.alias} className="flex items-center gap-2 text-sm">
-                    <span className="w-1/3 truncate font-mono text-ink-muted">{a.alias}</span>
-                    <span className="text-ink-faint">&rarr;</span>
-                    <span className="flex-1 truncate font-medium text-ink">{a.team}</span>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveAlias(a.alias)}
-                      className={dangerSecondaryButtonClass}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                ))}
-
-                {aliases.length === 0 && (
-                  <p className="text-xs italic text-ink-faint">No aliases configured yet.</p>
-                )}
-
-                {/* Add Alias Row */}
-                <div className="mt-2 flex flex-wrap items-center gap-2 pt-2">
-                  <input
-                    type="text"
-                    value={newAliasKey}
-                    onChange={(e) => setNewAliasKey(e.target.value)}
-                    placeholder="Alias (e.g. alice_discord)"
+              {owners.length === 0 ? (
+                <p className="mt-3 text-xs italic text-ink-faint">
+                  No ESPN owners found for this league. Run a league sync to load teams and owners.
+                </p>
+              ) : (
+                <div className="mt-3 overflow-hidden rounded-lg border border-line bg-surface">
+                  <div
                     className={[
-                      "w-full rounded-lg border border-line-strong bg-surface",
-                      "px-3 py-1.5 text-xs text-ink sm:w-1/3",
+                      "hidden grid-cols-12 gap-3 border-b border-line bg-surface-muted",
+                      "px-3 py-2 text-[11px] font-semibold uppercase tracking-wider",
+                      "text-ink-faint sm:grid",
                     ].join(" ")}
-                  />
-                  <input
-                    type="text"
-                    value={newAliasVal}
-                    onChange={(e) => setNewAliasVal(e.target.value)}
-                    placeholder="Canonical Team Name / ID"
-                    className={[
-                      "w-full flex-1 rounded-lg border border-line-strong bg-surface",
-                      "px-3 py-1.5 text-xs text-ink",
-                    ].join(" ")}
-                  />
-                  <button
-                    type="button"
-                    onClick={handleAddAlias}
-                    disabled={!newAliasKey.trim() || !newAliasVal.trim()}
-                    className={secondaryButtonClass}
                   >
-                    Add Alias
-                  </button>
+                    <span className="col-span-3">ESPN Owner</span>
+                    <span className="col-span-3">Current Team (Latest Season)</span>
+                    <span className="col-span-6">Aliases (comma-separated)</span>
+                  </div>
+
+                  <div className="divide-y divide-line-subtle">
+                    {owners.map((owner) => (
+                      <div
+                        key={owner.owner_id}
+                        className={[
+                          "grid grid-cols-1 gap-2 p-3",
+                          "sm:grid-cols-12 sm:items-center sm:gap-3",
+                        ].join(" ")}
+                      >
+                        <div className="sm:col-span-3">
+                          <span
+                            className={[
+                              "text-xs font-semibold uppercase tracking-wider",
+                              "text-ink-faint sm:hidden",
+                            ].join(" ")}
+                          >
+                            Owner:{" "}
+                          </span>
+                          <span className="text-sm font-semibold text-ink">
+                            {owner.display_name}
+                          </span>
+                        </div>
+
+                        <div className="sm:col-span-3">
+                          <span
+                            className={[
+                              "text-xs font-semibold uppercase tracking-wider",
+                              "text-ink-faint sm:hidden",
+                            ].join(" ")}
+                          >
+                            Current Team:{" "}
+                          </span>
+                          <span className="text-sm text-ink-muted">
+                            {owner.current_team_name ?? (
+                              <span className="italic text-ink-faint">None</span>
+                            )}
+                          </span>
+                        </div>
+
+                        <div className="sm:col-span-6">
+                          <label htmlFor={`owner-aliases-${owner.owner_id}`} className="sr-only">
+                            Aliases for {owner.display_name}
+                          </label>
+                          <input
+                            id={`owner-aliases-${owner.owner_id}`}
+                            type="text"
+                            value={ownerAliasesInput[owner.owner_id] ?? ""}
+                            onChange={(e) =>
+                              handleOwnerAliasesChange(owner.owner_id, e.target.value)
+                            }
+                            placeholder="e.g. Brad, @brad_discord, Champ"
+                            className={[
+                              "w-full rounded-lg border border-line-strong bg-surface",
+                              "px-3 py-1.5 text-xs text-ink placeholder:text-ink-faint",
+                              "focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand",
+                            ].join(" ")}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Save Button */}

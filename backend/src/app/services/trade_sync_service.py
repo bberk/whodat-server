@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -87,6 +87,16 @@ class TradeSyncResult:
 
 
 @dataclass(frozen=True)
+class OwnerTeamAliasView:
+    """An ESPN owner in the league, their current season team name, and aliases."""
+
+    owner_id: int
+    display_name: str
+    current_team_name: str | None
+    aliases: list[str]
+
+
+@dataclass(frozen=True)
 class TradeConfigView:
     """Credential-safe view of a league's trade tracker configuration."""
 
@@ -100,13 +110,14 @@ class TradeConfigView:
     has_discord_token: bool
     base_auction_budget: Decimal
     team_aliases: dict[str, Any]
-    last_synced_at: datetime | None
-    last_sync_commit: str | None
-    last_sync_status: str
-    last_sync_error: str | None
-    last_discord_sync_at: datetime | None
-    discord_sync_status: str
-    last_discord_sync_error: str | None
+    owners: list[OwnerTeamAliasView] = field(default_factory=list)
+    last_synced_at: datetime | None = None
+    last_sync_commit: str | None = None
+    last_sync_status: str = "never"
+    last_sync_error: str | None = None
+    last_discord_sync_at: datetime | None = None
+    discord_sync_status: str = "never"
+    last_discord_sync_error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -624,12 +635,31 @@ class TradeSyncService:
                 resolved_owner: Owner | None = None
                 franchise_key: str | None = None
 
-                # 1. Alias lookup
+                # 1. Alias lookup (exact or case-insensitive)
                 alias_val = aliases.get(raw_name) or aliases.get(party_dict.get("discord_user"))
-                if isinstance(alias_val, int) and alias_val in owner_by_id:
-                    resolved_owner = owner_by_id[alias_val]
-                elif isinstance(alias_val, str) and alias_val.lower() in owner_by_name:
-                    resolved_owner = owner_by_name[alias_val.lower()]
+                if alias_val is None:
+                    raw_lower = raw_name.lower()
+                    discord_u = str(party_dict.get("discord_user") or "").lower()
+                    for k, v in aliases.items():
+                        k_lower = k.lower()
+                        if k_lower == raw_lower or (discord_u and k_lower == discord_u):
+                            alias_val = v
+                            break
+
+                if alias_val is not None:
+                    if isinstance(alias_val, int) and alias_val in owner_by_id:
+                        resolved_owner = owner_by_id[alias_val]
+                    elif isinstance(alias_val, str):
+                        target_s = alias_val.strip()
+                        if target_s.isdigit() and int(target_s) in owner_by_id:
+                            resolved_owner = owner_by_id[int(target_s)]
+                        elif target_s.lower() in owner_by_name:
+                            resolved_owner = owner_by_name[target_s.lower()]
+                        elif target_s.lower() in team_by_name:
+                            m_team = team_by_name[target_s.lower()]
+                            franchise_key = f"espn:{m_team.external_id}"
+                            if m_team.owner_id and m_team.owner_id in owner_by_id:
+                                resolved_owner = owner_by_id[m_team.owner_id]
 
                 # 2. Exact match on owner display_name
                 if resolved_owner is None and raw_name.lower() in owner_by_name:
@@ -769,7 +799,7 @@ class TradeSyncService:
 
     def _build_team_resolver(
         self, league_id: int, config: LeagueTradeConfig
-    ) -> tuple[Callable[[str], str], list[str]]:
+    ) -> tuple[Callable[[str], str], list[str], dict[int, str]]:
         owners = list(self._session.scalars(select(Owner).where(Owner.league_id == league_id)))
         owner_by_id = {o.id: o for o in owners}
         owner_by_name = {o.display_name.lower(): o for o in owners}
@@ -777,7 +807,7 @@ class TradeSyncService:
         max_season = self._session.scalar(
             select(func.max(Team.season)).where(Team.league_id == league_id)
         )
-        teams = (
+        current_teams = (
             list(
                 self._session.scalars(
                     select(Team).where(
@@ -789,13 +819,30 @@ class TradeSyncService:
             if max_season is not None
             else []
         )
-        team_by_name = {t.name.lower(): t for t in teams}
+        current_team_by_name = {t.name.lower(): t for t in current_teams}
 
-        owner_to_team: dict[str, str] = {}
-        for t in teams:
-            if t.owner_id and t.owner_id in owner_by_id:
-                owner = owner_by_id[t.owner_id]
-                owner_to_team[owner.display_name.lower()] = t.name
+        owner_to_current_team: dict[int, str] = {
+            t.owner_id: t.name for t in current_teams if t.owner_id
+        }
+        owner_name_to_current_team: dict[str, str] = {
+            owner_by_id[t.owner_id].display_name.lower(): t.name
+            for t in current_teams
+            if t.owner_id and t.owner_id in owner_by_id
+        }
+
+        # Preload historical teams in league to map old names to owner_id
+        all_teams = list(
+            self._session.scalars(
+                select(Team).where(Team.league_id == league_id).order_by(Team.season.desc())
+            )
+        )
+        historical_team_to_owner_id: dict[str, int] = {}
+        for t in all_teams:
+            if t.owner_id:
+                if t.owner_id not in owner_to_current_team:
+                    owner_to_current_team[t.owner_id] = t.name
+                if t.name.lower() not in historical_team_to_owner_id:
+                    historical_team_to_owner_id[t.name.lower()] = t.owner_id
 
         aliases = config.team_aliases or {}
 
@@ -809,33 +856,58 @@ class TradeSyncService:
                 return raw_s
             seen.add(raw_s.lower())
 
-            # 1. Alias lookup
+            # 1. Alias lookup (exact or case-insensitive)
             alias_val = aliases.get(raw_s) or aliases.get(raw_s.lower())
-            if isinstance(alias_val, int) and alias_val in owner_by_id:
-                o = owner_by_id[alias_val]
-                return owner_to_team.get(o.display_name.lower(), o.display_name)
-            if isinstance(alias_val, str) and alias_val.strip():
-                return resolve(alias_val, seen)
+            if alias_val is None:
+                for k, v in aliases.items():
+                    if k.lower() == raw_s.lower():
+                        alias_val = v
+                        break
 
-            # 2. Team name match
-            if raw_s.lower() in team_by_name:
-                return team_by_name[raw_s.lower()].name
+            if alias_val is not None:
+                if isinstance(alias_val, int) and alias_val in owner_to_current_team:
+                    return owner_to_current_team[alias_val]
+                target_str = str(alias_val).strip()
+                if target_str.isdigit() and int(target_str) in owner_to_current_team:
+                    return owner_to_current_team[int(target_str)]
+                if target_str.lower() in owner_name_to_current_team:
+                    return owner_name_to_current_team[target_str.lower()]
+                if target_str.lower() in owner_by_name:
+                    o = owner_by_name[target_str.lower()]
+                    return owner_to_current_team.get(o.id, o.display_name)
+                if target_str.lower() in current_team_by_name:
+                    return current_team_by_name[target_str.lower()].name
+                if target_str.lower() in historical_team_to_owner_id:
+                    o_id = historical_team_to_owner_id[target_str.lower()]
+                    return owner_to_current_team.get(o_id, target_str)
+                return resolve(target_str, seen)
 
-            # 3. Owner display_name match
+            # 2. Current team name match
+            if raw_s.lower() in current_team_by_name:
+                return current_team_by_name[raw_s.lower()].name
+
+            # 3. Owner display_name match -> return current team name
+            if raw_s.lower() in owner_name_to_current_team:
+                return owner_name_to_current_team[raw_s.lower()]
             if raw_s.lower() in owner_by_name:
                 o = owner_by_name[raw_s.lower()]
-                return owner_to_team.get(o.display_name.lower(), o.display_name)
+                return owner_to_current_team.get(o.id, o.display_name)
+
+            # 4. Historical team name match -> return current team name
+            if raw_s.lower() in historical_team_to_owner_id:
+                o_id = historical_team_to_owner_id[raw_s.lower()]
+                return owner_to_current_team.get(o_id, raw_s)
 
             return raw_s
 
-        if teams:
-            known_teams = list(dict.fromkeys(t.name for t in teams))
+        if current_teams:
+            known_teams = list(dict.fromkeys(t.name for t in current_teams))
         elif owners:
             known_teams = list(dict.fromkeys(o.display_name for o in owners))
         else:
             known_teams = []
 
-        return resolve, known_teams
+        return resolve, known_teams, owner_to_current_team
 
     def get_auction_budgets(
         self, caller: LeagueUser, league_id: int, *, target_draft_year: int
@@ -843,7 +915,9 @@ class TradeSyncService:
         """Calculate exact projected auction budgets for all league teams for target_draft_year."""
         self._require_member(caller, league_id)
         config = self.get_or_create_config(league_id)
-        resolve_team, known_teams = self._build_team_resolver(league_id, config)
+        resolve_team, known_teams, owner_to_current_team = self._build_team_resolver(
+            league_id, config
+        )
 
         # Gather all unconditional deltas with joinedload (prevents N+1 queries)
         db_deltas = list(
@@ -858,7 +932,9 @@ class TradeSyncService:
         domain_deltas: list[BudgetDelta] = []
         for d in db_deltas:
             raw_name = d.party.team_name_raw
-            if d.party.owner and raw_name.lower() not in [k.lower() for k in known_teams]:
+            if d.party.owner_id and d.party.owner_id in owner_to_current_team:
+                team_identifier = owner_to_current_team[d.party.owner_id]
+            elif d.party.owner:
                 team_identifier = resolve_team(d.party.owner.display_name)
             else:
                 team_identifier = resolve_team(raw_name)
@@ -914,6 +990,72 @@ class TradeSyncService:
         )
 
     def _to_config_view(self, config: LeagueTradeConfig) -> TradeConfigView:
+        league_id = config.league_id
+        owners = list(
+            self._session.scalars(
+                select(Owner).where(Owner.league_id == league_id).order_by(Owner.id)
+            )
+        )
+        max_season = self._session.scalar(
+            select(func.max(Team.season)).where(Team.league_id == league_id)
+        )
+        current_teams = (
+            list(
+                self._session.scalars(
+                    select(Team).where(
+                        Team.league_id == league_id,
+                        Team.season == max_season,
+                    )
+                )
+            )
+            if max_season is not None
+            else []
+        )
+        owner_id_to_team: dict[int, str] = {t.owner_id: t.name for t in current_teams if t.owner_id}
+
+        # Fallback to most recent team name for owners not in latest season
+        for o in owners:
+            if o.id not in owner_id_to_team:
+                recent = self._session.scalar(
+                    select(Team.name)
+                    .where(Team.league_id == league_id, Team.owner_id == o.id)
+                    .order_by(Team.season.desc())
+                    .limit(1)
+                )
+                if recent:
+                    owner_id_to_team[o.id] = recent
+
+        aliases_dict = config.team_aliases or {}
+        owner_by_name = {o.display_name.lower(): o for o in owners}
+        owner_by_id = {o.id: o for o in owners}
+        team_name_to_owner_id = {t.name.lower(): t.owner_id for t in current_teams if t.owner_id}
+
+        owner_aliases: dict[int, list[str]] = {o.id: [] for o in owners}
+        for alias_key, target_val in aliases_dict.items():
+            target_str = str(target_val).strip()
+            resolved_owner_id: int | None = None
+            if isinstance(target_val, int) and target_val in owner_by_id:
+                resolved_owner_id = target_val
+            elif target_str.isdigit() and int(target_str) in owner_by_id:
+                resolved_owner_id = int(target_str)
+            elif target_str.lower() in owner_by_name:
+                resolved_owner_id = owner_by_name[target_str.lower()].id
+            elif target_str.lower() in team_name_to_owner_id:
+                resolved_owner_id = team_name_to_owner_id[target_str.lower()]
+
+            if resolved_owner_id and resolved_owner_id in owner_aliases:
+                owner_aliases[resolved_owner_id].append(str(alias_key))
+
+        owner_views: list[OwnerTeamAliasView] = [
+            OwnerTeamAliasView(
+                owner_id=o.id,
+                display_name=o.display_name,
+                current_team_name=owner_id_to_team.get(o.id),
+                aliases=sorted(owner_aliases.get(o.id, [])),
+            )
+            for o in owners
+        ]
+
         return TradeConfigView(
             league_id=config.league_id,
             enabled=config.enabled,
@@ -925,6 +1067,7 @@ class TradeSyncService:
             has_discord_token=bool(config.discord_token_encrypted),
             base_auction_budget=config.base_auction_budget,
             team_aliases=config.team_aliases or {},
+            owners=owner_views,
             last_synced_at=config.last_synced_at,
             last_sync_commit=config.last_sync_commit,
             last_sync_status=config.last_sync_status,

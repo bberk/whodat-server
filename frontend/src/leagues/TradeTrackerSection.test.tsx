@@ -28,6 +28,20 @@ const sampleTradeConfig: TradeConfigResponse = {
   team_aliases: {
     alice_discord: "Team Alice",
   },
+  owners: [
+    {
+      owner_id: 101,
+      display_name: "Alice",
+      current_team_name: "Team Alice",
+      aliases: ["alice_discord"],
+    },
+    {
+      owner_id: 102,
+      display_name: "Bob",
+      current_team_name: "Team Bob",
+      aliases: [],
+    },
+  ],
   last_sync_status: "success",
   last_synced_at: "2026-11-07T12:00:00Z",
   last_sync_commit: "abc1234567890",
@@ -110,7 +124,7 @@ describe("TradeTrackerSection", () => {
     expect(screen.getByLabelText("GitHub Repo Name")).toHaveValue("whodat-trades");
     expect(screen.getByLabelText("Discord #trades Channel ID")).toHaveValue("1234567890");
     expect(screen.getByLabelText("Discord Bot Token")).toBeInTheDocument();
-    expect(screen.getByText("alice_discord")).toBeInTheDocument();
+    expect(screen.getByLabelText("Aliases for Alice")).toHaveValue("alice_discord");
     expect(screen.getByText("Team Alice")).toBeInTheDocument();
     expect(screen.getByText(/Commit:\s*abc1234/)).toBeInTheDocument();
   });
@@ -314,10 +328,33 @@ describe("TradeTrackerSection", () => {
     });
   });
 
-  it("adds and removes team aliases", async () => {
+  it("lists ESPN owners with current team names and updates comma-separated aliases", async () => {
     const user = userEvent.setup();
-    mockFetch((url) => {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    mockFetch((url, init) => {
+      calls.push({ url: String(url), init });
       if (requestPath(url) === "/api/v1/leagues/1/trade-config") {
+        if (init?.method === "PUT") {
+          const body = requestBody(init) as { team_aliases?: Record<string, string> };
+          return jsonResponse({
+            ...sampleTradeConfig,
+            team_aliases: body.team_aliases ?? {},
+            owners: [
+              {
+                owner_id: 101,
+                display_name: "Alice",
+                current_team_name: "Team Alice",
+                aliases: ["The Ace", "alice_discord"],
+              },
+              {
+                owner_id: 102,
+                display_name: "Bob",
+                current_team_name: "Team Bob",
+                aliases: ["@bob_discord", "Bobby"],
+              },
+            ],
+          });
+        }
         return jsonResponse(sampleTradeConfig);
       }
       return errorResponse(404, { code: "not_found", message: requestPath(url) });
@@ -325,26 +362,39 @@ describe("TradeTrackerSection", () => {
 
     renderSection();
     await waitFor(() => {
-      expect(screen.getByText("alice_discord")).toBeInTheDocument();
+      expect(screen.getByText("Alice")).toBeInTheDocument();
+      expect(screen.getByText("Team Alice")).toBeInTheDocument();
+      expect(screen.getByText("Bob")).toBeInTheDocument();
+      expect(screen.getByText("Team Bob")).toBeInTheDocument();
     });
 
-    // Add new alias
-    const aliasInput = screen.getByPlaceholderText("Alias (e.g. alice_discord)");
-    const teamInput = screen.getByPlaceholderText("Canonical Team Name / ID");
-    const addBtn = screen.getByRole("button", { name: "Add Alias" });
+    const aliceInput = screen.getByLabelText("Aliases for Alice");
+    expect(aliceInput).toHaveValue("alice_discord");
 
-    await user.type(aliasInput, "bob_discord");
-    await user.type(teamInput, "Team Bob");
-    await user.click(addBtn);
+    const bobInput = screen.getByLabelText("Aliases for Bob");
+    expect(bobInput).toHaveValue("");
 
-    expect(screen.getByText("bob_discord")).toBeInTheDocument();
-    expect(screen.getByText("Team Bob")).toBeInTheDocument();
+    await user.type(aliceInput, ", The Ace");
+    await user.type(bobInput, "Bobby, @bob_discord");
 
-    // Remove existing alias
-    const deleteButtons = screen.getAllByRole("button", { name: "Delete" });
-    await user.click(deleteButtons[0]);
+    const saveBtn = screen.getByRole("button", { name: "Save Trade Settings" });
+    await user.click(saveBtn);
 
-    expect(screen.queryByText("alice_discord")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("Trade tracker configuration saved.")).toBeInTheDocument();
+    });
+
+    const putCall = calls.find((c) => c.init?.method === "PUT");
+    expect(putCall).toBeDefined();
+    const sentBody = requestBody(putCall?.init ?? {}) as {
+      team_aliases?: Record<string, string>;
+    };
+    expect(sentBody.team_aliases).toEqual({
+      alice_discord: "Alice",
+      "The Ace": "Alice",
+      Bobby: "Bob",
+      "@bob_discord": "Bob",
+    });
   });
 
   it("handles repository sync and displays result banner", async () => {

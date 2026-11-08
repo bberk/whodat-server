@@ -91,6 +91,7 @@ export type EloWarning = components["schemas"]["EloWarning"];
 export type EloHistoryResponse = components["schemas"]["EloHistoryResponse"];
 
 /** Trade tracker configuration and sync responses. */
+export type OwnerTeamAliasSummary = components["schemas"]["OwnerTeamAliasSummary"];
 export type TradeConfigResponse = components["schemas"]["TradeConfigResponse"];
 export type TradeConfigUpdateRequest = components["schemas"]["TradeConfigUpdateRequest"];
 export type TradeSyncResponse = components["schemas"]["TradeSyncResponse"];

@@ -1100,6 +1100,43 @@
         "title": "OwnerSummary",
         "type": "object"
       },
+      "OwnerTeamAliasSummary": {
+        "description": "An ESPN owner in the league, their current season team name, and aliases.",
+        "properties": {
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Aliases",
+            "type": "array"
+          },
+          "current_team_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Team Name"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "owner_id": {
+            "title": "Owner Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "owner_id",
+          "display_name"
+        ],
+        "title": "OwnerTeamAliasSummary",
+        "type": "object"
+      },
       "OwnerUpdateRequest": {
         "additionalProperties": false,
         "description": "Set or clear the caller's own owner association.",
@@ -2177,6 +2214,13 @@
           "league_id": {
             "title": "League Id",
             "type": "integer"
+          },
+          "owners": {
+            "items": {
+              "$ref": "#/components/schemas/OwnerTeamAliasSummary"
+            },
+            "title": "Owners",
+            "type": "array"
           },
           "repo_name": {
             "title": "Repo Name",

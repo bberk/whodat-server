@@ -16,6 +16,15 @@ from app.services.trade_sync_service import (
 )
 
 
+class OwnerTeamAliasSummary(BaseModel):
+    """An ESPN owner in the league, their current season team name, and aliases."""
+
+    owner_id: int
+    display_name: str
+    current_team_name: str | None = None
+    aliases: list[str] = Field(default_factory=list)
+
+
 class TradeConfigResponse(BaseModel):
     """Public, credential-safe trade tracker configuration."""
 
@@ -29,6 +38,7 @@ class TradeConfigResponse(BaseModel):
     has_discord_token: bool
     base_auction_budget: str
     team_aliases: dict[str, Any]
+    owners: list[OwnerTeamAliasSummary] = Field(default_factory=list)
     last_synced_at: datetime | None
     last_sync_commit: str | None
     last_sync_status: str
@@ -151,6 +161,15 @@ def to_trade_config_response(view: TradeConfigView) -> TradeConfigResponse:
         has_discord_token=view.has_discord_token,
         base_auction_budget=f"{view.base_auction_budget:.2f}",
         team_aliases=view.team_aliases,
+        owners=[
+            OwnerTeamAliasSummary(
+                owner_id=o.owner_id,
+                display_name=o.display_name,
+                current_team_name=o.current_team_name,
+                aliases=o.aliases,
+            )
+            for o in view.owners
+        ],
         last_synced_at=view.last_synced_at,
         last_sync_commit=view.last_sync_commit,
         last_sync_status=view.last_sync_status,
