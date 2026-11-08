@@ -97,6 +97,7 @@ class TradeConfigView:
     repo_name: str
     branch: str
     has_github_token: bool
+    has_discord_token: bool
     base_auction_budget: Decimal
     team_aliases: dict[str, Any]
     last_synced_at: datetime | None
@@ -216,8 +217,8 @@ class TradeSyncService:
             config = LeagueTradeConfig(
                 league_id=league_id,
                 enabled=False,
-                repo_owner="bberk",
-                repo_name="whodat-trades",
+                repo_owner="",
+                repo_name="",
                 branch="main",
                 base_auction_budget=Decimal("200.00"),
                 team_aliases={},
@@ -244,6 +245,8 @@ class TradeSyncService:
         branch: str | None = None,
         github_token: str | None = None,
         clear_github_token: bool = False,
+        discord_token: str | None = None,
+        clear_discord_token: bool = False,
         base_auction_budget: Decimal | None = None,
         team_aliases: dict[str, Any] | None = None,
     ) -> TradeConfigView:
@@ -256,9 +259,9 @@ class TradeSyncService:
             league.has_trades_enabled = enabled
         if discord_channel_id is not None:
             config.discord_channel_id = discord_channel_id.strip() or None
-        if repo_owner is not None and repo_owner.strip():
+        if repo_owner is not None:
             config.repo_owner = repo_owner.strip()
-        if repo_name is not None and repo_name.strip():
+        if repo_name is not None:
             config.repo_name = repo_name.strip()
         if branch is not None and branch.strip():
             config.branch = branch.strip()
@@ -266,6 +269,10 @@ class TradeSyncService:
             config.github_token_encrypted = None
         elif github_token is not None and github_token.strip():
             config.github_token_encrypted = crypto.encrypt(github_token.strip())
+        if clear_discord_token:
+            config.discord_token_encrypted = None
+        elif discord_token is not None and discord_token.strip():
+            config.discord_token_encrypted = crypto.encrypt(discord_token.strip())
         if base_auction_budget is not None:
             if base_auction_budget < Decimal("0.00"):
                 raise ValueError("base_auction_budget must be non-negative")
@@ -283,6 +290,16 @@ class TradeSyncService:
 
         if not config.enabled:
             raise TradeTrackerDisabledError("Trade tracker is disabled for this league")
+
+        if not config.repo_owner or not config.repo_name:
+            config.last_sync_status = "error"
+            config.last_sync_error = (
+                "GitHub repository owner and name must be configured before syncing"
+            )
+            self._session.flush()
+            raise TradeSyncGitHubError(
+                "GitHub repository owner and name must be configured before syncing"
+            )
 
         # Check rate limit
         decision = self._rate_limiter.check(league_id=league_id, user_id=caller.user_id)
@@ -443,9 +460,24 @@ class TradeSyncService:
 
         from app.config import _REPO_ROOT, get_settings
 
+        discord_token: str | None = None
+        if config.discord_token_encrypted:
+            try:
+                discord_token = crypto.decrypt(config.discord_token_encrypted)
+            except Exception:
+                self.complete_discord_sync(
+                    league_id,
+                    success=False,
+                    error_message="Decryption error for Discord bot token",
+                )
+                return
+
         settings = get_settings()
-        if not settings.discord_bot_token:
-            # When no bot token is set in environment (e.g. tests/dev), record clean completion
+        if not discord_token:
+            discord_token = settings.discord_bot_token
+
+        if not discord_token:
+            # When no bot token is set in config or environment (e.g. tests/dev), record clean
             self.complete_discord_sync(league_id, success=True)
             return
 
@@ -468,7 +500,7 @@ class TradeSyncService:
         env = {
             **os.environ,
             "PYTHONPATH": str(_REPO_ROOT),
-            "DISCORD_BOT_TOKEN": settings.discord_bot_token,
+            "DISCORD_BOT_TOKEN": discord_token,
         }
         if settings.opencode_model:
             env["OPENCODE_MODEL"] = settings.opencode_model
@@ -890,6 +922,7 @@ class TradeSyncService:
             repo_name=config.repo_name,
             branch=config.branch,
             has_github_token=bool(config.github_token_encrypted),
+            has_discord_token=bool(config.discord_token_encrypted),
             base_auction_budget=config.base_auction_budget,
             team_aliases=config.team_aliases or {},
             last_synced_at=config.last_synced_at,

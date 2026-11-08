@@ -169,9 +169,10 @@ def test_trade_config_authorization_boundaries(api_factory: Callable[..., Api]) 
     data = resp.json()
     assert data["league_id"] == league_id
     assert data["enabled"] is False
-    assert data["repo_owner"] == "bberk"
-    assert data["repo_name"] == "whodat-trades"
+    assert data["repo_owner"] == ""
+    assert data["repo_name"] == ""
     assert data["has_github_token"] is False
+    assert data["has_discord_token"] is False
     assert data["base_auction_budget"] == "200.00"
 
 
@@ -183,7 +184,7 @@ def test_update_trade_config_and_token_encryption(api_factory: Callable[..., Api
 
     path = f"/api/v1/leagues/{league_id}/trade-config"
 
-    # Update config and set GitHub token
+    # Update config and set GitHub & Discord tokens
     update_payload = {
         "enabled": True,
         "discord_channel_id": "999888777",
@@ -191,6 +192,7 @@ def test_update_trade_config_and_token_encryption(api_factory: Callable[..., Api
         "repo_name": "custom-trades",
         "branch": "develop",
         "github_token": "ghp_secrettoken12345",
+        "discord_token": "bot-secret-token-xyz",
         "base_auction_budget": "250.00",
         "team_aliases": {"alice_tag": "Alice"},
     }
@@ -204,22 +206,30 @@ def test_update_trade_config_and_token_encryption(api_factory: Callable[..., Api
     assert data["repo_name"] == "custom-trades"
     assert data["branch"] == "develop"
     assert data["has_github_token"] is True
+    assert data["has_discord_token"] is True
     assert data["base_auction_budget"] == "250.00"
     assert data["team_aliases"] == {"alice_tag": "Alice"}
 
-    # Token is never returned in response body
+    # Tokens are never returned in response body
     assert "ghp_secrettoken12345" not in resp.text
+    assert "bot-secret-token-xyz" not in resp.text
 
     # Verify encrypted in DB
     with api.factory() as session:
         cfg = session.query(LeagueTradeConfig).filter_by(league_id=league_id).one()
         assert cfg.github_token_encrypted is not None
         assert "ghp_secrettoken12345" not in cfg.github_token_encrypted
+        assert cfg.discord_token_encrypted is not None
+        assert "bot-secret-token-xyz" not in cfg.discord_token_encrypted
 
-    # Clear token
-    resp_clear = api.client.put(path, json={"clear_github_token": True})
+    # Clear tokens
+    resp_clear = api.client.put(
+        path, json={"clear_github_token": True, "clear_discord_token": True}
+    )
     assert resp_clear.status_code == 200
-    assert resp_clear.json()["has_github_token"] is False
+    clear_data = resp_clear.json()
+    assert clear_data["has_github_token"] is False
+    assert clear_data["has_discord_token"] is False
 
 
 def test_sync_trade_repo_disabled_error(api_factory: Callable[..., Api]) -> None:
@@ -314,7 +324,15 @@ def test_sync_trade_repo_success_and_budget_calculation(api_factory: Callable[..
 
     # Enable trade tracker
     config_path = f"/api/v1/leagues/{league_id}/trade-config"
-    api.client.put(config_path, json={"enabled": True, "base_auction_budget": "200.00"})
+    api.client.put(
+        config_path,
+        json={
+            "enabled": True,
+            "base_auction_budget": "200.00",
+            "repo_owner": "custom-owner",
+            "repo_name": "custom-trades",
+        },
+    )
 
     # Trigger sync
     sync_path = f"/api/v1/leagues/{league_id}/trades/sync"
@@ -383,7 +401,14 @@ def test_sync_rate_limiting(api_factory: Callable[..., Api]) -> None:
     login(api, admin_id)
 
     config_path = f"/api/v1/leagues/{league_id}/trade-config"
-    api.client.put(config_path, json={"enabled": True})
+    api.client.put(
+        config_path,
+        json={
+            "enabled": True,
+            "repo_owner": "custom-owner",
+            "repo_name": "custom-trades",
+        },
+    )
 
     sync_path = f"/api/v1/leagues/{league_id}/trades/sync"
     # First sync fails with 502 (404 from GitHub mock)
@@ -470,7 +495,14 @@ def test_list_trades_filters_and_reingest(api_factory: Callable[..., Api]) -> No
     admin_id = create_user(api, "admin@example.com", league_id=league_id, role="admin")
     login(api, admin_id)
 
-    api.client.put(f"/api/v1/leagues/{league_id}/trade-config", json={"enabled": True})
+    api.client.put(
+        f"/api/v1/leagues/{league_id}/trade-config",
+        json={
+            "enabled": True,
+            "repo_owner": "custom-owner",
+            "repo_name": "custom-trades",
+        },
+    )
     sync_resp = api.client.post(f"/api/v1/leagues/{league_id}/trades/sync")
     assert sync_resp.status_code == 200
     assert sync_resp.json()["trades_synced"] == 2
@@ -558,7 +590,14 @@ def test_sync_rejects_unbalanced_zero_sum_ledger(api_factory: Callable[..., Api]
     admin_id = create_user(api, "admin@example.com", league_id=league_id, role="admin")
     login(api, admin_id)
 
-    api.client.put(f"/api/v1/leagues/{league_id}/trade-config", json={"enabled": True})
+    api.client.put(
+        f"/api/v1/leagues/{league_id}/trade-config",
+        json={
+            "enabled": True,
+            "repo_owner": "custom-owner",
+            "repo_name": "custom-trades",
+        },
+    )
     sync_resp = api.client.post(f"/api/v1/leagues/{league_id}/trades/sync")
     # Sync fails with 502 Bad Gateway due to zero-sum format error
     assert sync_resp.status_code == 502
@@ -637,7 +676,14 @@ def test_settled_trades_conditions_ignored_in_active_budget(
     admin_id = create_user(api, "admin@example.com", league_id=league_id, role="admin")
     login(api, admin_id)
 
-    api.client.put(f"/api/v1/leagues/{league_id}/trade-config", json={"enabled": True})
+    api.client.put(
+        f"/api/v1/leagues/{league_id}/trade-config",
+        json={
+            "enabled": True,
+            "repo_owner": "custom-owner",
+            "repo_name": "custom-trades",
+        },
+    )
     sync_resp = api.client.post(f"/api/v1/leagues/{league_id}/trades/sync")
     assert sync_resp.status_code == 200
 
@@ -736,7 +782,14 @@ def test_discord_sync_authorization_and_validation(api_factory: Callable[..., Ap
     assert resp_disabled.json()["detail"]["code"] == "trade_tracker_disabled"
 
     # Missing channel ID -> 400
-    api.client.put(f"/api/v1/leagues/{league_id}/trade-config", json={"enabled": True})
+    api.client.put(
+        f"/api/v1/leagues/{league_id}/trade-config",
+        json={
+            "enabled": True,
+            "repo_owner": "custom-owner",
+            "repo_name": "custom-trades",
+        },
+    )
     resp_no_chan = api.client.post(sync_path)
     assert resp_no_chan.status_code == 400
     assert "channel ID" in resp_no_chan.json()["detail"]["message"]
@@ -827,3 +880,65 @@ def test_run_discord_sync_job_worker_execution(
     cfg_resp = api.client.get(f"/api/v1/leagues/{league_id}/trade-config")
     assert cfg_resp.json()["discord_sync_status"] == "error"
     assert "Discord API error: rate limit exceeded" in cfg_resp.json()["last_discord_sync_error"]
+
+
+def test_sync_trade_repo_missing_repo_config_error(api_factory: Callable[..., Api]) -> None:
+    """Sync fails cleanly if repository owner and name have not been configured."""
+    api = api_factory()
+    league_id = seed_league(api)
+    admin_id = create_user(api, "admin@example.com", league_id=league_id, role="admin")
+    login(api, admin_id)
+
+    # Enable without repo owner and name
+    api.client.put(f"/api/v1/leagues/{league_id}/trade-config", json={"enabled": True})
+    resp = api.client.post(f"/api/v1/leagues/{league_id}/trades/sync")
+    assert resp.status_code == 502
+    assert resp.json()["detail"]["code"] == "github_sync_failed"
+    assert "owner and name must be configured" in resp.json()["detail"]["message"]
+
+
+def test_run_discord_sync_job_with_league_discord_token(
+    api_factory: Callable[..., Api], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When a per-league Discord token is configured, worker decrypts and uses it."""
+    import subprocess
+    from typing import Any
+
+    api = api_factory()
+    league_id = seed_league(api)
+    admin_id = create_user(api, "admin@example.com", league_id=league_id, role="admin")
+    login(api, admin_id)
+
+    # Configure per-league encrypted discord bot token
+    api.client.put(
+        f"/api/v1/leagues/{league_id}/trade-config",
+        json={
+            "enabled": True,
+            "discord_channel_id": "777666",
+            "repo_owner": "custom-owner",
+            "repo_name": "custom-trades",
+            "discord_token": "league-specific-bot-token",
+        },
+    )
+
+    # Server environment has a different token or none
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "global-fallback-token")
+    get_settings.cache_clear()
+
+    calls: list[dict[str, Any]] = []
+
+    def mock_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        calls.append({"cmd": cmd, **kwargs})
+        return subprocess.CompletedProcess(cmd, returncode=0, stdout="Success", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", mock_run)
+
+    with api.factory() as session:
+        service = TradeSyncService(session)
+        service.run_discord_sync_job(league_id)
+        session.commit()
+
+    assert len(calls) == 1
+    call = calls[0]
+    # Encrypted league token takes priority over global fallback
+    assert call["env"]["DISCORD_BOT_TOKEN"] == "league-specific-bot-token"

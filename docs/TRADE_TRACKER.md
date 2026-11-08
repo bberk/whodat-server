@@ -1,12 +1,14 @@
 # Trade Tracker & Projected Auction Bucks Runbook
 
-This document details the architecture, configuration, operation, and maintenance of the Trade Tracker and Projected Auction Bucks feature in Whodat Server.
+This document details the architecture, configuration, operation, and maintenance of the Trade
+Tracker and Projected Auction Bucks feature in Whodat Server.
 
 ---
 
 ## 1. Architectural Overview
 
-The Trade Tracker connects three decoupled systems to maintain an auditable, version-controlled trade ledger and compute projected auction dollars for future fantasy drafts:
+The Trade Tracker connects three decoupled systems to maintain an auditable, version-controlled
+trade ledger and compute projected auction dollars for future fantasy drafts:
 
 ```
 [ Discord #trades ]
@@ -15,7 +17,7 @@ The Trade Tracker connects three decoupled systems to maintain an auditable, ver
 [ OpenCode Trade Agent ] (Whodat Server sidecar / worker)
         │
         ▼ (Opens Pull Request with trade YAML + updated ledger)
-[ GitHub Trade Repo ] (e.g. bberk/whodat-trades)
+[ GitHub Trade Repo ] (e.g. your-org/fantasy-trades)
         │
         ▼ (Merged after human league review)
 [ Whodat Server Ingestion ] (Reads ledger.json via GitHub API)
@@ -25,7 +27,8 @@ The Trade Tracker connects three decoupled systems to maintain an auditable, ver
 ```
 
 1. **Discord `#trades` Channel**: The source of truth for announced trades among league members.
-2. **Trade Repository (`owner/repo`)**: A private or public GitHub repository holding individual YAML trade records and a compiled `ledger.json`.
+2. **Trade Repository (`owner/repo`)**: A private or public GitHub repository holding individual
+   YAML trade records and a compiled `ledger.json`.
 3. **Whodat Server**:
    - Manages encrypted league credentials (GitHub PAT).
    - Ingests `ledger.json` from GitHub.
@@ -100,13 +103,16 @@ parties:
         amount: 10.00
 conditions:
   - id: "c1"
-    description: "If Patrick Mahomes wins NFL MVP, Bob sends Alice $5.00 in 2027 draft auction dollars"
+    description: >-
+      If Patrick Mahomes wins NFL MVP, Bob sends Alice $5.00 in 2027 draft auction dollars
     draft_year: 2027
     paying_team: "Team Bob"
     receiving_team: "Team Alice"
     amount: 5.00
     status: "fulfilled"
-notes: "Alice trades Patrick Mahomes, 2027 1st round pick, $5 in 2027, and $10 in 2028 to Bob for Justin Jefferson."
+notes: >-
+  Alice trades Patrick Mahomes, 2027 1st round pick, $5 in 2027, and $10 in 2028 to Bob for
+  Justin Jefferson.
 ```
 
 ### 2.3 Consolidated `ledger.json` Schema
@@ -141,48 +147,60 @@ notes: "Alice trades Patrick Mahomes, 2027 1st round pick, $5 in 2027, and $10 i
 For any trade record and any target draft year:
 $$\sum_{\text{party} \in \text{parties}} \text{auction\_dollars}(\text{party}, \text{year}) = 0.00$$
 
-Every dollar sent by one team is received by another. CI in the trade repo checks this invariant on all Pull Requests (`verify_ledger.py`).
+Every dollar sent by one team is received by another. CI in the trade repo checks this invariant
+on all Pull Requests (`verify_ledger.py`).
 
 ### 3.2 Projected Auction Budget Formula
 For a given team $T$ and draft year $Y$:
-$$\text{Projected Budget}(T, Y) = \text{Starting Budget} + \text{Base Delta}(T, Y) + \text{Fulfilled Conditional Delta}(T, Y)$$
+$$
+\text{Projected Budget}(T, Y) = \text{Starting Budget} + \text{Base Delta}(T, Y)
++ \text{Fulfilled Conditional Delta}(T, Y)
+$$
 
 Where:
 - **Starting Budget**: Configured per league (default `$200.00`).
 - **Base Delta**: Net sum of all agreed unconditional auction dollars for draft year $Y$.
-- **Fulfilled Conditional Delta**: Sum of conditional clauses targeting year $Y$ marked `status: "fulfilled"` (credited to receiving team, debited from paying team).
-- **Pending Conditions**: Displayed as informational notes/badges without altering confirmed projections until resolved.
+- **Fulfilled Conditional Delta**: Sum of conditional clauses targeting year $Y$ marked
+  `status: "fulfilled"` (credited to receiving team, debited from paying team).
+- **Pending Conditions**: Displayed as informational notes/badges without altering confirmed
+  projections until resolved.
 
 ---
 
 ## 4. League Setup & Configuration
 
 ### 4.1 Step 1: Create the Trade Repository
-1. Create a new GitHub repository (e.g. `bberk/whodat-trades`).
+1. Create a new GitHub repository (e.g. `your-org/fantasy-trades`).
 2. Copy files from `docs/trade-repo-template/` into the new repository.
 3. Commit and push to `main`.
-4. Create a fine-grained or classic GitHub Personal Access Token (PAT) with `repo` or `contents:read` permissions.
+4. Create a fine-grained or classic GitHub Personal Access Token (PAT) with `repo` or
+   `contents:read` permissions.
 
 ### 4.2 Step 2: Configure Whodat Server
-1. Navigate to Whodat Server -> **Admin** -> **Trade Tracker Settings**.
-2. Toggle **Enable Trade Tracking** to **ON**.
+1. Navigate to Whodat Server -> **Admin** -> **Trade tracker & auction budget**.
+2. Switch the Trade Tracker sliding square switch to **Enabled**.
 3. Set **Starting Auction Budget** (default `$200.00`).
-4. Enter **Repository Owner** (e.g. `bberk`), **Repository Name** (e.g. `whodat-trades`), and **Branch** (`main`).
-5. Enter the **GitHub Personal Access Token** (stored securely via AES-256-GCM encryption; never displayed in plaintext).
+4. Enter **Repository Owner** (e.g. `your-org`), **Repository Name** (e.g. `fantasy-trades`), and
+   **Branch** (`main`). No default repository owner or name is assumed.
+5. Enter the **GitHub Personal Access Token** (stored securely via AES-256-GCM encryption; never
+   displayed in plaintext).
 6. Set **Discord Channel ID** (ID of the `#trades` channel).
-7. Configure **Team & Discord User Aliases** in the Alias Manager:
-   - Map Discord handles (e.g. `@alice_ff`) and team names (e.g. `Team Alice`) to the canonical ESPN team name.
-8. Click **Save Trade Tracker Settings**.
+7. Set **Discord Bot Token** (encrypted via AES-256-GCM; required for private servers/channels).
+8. Configure **Team & Discord User Aliases** in the Alias Manager:
+   - Map Discord handles (e.g. `@alice_ff`) and team names (e.g. `Team Alice`) to the canonical
+     ESPN team name.
+9. Click **Save Trade Settings**.
 
 ### 4.3 Step 3: Trigger Ingestion
-- Click **Sync Trades from GitHub** to immediately fetch and calculate projected auction budgets.
+- Click **Sync Trade Repo** to immediately fetch and calculate projected auction budgets.
 - Once enabled, a **Trades** link automatically appears in the main navigation bar.
 
 ---
 
 ## 5. Automated Discord Agent Sync
 
-The Discord sync agent can be run on a schedule or triggered manually via **Run Discord Trade Agent** from the admin page:
+The Discord sync agent can be run on a schedule or triggered manually via **Sync Discord Trades**
+from the admin page:
 
 ```
 POST /api/v1/leagues/{league_id}/trades/discord-sync
@@ -190,20 +208,23 @@ POST /api/v1/leagues/{league_id}/trades/discord-sync
 
 1. The endpoint returns `202 Accepted` immediately, avoiding gateway timeouts.
 2. The agent fetches messages since the last processed message ID from Discord `#trades`.
-3. OpenCode / LLM extracts the structured trade parameters (parties, assets, draft years, conditions).
+3. OpenCode / LLM extracts the structured trade parameters (parties, assets, draft years,
+   conditions).
 4. The agent checks open PRs on GitHub to avoid duplicate PRs.
-5. A PR is opened with the trade YAML and updated `ledger.json` against `bberk/whodat-trades`.
+5. A PR is opened with the trade YAML and updated `ledger.json` against the configured repo.
 
 ---
 
 ## 6. Post-Draft Settlement Workflow
 
 After each league's annual draft completes:
-1. Navigate to `bberk/whodat-trades` -> **Actions** -> **Settle Post-Draft Trades**.
+1. Navigate to your trade repository -> **Actions** -> **Settle Post-Draft Trades**.
 2. Click **Run workflow**, enter the completed draft year (e.g. `2026`), and submit.
-3. The workflow moves trades that are fully executed through that draft year from `active_trades` to `settled_trade_ids` in `ledger.json`.
+3. The workflow moves trades that are fully executed through that draft year from `active_trades`
+   to `settled_trade_ids` in `ledger.json`.
 4. Review and merge the generated PR.
-5. In Whodat Server, click **Sync Trades from GitHub** (or wait for the next sync). The settled trades are archived while all historical YAML records remain intact.
+5. In Whodat Server, click **Sync Trade Repo** (or wait for the next sync). The settled trades
+   are archived while all historical YAML records remain intact.
 
 ---
 
@@ -218,46 +239,63 @@ This section details common operational errors, diagnostic steps, and remediatio
   - Repository owner or name is misspelled.
   - Target branch does not exist.
 - **Remediation:**
-  1. For private trade repos, verify the PAT has `repo` (classic) or `Repository permissions: Contents (Read)` (fine-grained).
-  2. In Whodat Server Admin -> **Trade Tracker Settings**, enter the new token and click **Save Trade Tracker Settings**.
-  3. Click **Sync Trades from GitHub** and verify the status reports success.
+  1. For private trade repos, verify the PAT has `repo` (classic) or
+     `Repository permissions: Contents (Read)` (fine-grained).
+  2. In Whodat Server Admin -> **Trade tracker & auction budget**, enter the new token and click
+     **Save Trade Settings**.
+  3. Click **Sync Trade Repo** and verify the status reports success.
 
 ### 7.2 CI Verification Failures on Pull Requests
 - **Symptom:** GitHub Actions check `verify-ledger.yml` fails on a trade PR.
 - **Root Cause:**
-  - `Auction dollars for draft year <Y> are not zero-sum: total is <delta>`: One party's dollar deduction does not equal the other party's addition.
-  - `Draft picks sent do not match draft picks received`: Pick round or year mismatch between parties.
+  - `Auction dollars for draft year <Y> are not zero-sum: total is <delta>`: One party's dollar
+    deduction does not equal the other party's addition.
+  - `Draft picks sent do not match draft picks received`: Pick round or year mismatch between
+    parties.
   - `ledger.json` active trades do not match YAML files in `trades/`.
 - **Remediation:**
   1. Open the PR and inspect the `verify_ledger.py` step output.
-  2. Verify the exact arithmetic: every dollar given (`-X.XX`) must be balanced by an exact dollar received (`+X.XX`).
-  3. Update the YAML file and `ledger.json` on the PR branch, push, and confirm CI turns green before merging.
+  2. Verify the exact arithmetic: every dollar given (`-X.XX`) must be balanced by an exact dollar
+     received (`+X.XX`).
+  3. Update the YAML file and `ledger.json` on the PR branch, push, and confirm CI turns green
+     before merging.
 
 ### 7.3 Unmapped Team & Discord User Aliases
-- **Symptom:** Trades appear in the feed under a raw Discord handle or unlinked team name, and budget deltas do not attach to the correct league franchise.
-- **Root Cause:** The trade record references a Discord username or nickname that differs from the canonical ESPN team name.
+- **Symptom:** Trades appear in the feed under a raw Discord handle or unlinked team name, and
+  budget deltas do not attach to the correct league franchise.
+- **Root Cause:** The trade record references a Discord username or nickname that differs from the
+  canonical ESPN team name.
 - **Remediation:**
-  1. Navigate to Whodat Server Admin -> **Trade Tracker Settings** -> **Team & Discord Aliases**.
+  1. Navigate to Whodat Server Admin -> **Trade tracker & auction budget** -> **Team & Discord
+     Aliases**.
   2. Under **Add Alias Mapping**, enter the raw Discord handle or trade team name (e.g. `alice_ff`).
   3. Select the matching ESPN franchise from the dropdown.
-  4. Click **Add Alias** and **Save Trade Tracker Settings**.
-  5. Click **Sync Trades from GitHub**; the server will re-resolve all trade legs to the correct team.
+  4. Click **Add Alias** and **Save Trade Settings**.
+  5. Click **Sync Trade Repo**; the server will re-resolve all trade legs to the correct team.
 
 ### 7.4 Discord Bot Ingestion & Watermark Issues
-- **Symptom:** Discord trade agent reports `No new messages found` or duplicate trades are suspected.
+- **Symptom:** Discord trade agent reports `No new messages found` or duplicate trades are
+  suspected.
 - **Root Cause:**
   - Watermark cursor message ID in the database is ahead of channel history.
   - Discord bot lacks `Read Messages` or `Read Message History` permissions in `#trades`.
 - **Remediation:**
-  1. In Discord Server Settings -> Channel Permissions for `#trades`, ensure the bot role has `View Channel`, `Read Message History`, and `Send Messages`.
-  2. The agent automatically checks existing trade message IDs and open GitHub PRs before creating a new PR.
-  3. If a trade was missed, trigger a manual agent sync or manually author the trade YAML in the trade repo.
+  1. In Discord Server Settings -> Channel Permissions for `#trades`, ensure the bot role has
+     `View Channel`, `Read Message History`, and `Send Messages`.
+  2. The agent automatically checks existing trade message IDs and open GitHub PRs before creating
+     a new PR.
+  3. If a trade was missed, trigger a manual agent sync or manually author the trade YAML in the
+     trade repo.
 
 ### 7.5 Resolving Conditional Trades
-- **Symptom:** A contingent trade clause has reached its trigger event (e.g. player won MVP, team made playoffs) but auction dollars are still marked `pending`.
-- **Root Cause:** Conditional clauses remain informational until their status is explicitly updated to `fulfilled` or `void`.
+- **Symptom:** A contingent trade clause has reached its trigger event (e.g. player won MVP, team
+  made playoffs) but auction dollars are still marked `pending`.
+- **Root Cause:** Conditional clauses remain informational until their status is explicitly
+  updated to `fulfilled` or `void`.
 - **Remediation:**
-  1. In `bberk/whodat-trades`, open a PR modifying the trade's YAML file and `ledger.json`.
-  2. Change `status: "pending"` to `status: "fulfilled"` (to apply the dollar transfer) or `status: "void"` (if the condition failed).
+  1. In the trade repository, open a PR modifying the trade's YAML file and `ledger.json`.
+  2. Change `status: "pending"` to `status: "fulfilled"` (to apply the dollar transfer) or
+     `status: "void"` (if the condition failed).
   3. Merge the PR into `main`.
-  4. Trigger a GitHub sync in Whodat Server. The fulfilled conditional delta is now added into the team's confirmed `Net Delta`.
+  4. Trigger a GitHub sync in Whodat Server. The fulfilled conditional delta is now added into the
+     team's confirmed `Net Delta`.

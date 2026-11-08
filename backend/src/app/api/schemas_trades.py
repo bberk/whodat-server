@@ -26,6 +26,7 @@ class TradeConfigResponse(BaseModel):
     repo_name: str
     branch: str
     has_github_token: bool
+    has_discord_token: bool
     base_auction_budget: str
     team_aliases: dict[str, Any]
     last_synced_at: datetime | None
@@ -49,6 +50,8 @@ class TradeConfigUpdateRequest(BaseModel):
     branch: str | None = None
     github_token: str | None = None
     clear_github_token: bool = False
+    discord_token: str | None = None
+    clear_discord_token: bool = False
     base_auction_budget: Decimal | None = Field(default=None, ge=Decimal("0.00"))
     team_aliases: dict[str, Any] | None = None
 
@@ -145,6 +148,7 @@ def to_trade_config_response(view: TradeConfigView) -> TradeConfigResponse:
         repo_name=view.repo_name,
         branch=view.branch,
         has_github_token=view.has_github_token,
+        has_discord_token=view.has_discord_token,
         base_auction_budget=f"{view.base_auction_budget:.2f}",
         team_aliases=view.team_aliases,
         last_synced_at=view.last_synced_at,

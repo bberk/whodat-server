@@ -2105,6 +2105,10 @@
             "title": "Enabled",
             "type": "boolean"
           },
+          "has_discord_token": {
+            "title": "Has Discord Token",
+            "type": "boolean"
+          },
           "has_github_token": {
             "title": "Has Github Token",
             "type": "boolean"
@@ -2196,6 +2200,7 @@
           "repo_name",
           "branch",
           "has_github_token",
+          "has_discord_token",
           "base_auction_budget",
           "team_aliases",
           "last_synced_at",
@@ -2239,6 +2244,11 @@
             ],
             "title": "Branch"
           },
+          "clear_discord_token": {
+            "default": false,
+            "title": "Clear Discord Token",
+            "type": "boolean"
+          },
           "clear_github_token": {
             "default": false,
             "title": "Clear Github Token",
@@ -2254,6 +2264,17 @@
               }
             ],
             "title": "Discord Channel Id"
+          },
+          "discord_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discord Token"
           },
           "enabled": {
             "anyOf": [

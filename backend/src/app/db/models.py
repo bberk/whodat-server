@@ -369,14 +369,11 @@ class LeagueTradeConfig(TimestampMixin, Base):
         Boolean, nullable=False, default=False, server_default=false()
     )
     discord_channel_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    repo_owner: Mapped[str] = mapped_column(
-        Text, nullable=False, default="bberk", server_default="bberk"
-    )
-    repo_name: Mapped[str] = mapped_column(
-        Text, nullable=False, default="whodat-trades", server_default="whodat-trades"
-    )
+    repo_owner: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    repo_name: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     branch: Mapped[str] = mapped_column(Text, nullable=False, default="main", server_default="main")
     github_token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    discord_token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     base_auction_budget: Mapped[Decimal] = mapped_column(
         Numeric(10, 2), nullable=False, default=Decimal("200.00"), server_default="200.00"
     )

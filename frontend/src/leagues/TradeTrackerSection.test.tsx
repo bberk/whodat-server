@@ -23,6 +23,7 @@ const sampleTradeConfig: TradeConfigResponse = {
   repo_name: "whodat-trades",
   branch: "main",
   has_github_token: true,
+  has_discord_token: true,
   discord_channel_id: "1234567890",
   team_aliases: {
     alice_discord: "Team Alice",
@@ -34,6 +35,15 @@ const sampleTradeConfig: TradeConfigResponse = {
   discord_sync_status: "idle",
   last_discord_sync_at: "2026-11-07T12:05:00Z",
   last_discord_sync_error: null,
+};
+
+const sampleDisabledConfig: TradeConfigResponse = {
+  ...sampleTradeConfig,
+  enabled: false,
+  repo_owner: "",
+  repo_name: "",
+  has_github_token: false,
+  has_discord_token: false,
 };
 
 function leagueValue(overrides: Partial<LeagueContextValue> = {}): LeagueContextValue {
@@ -71,7 +81,7 @@ afterEach(() => {
 });
 
 describe("TradeTrackerSection", () => {
-  it("renders loading state then displays loaded config", async () => {
+  it("renders loading state then displays loaded config with sliding switch", async () => {
     mockFetch((url) => {
       if (requestPath(url) === "/api/v1/leagues/1/trade-config") {
         return jsonResponse(sampleTradeConfig);
@@ -83,15 +93,60 @@ describe("TradeTrackerSection", () => {
     expect(screen.getByText("Loading trade tracker configuration...")).toBeInTheDocument();
 
     await waitFor(() => {
-      expect(screen.getByLabelText("Base starting auction budget ($)")).toHaveValue("200.00");
+      expect(screen.getByRole("switch", { name: "Toggle trade tracker" })).toBeInTheDocument();
     });
 
+    const toggle = screen.getByRole("switch", { name: "Toggle trade tracker" });
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText("Enabled")).toBeInTheDocument();
+
+    // Sync buttons appear in header when enabled
+    expect(screen.getByRole("button", { name: "Sync Trade Repo" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sync Discord Trades" })).toBeInTheDocument();
+
+    // Configuration options form
+    expect(screen.getByLabelText("Base starting auction budget ($)")).toHaveValue("200.00");
     expect(screen.getByLabelText("GitHub Repo Owner")).toHaveValue("bberk");
     expect(screen.getByLabelText("GitHub Repo Name")).toHaveValue("whodat-trades");
     expect(screen.getByLabelText("Discord #trades Channel ID")).toHaveValue("1234567890");
+    expect(screen.getByLabelText("Discord Bot Token")).toBeInTheDocument();
     expect(screen.getByText("alice_discord")).toBeInTheDocument();
     expect(screen.getByText("Team Alice")).toBeInTheDocument();
     expect(screen.getByText(/Commit:\s*abc1234/)).toBeInTheDocument();
+  });
+
+  it("hides configuration options and sync buttons when disabled", async () => {
+    mockFetch((url) => {
+      if (requestPath(url) === "/api/v1/leagues/1/trade-config") {
+        return jsonResponse(sampleDisabledConfig);
+      }
+      return errorResponse(404, { code: "not_found", message: requestPath(url) });
+    });
+
+    renderSection();
+    await waitFor(() => {
+      expect(screen.getByRole("switch", { name: "Toggle trade tracker" })).toBeInTheDocument();
+    });
+
+    const toggle = screen.getByRole("switch", { name: "Toggle trade tracker" });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByText("Disabled")).toBeInTheDocument();
+
+    // Sync buttons must NOT be displayed
+    expect(screen.queryByRole("button", { name: "Sync Trade Repo" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sync Discord Trades" })).not.toBeInTheDocument();
+
+    // Configuration options form must NOT be displayed
+    expect(screen.queryByLabelText("Base starting auction budget ($)")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("GitHub Repo Owner")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("GitHub Repo Name")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Discord #trades Channel ID")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Discord Bot Token")).not.toBeInTheDocument();
+
+    // Displays disabled explanation banner
+    expect(
+      screen.getByText(/Trade tracker is currently disabled for this league/i),
+    ).toBeInTheDocument();
   });
 
   it("handles loading error and allows retry", async () => {
@@ -120,7 +175,84 @@ describe("TradeTrackerSection", () => {
     });
   });
 
-  it("saves updated trade settings and notifies league context", async () => {
+  it("toggles enabled state and reveals configuration options", async () => {
+    const user = userEvent.setup();
+    mockFetch((url) => {
+      if (requestPath(url) === "/api/v1/leagues/1/trade-config") {
+        return jsonResponse(sampleDisabledConfig);
+      }
+      return errorResponse(404, { code: "not_found", message: requestPath(url) });
+    });
+
+    renderSection();
+    await waitFor(() => {
+      expect(screen.getByRole("switch", { name: "Toggle trade tracker" })).toBeInTheDocument();
+    });
+
+    const toggle = screen.getByRole("switch", { name: "Toggle trade tracker" });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+
+    // Click toggle to enable
+    await user.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText("Enabled")).toBeInTheDocument();
+
+    // Configuration options are now visible
+    expect(screen.getByLabelText("Base starting auction budget ($)")).toHaveValue("200.00");
+    expect(screen.getByLabelText("GitHub Repo Owner")).toHaveValue("");
+    expect(screen.getByLabelText("GitHub Repo Name")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Save Trade Settings" })).toBeInTheDocument();
+  });
+
+  it("persists disabling immediately when toggled off from active config", async () => {
+    const user = userEvent.setup();
+    const contextVal = leagueValue();
+    let putBody: Record<string, unknown> | null = null;
+
+    mockFetch((url, init) => {
+      if (requestPath(url) === "/api/v1/leagues/1/trade-config") {
+        if (init?.method === "PUT") {
+          putBody = requestBody(init);
+          return jsonResponse({
+            ...sampleTradeConfig,
+            enabled: false,
+          });
+        }
+        return jsonResponse(sampleTradeConfig);
+      }
+      return errorResponse(404, { code: "not_found", message: requestPath(url) });
+    });
+
+    renderSection(contextVal);
+    await waitFor(() => {
+      expect(screen.getByRole("switch", { name: "Toggle trade tracker" })).toBeInTheDocument();
+    });
+
+    const toggle = screen.getByRole("switch", { name: "Toggle trade tracker" });
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+
+    // Click toggle to disable
+    await user.click(toggle);
+
+    await waitFor(() => {
+      expect(screen.getByText("Trade tracker disabled.")).toBeInTheDocument();
+    });
+
+    expect(putBody).toMatchObject({
+      enabled: false,
+    });
+    expect(contextVal.upsertLeague).toHaveBeenCalledWith(
+      expect.objectContaining({
+        league_id: 1,
+        has_trades_enabled: false,
+      }),
+    );
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    expect(screen.queryByLabelText("Base starting auction budget ($)")).not.toBeInTheDocument();
+  });
+
+  it("saves updated trade settings including Discord bot token", async () => {
     const user = userEvent.setup();
     const contextVal = leagueValue();
     let putBody: Record<string, unknown> | null = null;
@@ -132,7 +264,9 @@ describe("TradeTrackerSection", () => {
           return jsonResponse({
             ...sampleTradeConfig,
             base_auction_budget: "250.00",
-            enabled: false,
+            repo_owner: "my-org",
+            repo_name: "my-trades",
+            has_discord_token: true,
           });
         }
         return jsonResponse(sampleTradeConfig);
@@ -150,9 +284,18 @@ describe("TradeTrackerSection", () => {
     await user.clear(budgetInput);
     await user.type(budgetInput, "250.00");
 
-    // Toggle to Disabled
-    const disabledRadio = screen.getByRole("radio", { name: "Disabled" });
-    await user.click(disabledRadio);
+    // Change repo details
+    const ownerInput = screen.getByLabelText("GitHub Repo Owner");
+    await user.clear(ownerInput);
+    await user.type(ownerInput, "my-org");
+
+    const repoInput = screen.getByLabelText("GitHub Repo Name");
+    await user.clear(repoInput);
+    await user.type(repoInput, "my-trades");
+
+    // Enter Discord token
+    const discordTokenInput = screen.getByLabelText("Discord Bot Token");
+    await user.type(discordTokenInput, "my-discord-bot-token");
 
     // Click Save
     const saveBtn = screen.getByRole("button", { name: "Save Trade Settings" });
@@ -164,14 +307,11 @@ describe("TradeTrackerSection", () => {
 
     expect(putBody).toMatchObject({
       base_auction_budget: "250.00",
-      enabled: false,
+      repo_owner: "my-org",
+      repo_name: "my-trades",
+      discord_token: "my-discord-bot-token",
+      clear_discord_token: false,
     });
-    expect(contextVal.upsertLeague).toHaveBeenCalledWith(
-      expect.objectContaining({
-        league_id: 1,
-        has_trades_enabled: false,
-      }),
-    );
   });
 
   it("adds and removes team aliases", async () => {
