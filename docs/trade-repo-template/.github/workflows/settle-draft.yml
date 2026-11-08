@@ -21,7 +21,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.15"
 
       - name: Install dependencies
         run: pip install pyyaml
@@ -30,10 +30,12 @@ jobs:
         run: python scripts/settle_draft.py --draft-year ${{ inputs.draft_year }}
 
       - name: Create Pull Request with settled ledger
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@v7
         with:
           commit-message: "Settle trades through draft year ${{ inputs.draft_year }}"
           title: "Settle trades through draft year ${{ inputs.draft_year }}"
-          body: "Automated PR archiving fully executed trades through the ${{ inputs.draft_year }} draft."
+          body: >-
+            Automated PR archiving fully executed trades through the
+            ${{ inputs.draft_year }} draft.
           branch: "settle-draft-${{ inputs.draft_year }}"
           delete-branch: true

@@ -123,6 +123,8 @@ def update_trade_config(
             branch=payload.branch,
             github_token=payload.github_token,
             clear_github_token=payload.clear_github_token,
+            discord_token=payload.discord_token,
+            clear_discord_token=payload.clear_discord_token,
             base_auction_budget=payload.base_auction_budget,
             team_aliases=payload.team_aliases,
         )

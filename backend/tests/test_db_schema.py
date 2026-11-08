@@ -138,6 +138,7 @@ EXPECTED_COLUMNS = {
         "repo_name",
         "branch",
         "github_token_encrypted",
+        "discord_token_encrypted",
         "base_auction_budget",
         "team_aliases",
         "last_synced_at",

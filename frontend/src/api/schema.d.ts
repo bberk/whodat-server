@@ -1574,6 +1574,8 @@ export interface components {
       discord_sync_status: string;
       /** Enabled */
       enabled: boolean;
+      /** Has Discord Token */
+      has_discord_token: boolean;
       /** Has Github Token */
       has_github_token: boolean;
       /** Last Discord Sync At */
@@ -1609,12 +1611,19 @@ export interface components {
       /** Branch */
       branch?: string | null;
       /**
+       * Clear Discord Token
+       * @default false
+       */
+      clear_discord_token: boolean;
+      /**
        * Clear Github Token
        * @default false
        */
       clear_github_token: boolean;
       /** Discord Channel Id */
       discord_channel_id?: string | null;
+      /** Discord Token */
+      discord_token?: string | null;
       /** Enabled */
       enabled?: boolean | null;
       /** Github Token */
