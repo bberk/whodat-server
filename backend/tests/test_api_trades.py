@@ -519,3 +519,134 @@ def test_list_trades_filters_and_reingest(api_factory: Callable[..., Api]) -> No
     trades_resp = api.client.get(f"/api/v1/leagues/{league_id}/trades")
     t1 = next(t for t in trades_resp.json()["trades"] if t["external_trade_id"] == "t-1")
     assert t1["summary"] == "Updated summary notes"
+
+    # Verify deltas did NOT double after re-ingest (Finding 1 regression check)
+    b_resp = api.client.get(f"/api/v1/leagues/{league_id}/auction-budgets?draft_year=2027")
+    assert b_resp.status_code == 200
+    projs = {p["team_id"]: p for p in b_resp.json()["projections"]}
+    assert projs["Team Alice"]["base_trade_delta"] == "5.00"
+    assert projs["Team Bob"]["base_trade_delta"] == "-5.00"
+
+
+def test_sync_rejects_unbalanced_zero_sum_ledger(api_factory: Callable[..., Api]) -> None:
+    # Build unbalanced ledger where Alice gets $5 but Bob only gives $4 (sum != 0)
+    unbalanced_ledger = {
+        "version": 1,
+        "active_trades": [
+            {
+                "id": "unbalanced-trade",
+                "date": "2026-10-01T12:00:00Z",
+                "agreement_season": 2026,
+                "parties": [
+                    {
+                        "team_name": "Team Alice",
+                        "auction_dollars": [{"draft_year": 2027, "amount": 5.00}],
+                    },
+                    {
+                        "team_name": "Team Bob",
+                        "auction_dollars": [{"draft_year": 2027, "amount": -4.00}],
+                    },
+                ],
+            }
+        ],
+    }
+    raw_bytes = json.dumps(unbalanced_ledger).encode("utf-8")
+    body = json.dumps({"sha": "sha-bad", "content": base64.b64encode(raw_bytes).decode("ascii")})
+
+    api = api_factory(mock_handler=lambda req: httpx.Response(200, text=body))
+    league_id = seed_league(api)
+    admin_id = create_user(api, "admin@example.com", league_id=league_id, role="admin")
+    login(api, admin_id)
+
+    api.client.put(f"/api/v1/leagues/{league_id}/trade-config", json={"enabled": True})
+    sync_resp = api.client.post(f"/api/v1/leagues/{league_id}/trades/sync")
+    # Sync fails with 502 Bad Gateway due to zero-sum format error
+    assert sync_resp.status_code == 502
+    err_detail = sync_resp.json()["detail"]
+    assert err_detail["code"] == "github_sync_failed"
+    assert "fails zero-sum balance" in err_detail["message"]
+
+    # Verify no invalid trade records were persisted
+    trades_resp = api.client.get(f"/api/v1/leagues/{league_id}/trades")
+    assert trades_resp.status_code == 200
+    assert len(trades_resp.json()["trades"]) == 0
+
+
+def test_settled_trades_conditions_ignored_in_active_budget(
+    api_factory: Callable[..., Api],
+) -> None:
+    # Build ledger with one active trade and one settled trade with fulfilled condition
+    ledger_content = {
+        "version": 1,
+        "settled_trade_ids": ["trade-settled-1"],
+        "active_trades": [
+            {
+                "id": "trade-settled-1",
+                "date": "2025-10-01T12:00:00Z",
+                "agreement_season": 2025,
+                "parties": [
+                    {
+                        "team_name": "Team Alice",
+                        "auction_dollars": [{"draft_year": 2026, "amount": 10.00}],
+                    },
+                    {
+                        "team_name": "Team Bob",
+                        "auction_dollars": [{"draft_year": 2026, "amount": -10.00}],
+                    },
+                ],
+                "conditions": [
+                    {
+                        "id": "c-settled",
+                        "draft_year": 2027,
+                        "paying_team": "Team Bob",
+                        "receiving_team": "Team Alice",
+                        "amount": 25.00,
+                        "status": "fulfilled",
+                    }
+                ],
+            },
+            {
+                "id": "trade-active-2",
+                "date": "2026-10-01T12:00:00Z",
+                "agreement_season": 2026,
+                "parties": [
+                    {
+                        "team_name": "Team Alice",
+                        "auction_dollars": [{"draft_year": 2027, "amount": 5.00}],
+                    },
+                    {
+                        "team_name": "Team Bob",
+                        "auction_dollars": [{"draft_year": 2027, "amount": -5.00}],
+                    },
+                ],
+                "conditions": [],
+            },
+        ],
+    }
+
+    raw_bytes = json.dumps(ledger_content).encode("utf-8")
+    body = json.dumps(
+        {
+            "sha": "sha-settled",
+            "content": base64.b64encode(raw_bytes).decode("ascii"),
+        }
+    )
+
+    api = api_factory(mock_handler=lambda req: httpx.Response(200, text=body))
+    league_id = seed_league(api)
+    admin_id = create_user(api, "admin@example.com", league_id=league_id, role="admin")
+    login(api, admin_id)
+
+    api.client.put(f"/api/v1/leagues/{league_id}/trade-config", json={"enabled": True})
+    sync_resp = api.client.post(f"/api/v1/leagues/{league_id}/trades/sync")
+    assert sync_resp.status_code == 200
+
+    # Query 2027 auction budget:
+    # trade-settled-1 is settled, so its 25.00 condition must NOT be applied to 2027
+    # Only trade-active-2 (5.00 delta) applies
+    b_resp = api.client.get(f"/api/v1/leagues/{league_id}/auction-budgets?draft_year=2027")
+    assert b_resp.status_code == 200
+    projs = {p["team_id"]: p for p in b_resp.json()["projections"]}
+    assert projs["Team Alice"]["base_trade_delta"] == "5.00"
+    assert projs["Team Alice"]["fulfilled_conditional_delta"] == "0.00"
+    assert projs["Team Alice"]["projected_budget"] == "205.00"

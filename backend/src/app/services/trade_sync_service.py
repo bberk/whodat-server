@@ -10,8 +10,8 @@ from decimal import Decimal
 from typing import Any
 
 import httpx
-from sqlalchemy import delete, select
-from sqlalchemy.orm import Session
+from sqlalchemy import delete, func, select
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.db.models import (
     League,
@@ -93,6 +93,54 @@ class TradeConfigView:
     last_discord_sync_at: datetime | None
     discord_sync_status: str
     last_discord_sync_error: str | None
+
+
+@dataclass(frozen=True)
+class TradeBudgetDeltaView:
+    """View of one draft dollar adjustment leg."""
+
+    draft_year: int
+    amount: Decimal
+
+
+@dataclass(frozen=True)
+class TradePartyView:
+    """View of one party involved in an ingested trade."""
+
+    id: int
+    owner_id: int | None
+    franchise_key: str | None
+    team_name_raw: str
+    players_sent: list[dict[str, Any]]
+    players_received: list[dict[str, Any]]
+    draft_picks_sent: list[dict[str, Any]]
+    draft_picks_received: list[dict[str, Any]]
+    auction_dollars: list[TradeBudgetDeltaView]
+
+
+@dataclass(frozen=True)
+class TradeView:
+    """Credential-safe view of a recorded league trade."""
+
+    id: int
+    external_trade_id: str
+    trade_date: datetime
+    agreement_season: int
+    is_settled: bool
+    discord_url: str | None
+    summary: str
+    conditions: list[dict[str, Any]]
+    parties: list[TradePartyView]
+
+
+@dataclass(frozen=True)
+class AuctionBudgetsView:
+    """View of projected auction budgets for a target draft year."""
+
+    league_id: int
+    draft_year: int
+    base_auction_budget: Decimal
+    projections: list[TeamBudgetProjection]
 
 
 class TradeSyncService:
@@ -330,6 +378,27 @@ class TradeSyncService:
         settled_trade_ids = set(ledger_data.get("settled_trade_ids", []))
         settle_through_year = ledger_data.get("settle_through_year")
 
+        # Validate ledger trades zero-sum balance before persisting any records
+        for trade_dict in active_trades:
+            ext_id = str(trade_dict.get("id", "unknown"))
+            year_sums: dict[int, Decimal] = {}
+            for party_dict in trade_dict.get("parties", []):
+                for delta_dict in party_dict.get("auction_dollars", []):
+                    try:
+                        yr = int(delta_dict["draft_year"])
+                        amt = Decimal(str(delta_dict["amount"])).quantize(Decimal("0.01"))
+                    except Exception as exc:
+                        raise TradeLedgerFormatError(
+                            f"Invalid draft dollar entry in trade {ext_id}: {exc}"
+                        ) from exc
+                    year_sums[yr] = year_sums.get(yr, Decimal("0.00")) + amt
+            for yr, total in year_sums.items():
+                if total != Decimal("0.00"):
+                    raise TradeLedgerFormatError(
+                        f"Trade {ext_id} fails zero-sum balance for draft year {yr}: "
+                        f"sum is {total:.2f}"
+                    )
+
         # Preload owners and teams for alias matching
         owners = list(self._session.scalars(select(Owner).where(Owner.league_id == league_id)))
         owner_by_name = {o.display_name.lower(): o for o in owners}
@@ -377,7 +446,20 @@ class TradeSyncService:
                 existing_trade.discord_url = trade_dict.get("source", {}).get("jump_url")
                 existing_trade.summary = trade_dict.get("notes", existing_trade.summary)
                 existing_trade.conditions = trade_dict.get("conditions", [])
-                # Clear existing parties and deltas for clean re-ingest
+                # Delete child budget deltas first, then parties (prevents orphaned deltas)
+                party_ids = list(
+                    self._session.scalars(
+                        select(LeagueTradeParty.id).where(
+                            LeagueTradeParty.trade_id == existing_trade.id
+                        )
+                    )
+                )
+                if party_ids:
+                    self._session.execute(
+                        delete(LeagueTradeBudgetDelta).where(
+                            LeagueTradeBudgetDelta.party_id.in_(party_ids)
+                        )
+                    )
                 self._session.execute(
                     delete(LeagueTradeParty).where(LeagueTradeParty.trade_id == existing_trade.id)
                 )
@@ -463,18 +545,19 @@ class TradeSyncService:
         *,
         draft_year: int | None = None,
         team_name: str | None = None,
-    ) -> list[LeagueTrade]:
+    ) -> list[TradeView]:
         """Query ingested trades for a league member, with optional draft_year or team filters."""
         self._require_member(caller, league_id)
 
         query = (
             select(LeagueTrade)
             .where(LeagueTrade.league_id == league_id)
+            .options(selectinload(LeagueTrade.parties).selectinload(LeagueTradeParty.budget_deltas))
             .order_by(LeagueTrade.trade_date.desc(), LeagueTrade.id.desc())
         )
         trades = list(self._session.scalars(query))
 
-        filtered: list[LeagueTrade] = []
+        filtered_views: list[TradeView] = []
         for trade in trades:
             if draft_year is not None:
                 has_year = any(
@@ -495,9 +578,41 @@ class TradeSyncService:
                 if not matches_team:
                     continue
 
-            filtered.append(trade)
+            party_views: list[TradePartyView] = []
+            for party in trade.parties:
+                delta_views = [
+                    TradeBudgetDeltaView(draft_year=d.draft_year, amount=d.amount)
+                    for d in party.budget_deltas
+                ]
+                party_views.append(
+                    TradePartyView(
+                        id=party.id,
+                        owner_id=party.owner_id,
+                        franchise_key=party.franchise_key,
+                        team_name_raw=party.team_name_raw,
+                        players_sent=party.players_sent,
+                        players_received=party.players_received,
+                        draft_picks_sent=party.draft_picks_sent,
+                        draft_picks_received=party.draft_picks_received,
+                        auction_dollars=delta_views,
+                    )
+                )
 
-        return filtered
+            filtered_views.append(
+                TradeView(
+                    id=trade.id,
+                    external_trade_id=trade.external_trade_id,
+                    trade_date=trade.trade_date,
+                    agreement_season=trade.agreement_season,
+                    is_settled=trade.is_settled,
+                    discord_url=trade.discord_url,
+                    summary=trade.summary,
+                    conditions=trade.conditions,
+                    parties=party_views,
+                )
+            )
+
+        return filtered_views
 
     def _build_team_resolver(
         self, league_id: int, config: LeagueTradeConfig
@@ -506,7 +621,21 @@ class TradeSyncService:
         owner_by_id = {o.id: o for o in owners}
         owner_by_name = {o.display_name.lower(): o for o in owners}
 
-        teams = list(self._session.scalars(select(Team).where(Team.league_id == league_id)))
+        max_season = self._session.scalar(
+            select(func.max(Team.season)).where(Team.league_id == league_id)
+        )
+        teams = (
+            list(
+                self._session.scalars(
+                    select(Team).where(
+                        Team.league_id == league_id,
+                        Team.season == max_season,
+                    )
+                )
+            )
+            if max_season is not None
+            else []
+        )
         team_by_name = {t.name.lower(): t for t in teams}
 
         owner_to_team: dict[str, str] = {}
@@ -551,16 +680,20 @@ class TradeSyncService:
 
     def get_auction_budgets(
         self, caller: LeagueUser, league_id: int, *, target_draft_year: int
-    ) -> list[TeamBudgetProjection]:
+    ) -> AuctionBudgetsView:
         """Calculate exact projected auction budgets for all league teams for target_draft_year."""
         self._require_member(caller, league_id)
         config = self.get_or_create_config(league_id)
         resolve_team, known_teams = self._build_team_resolver(league_id, config)
 
-        # Gather all unconditional deltas
+        # Gather all unconditional deltas with joinedload (prevents N+1 queries)
         db_deltas = list(
             self._session.scalars(
-                select(LeagueTradeBudgetDelta).where(LeagueTradeBudgetDelta.league_id == league_id)
+                select(LeagueTradeBudgetDelta)
+                .where(LeagueTradeBudgetDelta.league_id == league_id)
+                .options(
+                    joinedload(LeagueTradeBudgetDelta.party).joinedload(LeagueTradeParty.owner)
+                )
             )
         )
         domain_deltas: list[BudgetDelta] = []
@@ -578,9 +711,14 @@ class TradeSyncService:
                 )
             )
 
-        # Gather all conditions from non-settled trades
+        # Gather all conditions from non-settled trades only
         trades = list(
-            self._session.scalars(select(LeagueTrade).where(LeagueTrade.league_id == league_id))
+            self._session.scalars(
+                select(LeagueTrade).where(
+                    LeagueTrade.league_id == league_id,
+                    LeagueTrade.is_settled.is_(False),
+                )
+            )
         )
         domain_conditions: list[TradeCondition] = []
         for trade in trades:
@@ -601,12 +739,19 @@ class TradeSyncService:
                     )
                 )
 
-        return calculate_team_budget_projections(
+        projections = calculate_team_budget_projections(
             starting_budget=config.base_auction_budget,
             known_teams=known_teams,
             deltas=domain_deltas,
             conditions=domain_conditions,
             target_draft_year=target_draft_year,
+        )
+
+        return AuctionBudgetsView(
+            league_id=league_id,
+            draft_year=target_draft_year,
+            base_auction_budget=config.base_auction_budget,
+            projections=projections,
         )
 
     def _to_config_view(self, config: LeagueTradeConfig) -> TradeConfigView:
