@@ -25,11 +25,16 @@ export function AppShell() {
   const ownerPath = selectedLeague === null ? null : `/leagues/${selectedLeague.league_id}/owner`;
   const historyPath =
     selectedLeague === null ? null : `/leagues/${selectedLeague.league_id}/history`;
+  const tradesPath =
+    selectedLeague === null || !selectedLeague.has_trades_enabled
+      ? null
+      : `/leagues/${selectedLeague.league_id}/trades`;
   const adminPath = selectedLeague === null ? null : `/leagues/${selectedLeague.league_id}/admin`;
-  // The owner, history, and admin pages each own their context; only standings uses the season picker.
+  // The owner, history, trades, and admin pages each own their context; only standings uses the season picker.
   const showSeasonPicker =
     !location.pathname.endsWith("/owner") &&
     !location.pathname.endsWith("/history") &&
+    !location.pathname.endsWith("/trades") &&
     !location.pathname.endsWith("/admin");
 
   return (
@@ -67,6 +72,11 @@ export function AppShell() {
                   Owner
                 </NavLink>
               )}
+              {tradesPath !== null && (
+                <NavLink to={tradesPath} className={navLinkClass}>
+                  Trades
+                </NavLink>
+              )}
               {adminPath === null || user?.role !== "admin" ? null : (
                 <NavLink to={adminPath} className={navLinkClass}>
                   Admin
@@ -96,9 +106,11 @@ export function AppShell() {
                   ? "/owner"
                   : location.pathname.endsWith("/history")
                     ? "/history"
-                    : location.pathname.endsWith("/admin")
-                      ? "/admin"
-                      : null;
+                    : location.pathname.endsWith("/trades")
+                      ? "/trades"
+                      : location.pathname.endsWith("/admin")
+                        ? "/admin"
+                        : null;
                 if (suffix !== null) {
                   navigate(`/leagues/${leagueId}${suffix}`);
                 }

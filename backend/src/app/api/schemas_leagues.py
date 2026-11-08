@@ -111,6 +111,8 @@ class LeagueSummary(BaseModel):
     has_credentials: bool
     #: Whether the standings page shows this league's WAPDate section (per league, default true).
     show_wapdate: bool
+    #: Whether the trade tracker and projected auction budget views are enabled.
+    has_trades_enabled: bool = False
 
 
 class DisplaySettingsUpdateRequest(BaseModel):

@@ -55,6 +55,7 @@ def league_summary(view: MembershipView) -> LeagueSummary:
         owner_id=view.owner_id,
         has_credentials=view.has_credentials,
         show_wapdate=view.show_wapdate,
+        has_trades_enabled=view.has_trades_enabled,
     )
 
 

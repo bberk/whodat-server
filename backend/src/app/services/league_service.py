@@ -902,4 +902,5 @@ class LeagueService:
             owner_id=membership.owner_id,
             has_credentials=bool(membership.espn_s2_encrypted and membership.espn_swid_encrypted),
             show_wapdate=league.show_wapdate,
+            has_trades_enabled=bool(league.has_trades_enabled),
         )

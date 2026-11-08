@@ -1,0 +1,557 @@
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+
+import { api } from "../api/endpoints";
+import { toDisplayError, type DisplayError } from "../api/errors";
+import type { TradeConfigResponse } from "../api/types";
+import { ApiAlert } from "../components/ApiAlert";
+import { ErrorState, LoadingState } from "../components/DataStates";
+import {
+  dangerSecondaryButtonClass,
+  inputClass,
+  labelClass,
+  primaryButtonClass,
+  secondaryButtonClass,
+} from "../components/formStyles";
+import { useLeague } from "./LeagueContext";
+
+interface AliasEntry {
+  alias: string;
+  team: string;
+}
+
+/**
+ * Admin: Trade Tracker & Projected Auction Budget configuration (AC-TRADE-CONFIG).
+ *
+ * Allows administrators to:
+ * - Enable or disable the Trade Tracker for this league.
+ * - Set the starting base auction budget (e.g. $200.00).
+ * - Configure the GitHub trade repository (owner, name, branch, personal access token).
+ * - Configure the Discord trade announcements channel ID.
+ * - Manage team & owner alias mappings.
+ * - Manually trigger GitHub trade sync or Discord trade ingestion.
+ * - Inspect the latest sync statuses, timestamps, commit SHAs, and errors.
+ */
+export function TradeTrackerSection({ leagueId }: { leagueId: number }) {
+  const { leagues, selectedLeague, upsertLeague } = useLeague();
+  const league =
+    leagues.find((item) => item.league_id === leagueId) ??
+    (selectedLeague?.league_id === leagueId ? selectedLeague : null);
+
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Form state
+  const [enabled, setEnabled] = useState(false);
+  const [baseBudget, setBaseBudget] = useState("200.00");
+  const [repoOwner, setRepoOwner] = useState("");
+  const [repoName, setRepoName] = useState("");
+  const [branch, setBranch] = useState("main");
+  const [githubToken, setGithubToken] = useState("");
+  const [clearGithubToken, setClearGithubToken] = useState(false);
+  const [hasGithubToken, setHasGithubToken] = useState(false);
+  const [discordChannelId, setDiscordChannelId] = useState("");
+  const [aliases, setAliases] = useState<AliasEntry[]>([]);
+  const [newAliasKey, setNewAliasKey] = useState("");
+  const [newAliasVal, setNewAliasVal] = useState("");
+
+  // Sync state tracking from server
+  const [syncStatus, setSyncStatus] = useState<TradeConfigResponse | null>(null);
+
+  // Actions state
+  const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const [saveFailure, setSaveFailure] = useState<DisplayError | null>(null);
+
+  const [syncingRepo, setSyncingRepo] = useState(false);
+  const [repoSyncResult, setRepoSyncResult] = useState<string | null>(null);
+  const [repoSyncFailure, setRepoSyncFailure] = useState<DisplayError | null>(null);
+
+  const [syncingDiscord, setSyncingDiscord] = useState(false);
+  const [discordSyncResult, setDiscordSyncResult] = useState<string | null>(null);
+  const [discordSyncFailure, setDiscordSyncFailure] = useState<DisplayError | null>(null);
+
+  const loadConfig = useCallback(
+    async (signal?: AbortSignal) => {
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const data = await api.tradeConfig(leagueId, signal);
+        setSyncStatus(data);
+        setEnabled(data.enabled);
+        setBaseBudget(data.base_auction_budget);
+        setRepoOwner(data.repo_owner);
+        setRepoName(data.repo_name);
+        setBranch(data.branch);
+        setHasGithubToken(data.has_github_token);
+        setClearGithubToken(false);
+        setGithubToken("");
+        setDiscordChannelId(data.discord_channel_id ?? "");
+
+        const aliasEntries: AliasEntry[] = Object.entries(data.team_aliases ?? {}).map(
+          ([k, v]) => ({
+            alias: k,
+            team: String(v),
+          }),
+        );
+        setAliases(aliasEntries);
+        setLoading(false);
+      } catch (err) {
+        if (signal?.aborted) return;
+        setLoadError(toDisplayError(err).message);
+        setLoading(false);
+      }
+    },
+    [leagueId],
+  );
+
+  useEffect(() => {
+    setLoading(true);
+    setLoadError(null);
+    setSaveSuccess(null);
+    setSaveFailure(null);
+    setRepoSyncResult(null);
+    setRepoSyncFailure(null);
+    setDiscordSyncResult(null);
+    setDiscordSyncFailure(null);
+
+    const controller = new AbortController();
+    void loadConfig(controller.signal);
+    return () => controller.abort();
+  }, [loadConfig]);
+
+  const handleAddAlias = () => {
+    const trimmedKey = newAliasKey.trim();
+    const trimmedVal = newAliasVal.trim();
+    if (!trimmedKey || !trimmedVal) return;
+
+    // Filter out duplicate keys
+    const filtered = aliases.filter((a) => a.alias !== trimmedKey);
+    setAliases([...filtered, { alias: trimmedKey, team: trimmedVal }]);
+    setNewAliasKey("");
+    setNewAliasVal("");
+  };
+
+  const handleRemoveAlias = (aliasToRemove: string) => {
+    setAliases(aliases.filter((a) => a.alias !== aliasToRemove));
+  };
+
+  const handleSave = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSaving(true);
+    setSaveFailure(null);
+    setSaveSuccess(null);
+
+    const team_aliases: Record<string, string> = {};
+    for (const a of aliases) {
+      if (a.alias.trim() && a.team.trim()) {
+        team_aliases[a.alias.trim()] = a.team.trim();
+      }
+    }
+
+    try {
+      const updated = await api.updateTradeConfig(leagueId, {
+        enabled,
+        base_auction_budget: baseBudget,
+        repo_owner: repoOwner.trim(),
+        repo_name: repoName.trim(),
+        branch: branch.trim() || "main",
+        github_token: githubToken.trim() ? githubToken.trim() : null,
+        clear_github_token: clearGithubToken,
+        discord_channel_id: discordChannelId.trim() ? discordChannelId.trim() : null,
+        team_aliases,
+      });
+
+      setSyncStatus(updated);
+      setHasGithubToken(updated.has_github_token);
+      setClearGithubToken(false);
+      setGithubToken("");
+      setSaveSuccess("Trade tracker configuration saved.");
+
+      // Sync league context navigation tab visibility
+      if (league) {
+        upsertLeague({
+          ...league,
+          has_trades_enabled: updated.enabled,
+        });
+      }
+    } catch (err) {
+      setSaveFailure(toDisplayError(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSyncRepo = async () => {
+    setSyncingRepo(true);
+    setRepoSyncResult(null);
+    setRepoSyncFailure(null);
+
+    try {
+      const res = await api.syncTradeRepo(leagueId);
+      const commitInfo = res.commit_sha ? ` (commit ${res.commit_sha.slice(0, 7)})` : "";
+      setRepoSyncResult(`Successfully synced ${res.trades_synced} trade(s)${commitInfo}.`);
+      void loadConfig();
+    } catch (err) {
+      setRepoSyncFailure(toDisplayError(err));
+    } finally {
+      setSyncingRepo(false);
+    }
+  };
+
+  const handleSyncDiscord = async () => {
+    setSyncingDiscord(true);
+    setDiscordSyncResult(null);
+    setDiscordSyncFailure(null);
+
+    try {
+      const res = await api.syncDiscordTrades(leagueId);
+      setDiscordSyncResult(res.message);
+      void loadConfig();
+    } catch (err) {
+      setDiscordSyncFailure(toDisplayError(err));
+    } finally {
+      setSyncingDiscord(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <section className="mt-8 border-t border-line-subtle pt-6">
+        <h2 className="text-base font-bold">Trade tracker & auction budget</h2>
+        <div className="mt-4">
+          <LoadingState label="Loading trade tracker configuration..." />
+        </div>
+      </section>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <section className="mt-8 border-t border-line-subtle pt-6">
+        <h2 className="text-base font-bold">Trade tracker & auction budget</h2>
+        <div className="mt-4">
+          <ErrorState message={loadError} onRetry={() => void loadConfig()} />
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="mt-8 border-t border-line-subtle pt-6">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="text-base font-bold">Trade tracker & auction budget</h2>
+          <p className="mt-1 text-[13px] text-ink-faint">
+            Ingest announced trades from Discord, track multi-draft auction dollars, and project
+            future auction budgets.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            disabled={!enabled || syncingRepo}
+            onClick={() => void handleSyncRepo()}
+            className={secondaryButtonClass}
+          >
+            {syncingRepo ? "Syncing repo..." : "Sync Trade Repo"}
+          </button>
+          <button
+            type="button"
+            disabled={!enabled || syncingDiscord}
+            onClick={() => void handleSyncDiscord()}
+            className={secondaryButtonClass}
+          >
+            {syncingDiscord ? "Starting sync..." : "Sync Discord Trades"}
+          </button>
+        </div>
+      </div>
+
+      {/* Sync Alert Banners */}
+      <div className="mt-3 space-y-2">
+        {repoSyncResult && (
+          <div className="rounded-lg border border-brand-line bg-brand-soft px-3 py-2 text-[13px] text-brand-ink">
+            {repoSyncResult}
+          </div>
+        )}
+        <ApiAlert error={repoSyncFailure} />
+        {discordSyncResult && (
+          <div className="rounded-lg border border-brand-line bg-brand-soft px-3 py-2 text-[13px] text-brand-ink">
+            {discordSyncResult}
+          </div>
+        )}
+        <ApiAlert error={discordSyncFailure} />
+      </div>
+
+      {/* Sync Status Cards */}
+      {syncStatus && (
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="rounded-lg border border-line bg-surface p-3 text-[13px]">
+            <div className="flex items-center justify-between font-semibold">
+              <span>GitHub Repo Sync</span>
+              <span
+                className={`rounded px-1.5 py-0.5 text-xs font-bold uppercase ${
+                  syncStatus.last_sync_status === "success"
+                    ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                    : syncStatus.last_sync_status === "error"
+                      ? "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300"
+                      : "bg-surface-muted text-ink-muted"
+                }`}
+              >
+                {syncStatus.last_sync_status}
+              </span>
+            </div>
+            <p className="mt-1 text-ink-muted">
+              Last synced: {syncStatus.last_synced_at ?? "Never"}
+            </p>
+            {syncStatus.last_sync_commit && (
+              <p className="text-ink-faint">Commit: {syncStatus.last_sync_commit.slice(0, 7)}</p>
+            )}
+            {syncStatus.last_sync_error && (
+              <p className="mt-1 text-danger-ink">Error: {syncStatus.last_sync_error}</p>
+            )}
+          </div>
+
+          <div className="rounded-lg border border-line bg-surface p-3 text-[13px]">
+            <div className="flex items-center justify-between font-semibold">
+              <span>Discord Ingestion Worker</span>
+              <span
+                className={`rounded px-1.5 py-0.5 text-xs font-bold uppercase ${
+                  syncStatus.discord_sync_status === "running"
+                    ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                    : syncStatus.discord_sync_status === "success"
+                      ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                      : syncStatus.discord_sync_status === "error"
+                        ? "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300"
+                        : "bg-surface-muted text-ink-muted"
+                }`}
+              >
+                {syncStatus.discord_sync_status}
+              </span>
+            </div>
+            <p className="mt-1 text-ink-muted">
+              Last run: {syncStatus.last_discord_sync_at ?? "Never"}
+            </p>
+            {syncStatus.last_discord_sync_error && (
+              <p className="mt-1 text-danger-ink">Error: {syncStatus.last_discord_sync_error}</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Main Settings Form */}
+      <form onSubmit={(e) => void handleSave(e)} className="mt-6 space-y-4">
+        {saveSuccess && (
+          <div className="rounded-lg border border-brand-line bg-brand-soft px-3 py-2 text-[13px] text-brand-ink">
+            {saveSuccess}
+          </div>
+        )}
+        <ApiAlert error={saveFailure} />
+
+        {/* Feature Toggle */}
+        <fieldset>
+          <legend className={labelClass}>Feature status</legend>
+          <div className="mt-2 flex items-center gap-4 text-sm">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="trade_enabled"
+                checked={enabled}
+                onChange={() => setEnabled(true)}
+                className="text-brand focus:ring-brand"
+              />
+              <span className="font-medium text-ink">Enabled</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="trade_enabled"
+                checked={!enabled}
+                onChange={() => setEnabled(false)}
+                className="text-brand focus:ring-brand"
+              />
+              <span className="font-medium text-ink">Disabled</span>
+            </label>
+          </div>
+        </fieldset>
+
+        {/* Starting Auction Budget */}
+        <div>
+          <label htmlFor="base_budget" className={labelClass}>
+            Base starting auction budget ($)
+          </label>
+          <input
+            id="base_budget"
+            type="text"
+            value={baseBudget}
+            onChange={(e) => setBaseBudget(e.target.value)}
+            placeholder="200.00"
+            className={inputClass}
+          />
+          <p className="mt-1 text-xs text-ink-faint">
+            The standard starting budget every team begins with prior to trade deltas.
+          </p>
+        </div>
+
+        {/* GitHub Repository Settings */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div>
+            <label htmlFor="repo_owner" className={labelClass}>
+              GitHub Repo Owner
+            </label>
+            <input
+              id="repo_owner"
+              type="text"
+              value={repoOwner}
+              onChange={(e) => setRepoOwner(e.target.value)}
+              placeholder="e.g. bberk"
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label htmlFor="repo_name" className={labelClass}>
+              GitHub Repo Name
+            </label>
+            <input
+              id="repo_name"
+              type="text"
+              value={repoName}
+              onChange={(e) => setRepoName(e.target.value)}
+              placeholder="e.g. whodat-trades"
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label htmlFor="repo_branch" className={labelClass}>
+              Branch
+            </label>
+            <input
+              id="repo_branch"
+              type="text"
+              value={branch}
+              onChange={(e) => setBranch(e.target.value)}
+              placeholder="main"
+              className={inputClass}
+            />
+          </div>
+        </div>
+
+        {/* GitHub Token */}
+        <div>
+          <label htmlFor="github_token" className={labelClass}>
+            GitHub Personal Access Token (PAT)
+          </label>
+          <div className="mt-1 flex items-center gap-2">
+            <input
+              id="github_token"
+              type="password"
+              value={githubToken}
+              disabled={clearGithubToken}
+              onChange={(e) => setGithubToken(e.target.value)}
+              placeholder={
+                hasGithubToken && !clearGithubToken
+                  ? "•••••••••••• (configured on server)"
+                  : "ghp_..."
+              }
+              className={inputClass}
+            />
+            {hasGithubToken && (
+              <button
+                type="button"
+                onClick={() => {
+                  setClearGithubToken(!clearGithubToken);
+                  setGithubToken("");
+                }}
+                className={clearGithubToken ? secondaryButtonClass : dangerSecondaryButtonClass}
+              >
+                {clearGithubToken ? "Keep Token" : "Clear Token"}
+              </button>
+            )}
+          </div>
+          <p className="mt-1 text-xs text-ink-faint">
+            Required if the trade repository is private. Needs read access to contents.
+          </p>
+        </div>
+
+        {/* Discord Channel ID */}
+        <div>
+          <label htmlFor="discord_channel_id" className={labelClass}>
+            Discord #trades Channel ID
+          </label>
+          <input
+            id="discord_channel_id"
+            type="text"
+            value={discordChannelId}
+            onChange={(e) => setDiscordChannelId(e.target.value)}
+            placeholder="e.g. 123456789012345678"
+            className={inputClass}
+          />
+          <p className="mt-1 text-xs text-ink-faint">
+            Channel ID where trade announcements are posted and extracted by the worker.
+          </p>
+        </div>
+
+        {/* Team & Owner Alias Mappings */}
+        <div className="border-t border-line-subtle pt-4">
+          <label className={labelClass}>Team & Owner Alias Mappings</label>
+          <p className="mt-1 text-xs text-ink-faint">
+            Map Discord usernames or informal trade nicknames to official ESPN team names or IDs.
+          </p>
+
+          <div className="mt-3 space-y-2">
+            {aliases.map((a) => (
+              <div key={a.alias} className="flex items-center gap-2 text-sm">
+                <span className="w-1/3 truncate font-mono text-ink-muted">{a.alias}</span>
+                <span className="text-ink-faint">&rarr;</span>
+                <span className="flex-1 truncate font-medium text-ink">{a.team}</span>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveAlias(a.alias)}
+                  className={dangerSecondaryButtonClass}
+                >
+                  Delete
+                </button>
+              </div>
+            ))}
+
+            {aliases.length === 0 && (
+              <p className="text-xs italic text-ink-faint">No aliases configured yet.</p>
+            )}
+
+            {/* Add Alias Row */}
+            <div className="mt-2 flex flex-wrap items-center gap-2 pt-2">
+              <input
+                type="text"
+                value={newAliasKey}
+                onChange={(e) => setNewAliasKey(e.target.value)}
+                placeholder="Alias (e.g. alice_discord)"
+                className="w-full rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-xs text-ink sm:w-1/3"
+              />
+              <input
+                type="text"
+                value={newAliasVal}
+                onChange={(e) => setNewAliasVal(e.target.value)}
+                placeholder="Canonical Team Name / ID"
+                className="w-full flex-1 rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-xs text-ink"
+              />
+              <button
+                type="button"
+                onClick={handleAddAlias}
+                disabled={!newAliasKey.trim() || !newAliasVal.trim()}
+                className={secondaryButtonClass}
+              >
+                Add Alias
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Save Button */}
+        <div className="pt-2">
+          <button type="submit" disabled={saving} className={primaryButtonClass}>
+            {saving ? "Saving settings..." : "Save Trade Settings"}
+          </button>
+        </div>
+      </form>
+    </section>
+  );
+}

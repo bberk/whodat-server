@@ -12,6 +12,7 @@ import type {
   AddLeagueResponse,
   AddSeasonRequest,
   AddSeasonResponse,
+  AuctionBudgetsResponse,
   CreateInviteRequest,
   CreateInviteResponse,
   CupWeekResponse,
@@ -39,6 +40,11 @@ import type {
   SignupRequest,
   SignupResponse,
   StandingsResponse,
+  TradeConfigResponse,
+  TradeConfigUpdateRequest,
+  TradeDiscordSyncResponse,
+  TradeSyncResponse,
+  TradesListResponse,
   VpHistoryResponse,
   WapdateResponse,
 } from "./types";
@@ -261,5 +267,61 @@ export const api = {
 
   deleteLeague(leagueId: number): Promise<void> {
     return apiRequest<void>(`/api/v1/leagues/${leagueId}`, { method: "DELETE" });
+  },
+
+  tradeConfig(leagueId: number, signal?: AbortSignal): Promise<TradeConfigResponse> {
+    return apiRequest<TradeConfigResponse>(`/api/v1/leagues/${leagueId}/trade-config`, { signal });
+  },
+
+  updateTradeConfig(
+    leagueId: number,
+    body: TradeConfigUpdateRequest,
+  ): Promise<TradeConfigResponse> {
+    return apiRequest<TradeConfigResponse>(`/api/v1/leagues/${leagueId}/trade-config`, {
+      method: "PUT",
+      body,
+    });
+  },
+
+  syncTradeRepo(leagueId: number): Promise<TradeSyncResponse> {
+    return apiRequest<TradeSyncResponse>(`/api/v1/leagues/${leagueId}/trades/sync`, {
+      method: "POST",
+    });
+  },
+
+  syncDiscordTrades(leagueId: number): Promise<TradeDiscordSyncResponse> {
+    return apiRequest<TradeDiscordSyncResponse>(`/api/v1/leagues/${leagueId}/trades/discord-sync`, {
+      method: "POST",
+    });
+  },
+
+  listTrades(
+    leagueId: number,
+    params?: { draft_year?: number; team?: string },
+    signal?: AbortSignal,
+  ): Promise<TradesListResponse> {
+    const q = new URLSearchParams();
+    if (params?.draft_year !== undefined && params.draft_year !== null) {
+      q.set("draft_year", String(params.draft_year));
+    }
+    if (params?.team) {
+      q.set("team", params.team);
+    }
+    const query = q.toString();
+    return apiRequest<TradesListResponse>(
+      `/api/v1/leagues/${leagueId}/trades${query ? `?${query}` : ""}`,
+      { signal },
+    );
+  },
+
+  auctionBudgets(
+    leagueId: number,
+    draftYear: number,
+    signal?: AbortSignal,
+  ): Promise<AuctionBudgetsResponse> {
+    return apiRequest<AuctionBudgetsResponse>(
+      `/api/v1/leagues/${leagueId}/auction-budgets?draft_year=${draftYear}`,
+      { signal },
+    );
   },
 };

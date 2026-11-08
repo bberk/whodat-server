@@ -57,6 +57,7 @@ class MembershipView:
     owner_id: int | None
     has_credentials: bool
     show_wapdate: bool
+    has_trades_enabled: bool = False
 
 
 @dataclass(frozen=True)

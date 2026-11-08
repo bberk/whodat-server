@@ -115,6 +115,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/leagues/{league_id}/auction-budgets": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Get Auction Budgets
+     * @description Calculate and return projected auction budgets for all league teams.
+     */
+    get: operations["get_auction_budgets_api_v1_leagues__league_id__auction_budgets_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/leagues/{league_id}/display-settings": {
     parameters: {
       query?: never;
@@ -507,6 +527,90 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/leagues/{league_id}/trade-config": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Get Trade Config
+     * @description Return a league's trade tracker settings for an admin member.
+     */
+    get: operations["get_trade_config_api_v1_leagues__league_id__trade_config_get"];
+    /**
+     * Update Trade Config
+     * @description Update a league's trade tracker settings for an admin member.
+     */
+    put: operations["update_trade_config_api_v1_leagues__league_id__trade_config_put"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/leagues/{league_id}/trades": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * List Trades
+     * @description Return all ingested trades for a league, optionally filtered by draft year or team.
+     */
+    get: operations["list_trades_api_v1_leagues__league_id__trades_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/leagues/{league_id}/trades/discord-sync": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Trigger Discord Sync
+     * @description Trigger an asynchronous trade sync from Discord for an admin.
+     */
+    post: operations["trigger_discord_sync_api_v1_leagues__league_id__trades_discord_sync_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/leagues/{league_id}/trades/sync": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Sync Trade Repo
+     * @description Trigger a sync of the trade ledger from the configured GitHub repository.
+     */
+    post: operations["sync_trade_repo_api_v1_leagues__league_id__trades_sync_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/me": {
     parameters: {
       query?: never;
@@ -662,6 +766,30 @@ export interface components {
       season: number;
       /** Weeks Synced */
       weeks_synced: number[];
+    };
+    /**
+     * AuctionBudgetsResponse
+     * @description Summary table of projected auction budgets for a target draft year.
+     */
+    AuctionBudgetsResponse: {
+      /** Base Auction Budget */
+      base_auction_budget: string;
+      /** Draft Year */
+      draft_year: number;
+      /** League Id */
+      league_id: number;
+      /** Projections */
+      projections: components["schemas"]["TeamBudgetProjectionItem"][];
+    };
+    /**
+     * BudgetDeltaItem
+     * @description One auction budget adjustment leg.
+     */
+    BudgetDeltaItem: {
+      /** Amount */
+      amount: string;
+      /** Draft Year */
+      draft_year: number;
     };
     /**
      * CreateInviteRequest
@@ -982,6 +1110,11 @@ export interface components {
       external_id: string;
       /** Has Credentials */
       has_credentials: boolean;
+      /**
+       * Has Trades Enabled
+       * @default false
+       */
+      has_trades_enabled: boolean;
       /** League Id */
       league_id: number;
       /** Name */
@@ -1375,6 +1508,28 @@ export interface components {
       wins: number;
     };
     /**
+     * TeamBudgetProjectionItem
+     * @description Projected auction budget for a team in a target draft year.
+     */
+    TeamBudgetProjectionItem: {
+      /** Base Trade Delta */
+      base_trade_delta: string;
+      /** Fulfilled Conditional Delta */
+      fulfilled_conditional_delta: string;
+      /** Is Negative Budget */
+      is_negative_budget: boolean;
+      /** Net Delta */
+      net_delta: string;
+      /** Pending Conditional Delta */
+      pending_conditional_delta: string;
+      /** Projected Budget */
+      projected_budget: string;
+      /** Starting Budget */
+      starting_budget: string;
+      /** Team Id */
+      team_id: string;
+    };
+    /**
      * TeamPlayoffOdds
      * @description One team's playoff, bye, division-title, and championship estimates.
      */
@@ -1403,6 +1558,177 @@ export interface components {
       team_name: string;
       /** Weekly */
       weekly: string[];
+    };
+    /**
+     * TradeConfigResponse
+     * @description Public, credential-safe trade tracker configuration.
+     */
+    TradeConfigResponse: {
+      /** Base Auction Budget */
+      base_auction_budget: string;
+      /** Branch */
+      branch: string;
+      /** Discord Channel Id */
+      discord_channel_id: string | null;
+      /** Discord Sync Status */
+      discord_sync_status: string;
+      /** Enabled */
+      enabled: boolean;
+      /** Has Github Token */
+      has_github_token: boolean;
+      /** Last Discord Sync At */
+      last_discord_sync_at: string | null;
+      /** Last Discord Sync Error */
+      last_discord_sync_error: string | null;
+      /** Last Sync Commit */
+      last_sync_commit: string | null;
+      /** Last Sync Error */
+      last_sync_error: string | null;
+      /** Last Sync Status */
+      last_sync_status: string;
+      /** Last Synced At */
+      last_synced_at: string | null;
+      /** League Id */
+      league_id: number;
+      /** Repo Name */
+      repo_name: string;
+      /** Repo Owner */
+      repo_owner: string;
+      /** Team Aliases */
+      team_aliases: {
+        [key: string]: unknown;
+      };
+    };
+    /**
+     * TradeConfigUpdateRequest
+     * @description Admin request body to update trade tracker configuration.
+     */
+    TradeConfigUpdateRequest: {
+      /** Base Auction Budget */
+      base_auction_budget?: number | string | null;
+      /** Branch */
+      branch?: string | null;
+      /**
+       * Clear Github Token
+       * @default false
+       */
+      clear_github_token: boolean;
+      /** Discord Channel Id */
+      discord_channel_id?: string | null;
+      /** Enabled */
+      enabled?: boolean | null;
+      /** Github Token */
+      github_token?: string | null;
+      /** Repo Name */
+      repo_name?: string | null;
+      /** Repo Owner */
+      repo_owner?: string | null;
+      /** Team Aliases */
+      team_aliases?: {
+        [key: string]: unknown;
+      } | null;
+    };
+    /**
+     * TradeDiscordSyncResponse
+     * @description Response returned upon initiating a background Discord trade sync.
+     */
+    TradeDiscordSyncResponse: {
+      /** League Id */
+      league_id: number;
+      /** Message */
+      message: string;
+      /** Status */
+      status: string;
+    };
+    /**
+     * TradeItem
+     * @description A recorded league trade.
+     */
+    TradeItem: {
+      /** Agreement Season */
+      agreement_season: number;
+      /** Conditions */
+      conditions: {
+        [key: string]: unknown;
+      }[];
+      /** Discord Url */
+      discord_url: string | null;
+      /** External Trade Id */
+      external_trade_id: string;
+      /** Id */
+      id: number;
+      /** Is Settled */
+      is_settled: boolean;
+      /** Parties */
+      parties: components["schemas"]["TradePartyItem"][];
+      /** Summary */
+      summary: string;
+      /**
+       * Trade Date
+       * Format: date-time
+       */
+      trade_date: string;
+    };
+    /**
+     * TradePartyItem
+     * @description One party involved in a trade.
+     */
+    TradePartyItem: {
+      /** Auction Dollars */
+      auction_dollars: components["schemas"]["BudgetDeltaItem"][];
+      /** Draft Picks Received */
+      draft_picks_received: {
+        [key: string]: unknown;
+      }[];
+      /** Draft Picks Sent */
+      draft_picks_sent: {
+        [key: string]: unknown;
+      }[];
+      /** Franchise Key */
+      franchise_key: string | null;
+      /** Id */
+      id: number;
+      /** Owner Id */
+      owner_id: number | null;
+      /** Players Received */
+      players_received: {
+        [key: string]: unknown;
+      }[];
+      /** Players Sent */
+      players_sent: {
+        [key: string]: unknown;
+      }[];
+      /** Team Name Raw */
+      team_name_raw: string;
+    };
+    /**
+     * TradeSyncResponse
+     * @description Response returned upon completing a trade repository sync.
+     */
+    TradeSyncResponse: {
+      /** Commit Sha */
+      commit_sha: string | null;
+      /** League Id */
+      league_id: number;
+      /** Status */
+      status: string;
+      /**
+       * Synced At
+       * Format: date-time
+       */
+      synced_at: string;
+      /** Trades Synced */
+      trades_synced: number;
+    };
+    /**
+     * TradesListResponse
+     * @description List of all trades recorded for a league.
+     */
+    TradesListResponse: {
+      /** League Id */
+      league_id: number;
+      /** Trades */
+      trades: components["schemas"]["TradeItem"][];
     };
     /** ValidationError */
     ValidationError: {
@@ -1636,6 +1962,40 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  get_auction_budgets_api_v1_leagues__league_id__auction_budgets_get: {
+    parameters: {
+      query: {
+        /** @description Target draft year to project */
+        draft_year: number;
+      };
+      header?: never;
+      path: {
+        league_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AuctionBudgetsResponse"];
+        };
       };
       /** @description Validation Error */
       422: {
@@ -2315,6 +2675,170 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["WapdateResponse"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  get_trade_config_api_v1_leagues__league_id__trade_config_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        league_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TradeConfigResponse"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  update_trade_config_api_v1_leagues__league_id__trade_config_put: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        league_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["TradeConfigUpdateRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TradeConfigResponse"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  list_trades_api_v1_leagues__league_id__trades_get: {
+    parameters: {
+      query?: {
+        /** @description Filter by draft year */
+        draft_year?: number | null;
+        /** @description Filter by team name */
+        team?: string | null;
+      };
+      header?: never;
+      path: {
+        league_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TradesListResponse"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  trigger_discord_sync_api_v1_leagues__league_id__trades_discord_sync_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        league_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TradeDiscordSyncResponse"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  sync_trade_repo_api_v1_leagues__league_id__trades_sync_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        league_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TradeSyncResponse"];
         };
       };
       /** @description Validation Error */
