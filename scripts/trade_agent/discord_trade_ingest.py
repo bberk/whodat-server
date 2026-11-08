@@ -8,20 +8,20 @@ and a compiled ledger.json, and opens a GitHub pull request for league review.
 from __future__ import annotations
 
 import argparse
+import json
+import logging
+import os
+import re
+import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
-import json
-import logging
-import os
 from pathlib import Path
-import re
-import subprocess
 from typing import Any
 
 import httpx
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 _LOG = logging.getLogger(__name__)
 
@@ -76,8 +76,9 @@ notes: "<Brief human-readable summary of the trade>"
 ```
 
 RULES:
-1. Every trade MUST be zero-sum for auction dollars in each draft year: sum of party deltas for that year must be 0.
-2. Sending auction dollars is negative (e.g. -5.00), receiving auction dollars is positive (e.g. 5.00).
+1. Every trade MUST be zero-sum for auction dollars in each draft year:
+   sum of party deltas for that year must be 0.
+2. Sending auction dollars is negative (e.g. -5.00), receiving is positive (e.g. 5.00).
 3. If no auction dollars or picks are exchanged, provide empty lists `[]`.
 4. Output YAML code blocks ONLY.
 """
@@ -288,6 +289,7 @@ def run_ingest(
     bot_token: str,
     repo_dir: Path | str,
     *,
+    repo: str | None = None,
     opencode_runner: Callable[[str], str] | None = None,
     dry_run: bool = False,
     http_client: httpx.Client | None = None,
@@ -342,22 +344,20 @@ def run_ingest(
         f"Trades synced: {len(trades)}\n\n"
         "Please review the extracted players, draft picks, and auction dollar changes."
     )
-    subprocess.run(
-        [
-            "gh",
-            "pr",
-            "create",
-            "--repo",
-            "bberk/whodat-trades",
-            "--head",
-            branch_name,
-            "--title",
-            pr_title,
-            "--body",
-            pr_body,
-        ],
-        check=True,
-    )
+    pr_cmd = [
+        "gh",
+        "pr",
+        "create",
+        "--head",
+        branch_name,
+        "--title",
+        pr_title,
+        "--body",
+        pr_body,
+    ]
+    if repo:
+        pr_cmd.extend(["--repo", repo])
+    subprocess.run(pr_cmd, check=True)
     _LOG.info("Pull request opened successfully.")
     return len(trades)
 
@@ -365,8 +365,15 @@ def run_ingest(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Ingest fantasy football trades from Discord.")
     parser.add_argument("--channel-id", required=True, help="Discord trade channel ID")
-    parser.add_argument("--repo-dir", default="./whodat-trades", help="Path to whodat-trades git repo")
-    parser.add_argument("--dry-run", action="store_true", help="Print extracted trades without git push")
+    parser.add_argument(
+        "--repo-dir", default="./whodat-trades", help="Path to whodat-trades git repo"
+    )
+    parser.add_argument(
+        "--repo", default=None, help="Target GitHub repo (owner/name); defaults to remote"
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Print extracted trades without git push"
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
@@ -374,15 +381,20 @@ def main() -> None:
     if not token:
         raise RuntimeError("DISCORD_BOT_TOKEN environment variable required")
 
-    # In production CLI, run OpenCode CLI or provider
     def run_opencode_cli(p: str) -> str:
-        res = subprocess.run(["opencode", "run", "--prompt", p], capture_output=True, text=True, check=True)
+        res = subprocess.run(
+            ["opencode", "run", "--prompt", p],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
         return res.stdout
 
     run_ingest(
         channel_id=args.channel_id,
         bot_token=token,
         repo_dir=Path(args.repo_dir),
+        repo=args.repo,
         opencode_runner=run_opencode_cli,
         dry_run=args.dry_run,
     )

@@ -9,11 +9,11 @@ YAML files under trades/{season}/ are strictly preserved.
 from __future__ import annotations
 
 import argparse
-from datetime import UTC, datetime
 import json
 import logging
-from pathlib import Path
 import subprocess
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 _LOG = logging.getLogger(__name__)
@@ -79,6 +79,7 @@ def run_settle(
     repo_dir: Path | str,
     settle_year: int,
     *,
+    repo: str | None = None,
     dry_run: bool = False,
 ) -> tuple[int, int]:
     """Execute draft settlement on the ledger.json in repo_dir."""
@@ -126,35 +127,47 @@ def run_settle(
         f"- Active future trades remaining: {remaining_active_count}\n"
         f"- Historical trade YAML files in `trades/` are preserved."
     )
-    subprocess.run(
-        [
-            "gh",
-            "pr",
-            "create",
-            "--repo",
-            "bberk/whodat-trades",
-            "--head",
-            branch_name,
-            "--title",
-            pr_title,
-            "--body",
-            pr_body,
-        ],
-        check=True,
-    )
+    pr_cmd = [
+        "gh",
+        "pr",
+        "create",
+        "--head",
+        branch_name,
+        "--title",
+        pr_title,
+        "--body",
+        pr_body,
+    ]
+    if repo:
+        pr_cmd.extend(["--repo", repo])
+    subprocess.run(pr_cmd, check=True)
     _LOG.info("Settlement pull request created.")
     return settled_count, remaining_active_count
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Settle trades concluded by a given draft year.")
-    parser.add_argument("--settle-year", type=int, required=True, help="Concluded draft year to settle")
-    parser.add_argument("--repo-dir", default="./whodat-trades", help="Path to whodat-trades git repo")
-    parser.add_argument("--dry-run", action="store_true", help="Print updated ledger without committing")
+    parser.add_argument(
+        "--settle-year", type=int, required=True, help="Concluded draft year to settle"
+    )
+    parser.add_argument(
+        "--repo-dir", default="./whodat-trades", help="Path to whodat-trades git repo"
+    )
+    parser.add_argument(
+        "--repo", default=None, help="Target GitHub repo (owner/name); defaults to remote"
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Print updated ledger without committing"
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
-    run_settle(repo_dir=Path(args.repo_dir), settle_year=args.settle_year, dry_run=args.dry_run)
+    run_settle(
+        repo_dir=Path(args.repo_dir),
+        settle_year=args.settle_year,
+        repo=args.repo,
+        dry_run=args.dry_run,
+    )
 
 
 if __name__ == "__main__":

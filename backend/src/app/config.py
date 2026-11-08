@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     discord_bot_token: str | None = None
     opencode_model: str = "anthropic/claude-3-7-sonnet"
     opencode_api_key: str | None = None
+    trade_agent_repo_path: str = "./whodat-trades"
 
 
 @lru_cache

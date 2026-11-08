@@ -48,6 +48,9 @@ jobs:
                   for pick in p.get("draft_picks_sent", []):
                       if pick.get("draft_year", 0) > settle_year:
                           return False
+                  for pick in p.get("draft_picks_received", []):
+                      if pick.get("draft_year", 0) > settle_year:
+                          return False
               for c in trade.get("conditions", []):
                   if c.get("draft_year", 0) > settle_year:
                       return False
