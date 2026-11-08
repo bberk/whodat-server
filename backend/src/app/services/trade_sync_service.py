@@ -441,7 +441,7 @@ class TradeSyncService:
             )
             return
 
-        from app.config import get_settings
+        from app.config import _REPO_ROOT, get_settings
 
         settings = get_settings()
         if not settings.discord_bot_token:
@@ -449,6 +449,7 @@ class TradeSyncService:
             self.complete_discord_sync(league_id, success=True)
             return
 
+        import os
         import subprocess
         import sys
 
@@ -464,9 +465,29 @@ class TradeSyncService:
         if config.repo_owner and config.repo_name:
             cmd.extend(["--repo", f"{config.repo_owner}/{config.repo_name}"])
 
+        env = {
+            **os.environ,
+            "PYTHONPATH": str(_REPO_ROOT),
+            "DISCORD_BOT_TOKEN": settings.discord_bot_token,
+        }
+        if settings.opencode_model:
+            env["OPENCODE_MODEL"] = settings.opencode_model
+        if settings.opencode_api_key:
+            env["OPENCODE_API_KEY"] = settings.opencode_api_key
+
         try:
-            subprocess.run(cmd, check=True, capture_output=True, text=True)
+            subprocess.run(
+                cmd,
+                check=True,
+                capture_output=True,
+                text=True,
+                cwd=str(_REPO_ROOT),
+                env=env,
+            )
             self.complete_discord_sync(league_id, success=True)
+        except subprocess.CalledProcessError as exc:
+            err = (exc.stderr or exc.stdout or str(exc)).strip()
+            self.complete_discord_sync(league_id, success=False, error_message=err)
         except Exception as exc:
             self.complete_discord_sync(league_id, success=False, error_message=str(exc))
 
