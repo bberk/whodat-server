@@ -1174,6 +1174,20 @@ export interface components {
       id: number;
     };
     /**
+     * OwnerTeamAliasSummary
+     * @description An ESPN owner in the league, their current season team name, and aliases.
+     */
+    OwnerTeamAliasSummary: {
+      /** Aliases */
+      aliases?: string[];
+      /** Current Team Name */
+      current_team_name?: string | null;
+      /** Display Name */
+      display_name: string;
+      /** Owner Id */
+      owner_id: number;
+    };
+    /**
      * OwnerUpdateRequest
      * @description Set or clear the caller's own owner association.
      */
@@ -1592,6 +1606,8 @@ export interface components {
       last_synced_at: string | null;
       /** League Id */
       league_id: number;
+      /** Owners */
+      owners?: components["schemas"]["OwnerTeamAliasSummary"][];
       /** Repo Name */
       repo_name: string;
       /** Repo Owner */

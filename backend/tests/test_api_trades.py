@@ -942,3 +942,128 @@ def test_run_discord_sync_job_with_league_discord_token(
     call = calls[0]
     # Encrypted league token takes priority over global fallback
     assert call["env"]["DISCORD_BOT_TOKEN"] == "league-specific-bot-token"
+
+
+def test_trade_config_owners_and_aliases_mapping(api_factory: Callable[..., Api]) -> None:
+    api = api_factory()
+    league_id = seed_league(api)
+    admin_id = create_user(api, "admin@example.com", league_id=league_id, role="admin")
+    login(api, admin_id)
+
+    path = f"/api/v1/leagues/{league_id}/trade-config"
+    resp = api.client.get(path)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    # Owners in the league are listed with their current team name
+    assert "owners" in data
+    owners = {o["display_name"]: o for o in data["owners"]}
+    assert "Alice" in owners
+    assert owners["Alice"]["current_team_name"] == "Team Alice"
+    assert owners["Alice"]["aliases"] == []
+    assert "Bob" in owners
+    assert owners["Bob"]["current_team_name"] == "Team Bob"
+    assert owners["Bob"]["aliases"] == []
+
+    # Update aliases mapping to owners
+    update_resp = api.client.put(
+        path,
+        json={
+            "team_aliases": {
+                "alice_discord": "Alice",
+                "The Ace": "Alice",
+                "@bob_discord": "Bob",
+            }
+        },
+    )
+    assert update_resp.status_code == 200
+    updated = update_resp.json()
+    updated_owners = {o["display_name"]: o for o in updated["owners"]}
+    assert updated_owners["Alice"]["aliases"] == ["The Ace", "alice_discord"]
+    assert updated_owners["Bob"]["aliases"] == ["@bob_discord"]
+
+
+def test_auction_budget_uses_current_season_team_name(api_factory: Callable[..., Api]) -> None:
+    # Build ledger with trade referencing an old historical team name and an alias
+    ledger_content = {
+        "version": 1,
+        "active_trades": [
+            {
+                "id": "trade-2027-name-change",
+                "date": "2026-11-07T12:00:00Z",
+                "agreement_season": 2024,
+                "parties": [
+                    {
+                        "team_name": "Old Team Alice 2024",
+                        "auction_dollars": [{"draft_year": 2027, "amount": -10.00}],
+                    },
+                    {
+                        "team_name": "Bobby Nickname",
+                        "auction_dollars": [{"draft_year": 2027, "amount": 10.00}],
+                    },
+                ],
+            }
+        ],
+    }
+    encoded = base64.b64encode(json.dumps(ledger_content).encode()).decode()
+    github_body = json.dumps({"content": encoded, "sha": "abc12345", "encoding": "base64"})
+
+    def mock_handler(request: httpx.Request) -> httpx.Response:
+        if "contents/ledger.json" in str(request.url):
+            return httpx.Response(200, text=github_body)
+        return httpx.Response(404, text='{"message": "Not Found"}')
+
+    api = api_factory(mock_handler=mock_handler)
+    league_id = seed_league(api)
+
+    # Add historical team for Alice in season 2024
+    with api.factory() as session:
+        owner_a = session.scalar(select(Owner).where(Owner.display_name == "Alice"))
+        assert owner_a is not None
+        old_team = Team(
+            league_id=league_id,
+            season=2024,
+            external_id="1-old",
+            name="Old Team Alice 2024",
+            owner_id=owner_a.id,
+        )
+        session.add(old_team)
+        session.commit()
+
+    admin_id = create_user(api, "admin@example.com", league_id=league_id, role="admin")
+    member_id = create_user(api, "member@example.com", league_id=league_id, role="member")
+    login(api, admin_id)
+
+    # Configure alias for Bob and enable trade tracker
+    api.client.put(
+        f"/api/v1/leagues/{league_id}/trade-config",
+        json={
+            "enabled": True,
+            "repo_owner": "custom-owner",
+            "repo_name": "custom-trades",
+            "team_aliases": {"Bobby Nickname": "Bob"},
+        },
+    )
+
+    # Sync trade ledger
+    sync_resp = api.client.post(f"/api/v1/leagues/{league_id}/trades/sync")
+    assert sync_resp.status_code == 200
+
+    # Query auction budgets as member
+    login(api, member_id)
+    budget_resp = api.client.get(f"/api/v1/leagues/{league_id}/auction-budgets?draft_year=2027")
+    assert budget_resp.status_code == 200
+    projections = budget_resp.json()["projections"]
+
+    # Table rows MUST use the current 2026 team names: "Team Alice" and "Team Bob"
+    team_ids = [p["team_id"] for p in projections]
+    assert "Team Alice" in team_ids
+    assert "Team Bob" in team_ids
+    assert "Old Team Alice 2024" not in team_ids
+    assert "Bobby Nickname" not in team_ids
+
+    proj_map = {p["team_id"]: p for p in projections}
+    assert proj_map["Team Alice"]["net_delta"] == "-10.00"
+    assert proj_map["Team Alice"]["projected_budget"] == "190.00"
+    assert proj_map["Team Bob"]["net_delta"] == "10.00"
+    assert proj_map["Team Bob"]["projected_budget"] == "210.00"
