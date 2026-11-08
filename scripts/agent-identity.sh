@@ -21,13 +21,23 @@
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+common_dir="$(git rev-parse --git-common-dir 2>/dev/null || true)"
+main_root=""
+if [[ -n "$common_dir" ]]; then
+  main_root="$(cd "$common_dir/.." && pwd)"
+fi
 
-# Load BRADS_BOTS_APP_ID from .env if not in environment
-if [[ -z "${BRADS_BOTS_APP_ID:-}" ]] && [[ -f "$repo_root/.env" ]]; then
-  app_id_from_env="$(grep -E '^BRADS_BOTS_APP_ID=' "$repo_root/.env" | cut -d= -f2- | tr -d ' "\r' || true)"
-  if [[ -n "$app_id_from_env" ]]; then
-    export BRADS_BOTS_APP_ID="$app_id_from_env"
-  fi
+# Load BRADS_BOTS_APP_ID from .env if not in environment (checks worktree .env then main repo .env)
+if [[ -z "${BRADS_BOTS_APP_ID:-}" ]]; then
+  for env_file in "$repo_root/.env" ${main_root:+"$main_root/.env"}; do
+    if [[ -f "$env_file" ]]; then
+      app_id_from_env="$(grep -E '^BRADS_BOTS_APP_ID=' "$env_file" | cut -d= -f2- | tr -d ' "\r' || true)"
+      if [[ -n "$app_id_from_env" ]]; then
+        export BRADS_BOTS_APP_ID="$app_id_from_env"
+        break
+      fi
+    fi
+  done
 fi
 
 die() {
@@ -81,6 +91,11 @@ mint_app_token() {
 }
 
 get_token() {
+  local default_key="${BRADS_BOTS_KEY:-$HOME/.config/brads-bots/private-key.pem}"
+  if [[ -r "$default_key" && -z "${BRADS_BOTS_APP_ID:-}" && -z "${BRADS_BOTS_TOKEN:-}" ]]; then
+    die "found App private key at $default_key but BRADS_BOTS_APP_ID is not configured. Refusing silent fallback to personal token."
+  fi
+
   if has_app_config; then
     mint_app_token
     return
