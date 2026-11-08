@@ -19,6 +19,9 @@ interface AliasEntry {
   team: string;
 }
 
+const TRADE_REPO_SETUP_DOCS_URL =
+  "https://github.com/bberk/whodat-server/blob/main/docs/trade-repo-template/README.md";
+
 /**
  * Admin: Trade Tracker & Projected Auction Budget configuration (AC-TRADE-CONFIG).
  *
@@ -286,7 +289,15 @@ export function TradeTrackerSection({ leagueId }: { leagueId: number }) {
           <h2 className="text-base font-bold">Trade tracker & auction budget</h2>
           <p className="mt-1 text-[13px] text-ink-faint">
             Ingest announced trades from Discord, track multi-draft auction dollars, and project
-            future auction budgets.
+            future auction budgets.{" "}
+            <a
+              href={TRADE_REPO_SETUP_DOCS_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-brand hover:underline"
+            >
+              Setup instructions & docs &rarr;
+            </a>
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -372,6 +383,18 @@ export function TradeTrackerSection({ leagueId }: { leagueId: number }) {
             Trade tracker is currently disabled for this league. Turn on the switch above to
             configure trade tracking and projected auction budgets.
           </p>
+          <p className="mt-2 text-xs text-ink-faint">
+            Need setup instructions? See the{" "}
+            <a
+              href={TRADE_REPO_SETUP_DOCS_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-brand hover:underline"
+            >
+              Trade Repository Setup Guide
+            </a>{" "}
+            on GitHub.
+          </p>
         </div>
       ) : (
         <>
@@ -437,6 +460,22 @@ export function TradeTrackerSection({ leagueId }: { leagueId: number }) {
 
           {/* Main Settings Form */}
           <form onSubmit={(e) => void handleSave(e)} className="mt-6 space-y-4">
+            <div
+              className={[
+                "rounded-lg border border-line bg-surface-muted/50 p-3 text-xs text-ink-muted",
+              ].join(" ")}
+            >
+              Need help configuring the trade repository, GitHub PAT, or Discord bot? See the{" "}
+              <a
+                href={TRADE_REPO_SETUP_DOCS_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-brand hover:underline"
+              >
+                Trade Repository Setup Guide
+              </a>{" "}
+              on GitHub for step-by-step instructions.
+            </div>
             {/* Starting Auction Budget */}
             <div>
               <label htmlFor="base_budget" className={labelClass}>
