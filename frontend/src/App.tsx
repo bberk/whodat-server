@@ -11,6 +11,7 @@ import { HistoryPage } from "./pages/HistoryPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
 import { OwnerPage } from "./pages/OwnerPage";
 import { StandingsPage } from "./pages/StandingsPage";
+import { TradesPage } from "./pages/TradesPage";
 import { ThemeProvider } from "./theme/ThemeProvider";
 
 /** Route tree without a router, so tests can mount it inside a MemoryRouter. */
@@ -41,6 +42,7 @@ export function AppRoutes() {
           >
             <Route index element={<StandingsPage />} />
             <Route path="leagues/:leagueId/history" element={<HistoryPage />} />
+            <Route path="leagues/:leagueId/trades" element={<TradesPage />} />
             <Route path="leagues/:leagueId/owner" element={<OwnerPage />} />
             <Route
               path="leagues/:leagueId/admin"

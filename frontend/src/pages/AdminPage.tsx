@@ -8,6 +8,7 @@ import { InvitesSection } from "../leagues/InvitesSection";
 import { useLeague } from "../leagues/LeagueContext";
 import { MembersSection } from "../leagues/MembersSection";
 import { SeasonsSection } from "../leagues/SeasonsSection";
+import { TradeTrackerSection } from "../leagues/TradeTrackerSection";
 
 /**
  * League administration page (AC-FE-13/14/15/16).
@@ -59,6 +60,8 @@ export function AdminPage() {
       <EloSettingsSection leagueId={leagueId} />
 
       <DisplaySettingsSection leagueId={leagueId} />
+
+      <TradeTrackerSection leagueId={leagueId} />
 
       <InvitesSection leagueId={leagueId} />
 

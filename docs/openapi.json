@@ -963,6 +963,11 @@
             "title": "Has Credentials",
             "type": "boolean"
           },
+          "has_trades_enabled": {
+            "default": false,
+            "title": "Has Trades Enabled",
+            "type": "boolean"
+          },
           "league_id": {
             "title": "League Id",
             "type": "integer"

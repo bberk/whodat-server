@@ -92,6 +92,17 @@ function signedInFetch(
     if (path === "/api/v1/auth/logout") {
       return jsonResponse({ status: "ok" });
     }
+    if (/^\/api\/v1\/leagues\/\d+\/trades/.test(path)) {
+      return jsonResponse({ league_id: 1, trades: [] });
+    }
+    if (/^\/api\/v1\/leagues\/\d+\/auction-budgets/.test(path)) {
+      return jsonResponse({
+        league_id: 1,
+        draft_year: 2026,
+        base_auction_budget: "200.00",
+        projections: [],
+      });
+    }
     return errorResponse(404, { code: "not_found", message: `Unhandled ${path}` });
   });
 }
@@ -529,6 +540,32 @@ describe("App routing", () => {
       screen.queryByRole("heading", { level: 1, name: "League admin" }),
     ).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Season year")).not.toBeInTheDocument();
+  });
+
+  it("shows Trades nav link when enabled and hides it when disabled", async () => {
+    const user = userEvent.setup();
+    signedInFetch();
+    renderAt("/");
+
+    // leagueAlpha has has_trades_enabled: true
+    expect(await screen.findByRole("link", { name: "Trades" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Trades" })).toHaveAttribute(
+      "href",
+      "/leagues/1/trades",
+    );
+
+    // Click Trades link -> navigates to trades page and hides season picker
+    await user.click(screen.getByRole("link", { name: "Trades" }));
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Trades & Auction Budgets" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText("Season year")).not.toBeInTheDocument();
+
+    // Switch to leagueBeta (has_trades_enabled: false)
+    await user.selectOptions(screen.getByLabelText("League"), "2");
+    await waitFor(() => {
+      expect(screen.queryByRole("link", { name: "Trades" })).not.toBeInTheDocument();
+    });
   });
 
   it("renders the browser router entrypoint", async () => {

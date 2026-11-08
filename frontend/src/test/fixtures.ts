@@ -55,6 +55,7 @@ export const leagueAlpha: LeagueSummary = {
   owner_id: 7,
   has_credentials: true,
   show_wapdate: true,
+  has_trades_enabled: true,
 };
 
 export const leagueBeta: LeagueSummary = {
@@ -65,6 +66,7 @@ export const leagueBeta: LeagueSummary = {
   owner_id: null,
   has_credentials: false,
   show_wapdate: true,
+  has_trades_enabled: false,
 };
 
 export const owners: OwnerSummary[] = [

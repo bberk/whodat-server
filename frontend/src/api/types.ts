@@ -89,3 +89,15 @@ export type EloTeam = components["schemas"]["EloTeam"];
 export type EloUnratedTeam = components["schemas"]["EloUnratedTeam"];
 export type EloWarning = components["schemas"]["EloWarning"];
 export type EloHistoryResponse = components["schemas"]["EloHistoryResponse"];
+
+/** Trade tracker configuration and sync responses. */
+export type TradeConfigResponse = components["schemas"]["TradeConfigResponse"];
+export type TradeConfigUpdateRequest = components["schemas"]["TradeConfigUpdateRequest"];
+export type TradeSyncResponse = components["schemas"]["TradeSyncResponse"];
+export type TradeDiscordSyncResponse = components["schemas"]["TradeDiscordSyncResponse"];
+export type TradesListResponse = components["schemas"]["TradesListResponse"];
+export type TradeItem = components["schemas"]["TradeItem"];
+export type TradePartyItem = components["schemas"]["TradePartyItem"];
+export type BudgetDeltaItem = components["schemas"]["BudgetDeltaItem"];
+export type AuctionBudgetsResponse = components["schemas"]["AuctionBudgetsResponse"];
+export type TeamBudgetProjectionItem = components["schemas"]["TeamBudgetProjectionItem"];
