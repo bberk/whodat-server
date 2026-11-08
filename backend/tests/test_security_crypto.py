@@ -33,7 +33,7 @@ def _fresh_settings() -> Iterator[None]:
 
 def _configure_key(monkeypatch: pytest.MonkeyPatch, key: bytes | str | None) -> None:
     if key is None:
-        monkeypatch.delenv("LEAGUE_CREDENTIALS_KEY", raising=False)
+        monkeypatch.setenv("LEAGUE_CREDENTIALS_KEY", "")
     elif isinstance(key, str):
         monkeypatch.setenv("LEAGUE_CREDENTIALS_KEY", key)
     else:
