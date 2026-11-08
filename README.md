@@ -21,8 +21,10 @@ current-ratings table shows each franchise's all-time championships and last-pla
 finishes. In the final four regular-season weeks, the standings mark proven Z (top seed), Y
 (division winner), X (clinched berth), and E (eliminated) designations. Members sign up, are
 linked to their team
-owner, and see only their league's data. A System/Light/Dark theme control follows the operating
-system on the first visit, remembers an explicit choice, and covers every page and chart.
+owner, and see only their league's data. A Trades tab adds an opt-in fantasy trade tracker
+and projected auction budget display across future draft seasons with Discord bot ingestion and
+GitHub version-controlled trade ledger integration. A System/Light/Dark theme control follows
+the operating system on the first visit, remembers an explicit choice, and covers every page and chart.
 
 ESPN access is isolated behind a provider interface, so other league providers can be added
 later without changing the VP engine, database, API, or frontend.
@@ -37,6 +39,7 @@ Production-ready and under active development. See the architecture milestones i
 - [`ACCEPTANCE.md`](ACCEPTANCE.md) — the testable acceptance criteria.
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — module boundaries, data model, interfaces, API contract.
 - [`AGENTS.md`](AGENTS.md) — how agents work in this repository (branch/PR/review workflow).
+- [`docs/TRADE_TRACKER.md`](docs/TRADE_TRACKER.md) — trade tracker setup, Discord ingestion, and auction budget runbook.
 - [`docs/GITHUB_SETUP.md`](docs/GITHUB_SETUP.md) — one-time repository and identity setup.
 - [`docs/DECISIONS.md`](docs/DECISIONS.md) — architectural decision records and historical questions.
 - [`docs/OPEN_QUESTIONS.md`](docs/OPEN_QUESTIONS.md) — unresolved questions and deviations.

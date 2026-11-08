@@ -1,0 +1,51 @@
+id: "trade-2026-001"
+date: "2026-11-07T16:00:00Z"
+agreement_season: 2026
+source:
+  channel_id: "123456789012345678"
+  message_id: "987654321098765432"
+  jump_url: "https://discord.com/channels/123/456/789"
+parties:
+  - team_name: "Team Alice"
+    discord_user: "alice_ff"
+    players_sent:
+      - name: "Patrick Mahomes"
+        position: "QB"
+    players_received:
+      - name: "Justin Jefferson"
+        position: "WR"
+    draft_picks_sent:
+      - draft_year: 2027
+        round: 1
+    draft_picks_received: []
+    auction_dollars:
+      - draft_year: 2027
+        amount: -5.00
+      - draft_year: 2028
+        amount: -10.00
+  - team_name: "Team Bob"
+    discord_user: "bob_commish"
+    players_sent:
+      - name: "Justin Jefferson"
+        position: "WR"
+    players_received:
+      - name: "Patrick Mahomes"
+        position: "QB"
+    draft_picks_sent: []
+    draft_picks_received:
+      - draft_year: 2027
+        round: 1
+    auction_dollars:
+      - draft_year: 2027
+        amount: 5.00
+      - draft_year: 2028
+        amount: 10.00
+conditions:
+  - id: "c1"
+    description: "If Patrick Mahomes wins NFL MVP, Bob sends Alice $5.00 in 2027 draft auction dollars"
+    draft_year: 2027
+    paying_team: "Team Bob"
+    receiving_team: "Team Alice"
+    amount: 5.00
+    status: "fulfilled"
+notes: "Alice trades Patrick Mahomes, 2027 1st round pick, $5 in 2027, and $10 in 2028 to Bob for Justin Jefferson."

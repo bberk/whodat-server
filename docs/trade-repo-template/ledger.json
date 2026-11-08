@@ -1,0 +1,97 @@
+{
+  "active_trades": [
+    {
+      "agreement_season": 2026,
+      "conditions": [
+        {
+          "amount": 5.0,
+          "description": "If Patrick Mahomes wins NFL MVP, Bob sends Alice $5.00 in 2027 draft auction dollars",
+          "draft_year": 2027,
+          "id": "c1",
+          "paying_team": "Team Bob",
+          "receiving_team": "Team Alice",
+          "status": "fulfilled"
+        }
+      ],
+      "date": "2026-11-07T16:00:00Z",
+      "id": "trade-2026-001",
+      "notes": "Alice trades Patrick Mahomes, 2027 1st round pick, $5 in 2027, and $10 in 2028 to Bob for Justin Jefferson.",
+      "parties": [
+        {
+          "auction_dollars": [
+            {
+              "amount": -5.0,
+              "draft_year": 2027
+            },
+            {
+              "amount": -10.0,
+              "draft_year": 2028
+            }
+          ],
+          "discord_user": "alice_ff",
+          "draft_picks_received": [],
+          "draft_picks_sent": [
+            {
+              "draft_year": 2027,
+              "round": 1
+            }
+          ],
+          "players_received": [
+            {
+              "name": "Justin Jefferson",
+              "position": "WR"
+            }
+          ],
+          "players_sent": [
+            {
+              "name": "Patrick Mahomes",
+              "position": "QB"
+            }
+          ],
+          "team_name": "Team Alice"
+        },
+        {
+          "auction_dollars": [
+            {
+              "amount": 5.0,
+              "draft_year": 2027
+            },
+            {
+              "amount": 10.0,
+              "draft_year": 2028
+            }
+          ],
+          "discord_user": "bob_commish",
+          "draft_picks_received": [
+            {
+              "draft_year": 2027,
+              "round": 1
+            }
+          ],
+          "draft_picks_sent": [],
+          "players_received": [
+            {
+              "name": "Patrick Mahomes",
+              "position": "QB"
+            }
+          ],
+          "players_sent": [
+            {
+              "name": "Justin Jefferson",
+              "position": "WR"
+            }
+          ],
+          "team_name": "Team Bob"
+        }
+      ],
+      "source": {
+        "channel_id": "123456789012345678",
+        "jump_url": "https://discord.com/channels/123/456/789",
+        "message_id": "987654321098765432"
+      }
+    }
+  ],
+  "last_compiled_at": "2026-11-07T18:00:00Z",
+  "settle_through_year": 2025,
+  "settled_trade_ids": []
+}
