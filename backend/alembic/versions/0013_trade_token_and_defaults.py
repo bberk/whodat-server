@@ -1,6 +1,6 @@
 """Update trade tracker config default repo values and add Discord token column.
 
-Revision ID: 0013_trade_config_discord_token_and_empty_defaults
+Revision ID: 0013_trade_token_and_defaults
 Revises: 0012_trade_tracker
 Create Date: 2026-11-07
 
@@ -14,7 +14,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0013_trade_config_discord_token_and_empty_defaults"
+revision: str = "0013_trade_token_and_defaults"
 down_revision: str | None = "0012_trade_tracker"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
