@@ -12,7 +12,7 @@ import httpx
 import pytest
 from fastapi import Response
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.main import create_app
@@ -670,3 +670,81 @@ def test_alias_cycle_defense(api_factory: Callable[..., Api]) -> None:
     # Budget resolution does not loop infinitely
     resp = api.client.get(f"/api/v1/leagues/{league_id}/auction-budgets?draft_year=2027")
     assert resp.status_code == 200
+
+
+def test_discord_sync_trigger_accepted_and_mutex_lock(api_factory: Callable[..., Api]) -> None:
+    api = api_factory()
+    league_id = seed_league(api)
+    admin_id = create_user(api, "admin@example.com", league_id=league_id, role="admin")
+    login(api, admin_id)
+
+    # Configure trade tracker with discord_channel_id
+    api.client.put(
+        f"/api/v1/leagues/{league_id}/trade-config",
+        json={"enabled": True, "discord_channel_id": "123456789"},
+    )
+
+    # First trigger succeeds with 202 Accepted
+    resp = api.client.post(f"/api/v1/leagues/{league_id}/trades/discord-sync")
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["league_id"] == league_id
+    assert body["status"] == "started"
+
+    # Concurrent trigger while running returns 409 Conflict
+    with api.factory() as session:
+        from app.db.models import LeagueTradeConfig
+
+        cfg = session.scalar(
+            select(LeagueTradeConfig).where(LeagueTradeConfig.league_id == league_id)
+        )
+        assert cfg is not None
+        cfg.discord_sync_status = "running"
+        session.commit()
+
+    resp_conflict = api.client.post(f"/api/v1/leagues/{league_id}/trades/discord-sync")
+    assert resp_conflict.status_code == 409
+    assert resp_conflict.json()["detail"]["code"] == "discord_sync_in_progress"
+
+    # Complete background sync
+    with api.factory() as session:
+        service = TradeSyncService(session)
+        service.complete_discord_sync(league_id, success=True)
+        session.commit()
+
+    # Verify status in config view
+    cfg_resp = api.client.get(f"/api/v1/leagues/{league_id}/trade-config")
+    assert cfg_resp.status_code == 200
+    cfg_data = cfg_resp.json()
+    assert cfg_data["discord_sync_status"] == "success"
+    assert cfg_data["last_discord_sync_at"] is not None
+
+
+def test_discord_sync_authorization_and_validation(api_factory: Callable[..., Api]) -> None:
+    api = api_factory()
+    league_id = seed_league(api)
+    admin_id = create_user(api, "admin@example.com", league_id=league_id, role="admin")
+    member_id = create_user(api, "member@example.com", league_id=league_id, role="member")
+    outsider_id = create_user(api, "outsider@example.com", league_id=None, role="member")
+
+    sync_path = f"/api/v1/leagues/{league_id}/trades/discord-sync"
+
+    # Disabled -> 400
+    login(api, admin_id)
+    resp_disabled = api.client.post(sync_path)
+    assert resp_disabled.status_code == 400
+    assert resp_disabled.json()["detail"]["code"] == "trade_tracker_disabled"
+
+    # Missing channel ID -> 400
+    api.client.put(f"/api/v1/leagues/{league_id}/trade-config", json={"enabled": True})
+    resp_no_chan = api.client.post(sync_path)
+    assert resp_no_chan.status_code == 400
+    assert "channel ID" in resp_no_chan.json()["detail"]["message"]
+
+    # Member -> 403 Forbidden
+    login(api, member_id)
+    assert api.client.post(sync_path).status_code == 403
+
+    # Outsider -> 404 Not Found
+    login(api, outsider_id)
+    assert api.client.post(sync_path).status_code == 404

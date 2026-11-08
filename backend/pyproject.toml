@@ -52,6 +52,7 @@ mypy_path = "src"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src", ".."]
 addopts = "--strict-markers --strict-config"
 markers = [
     "postgres: needs a Postgres database (configured DATABASE_URL); skipped on SQLite",
