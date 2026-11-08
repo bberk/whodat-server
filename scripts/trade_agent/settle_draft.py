@@ -140,7 +140,7 @@ def run_settle(
     ]
     if repo:
         pr_cmd.extend(["--repo", repo])
-    subprocess.run(pr_cmd, check=True)
+    subprocess.run(pr_cmd, check=True, cwd=str(repo_path))
     _LOG.info("Settlement pull request created.")
     return settled_count, remaining_active_count
 

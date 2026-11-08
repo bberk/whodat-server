@@ -211,3 +211,25 @@ def test_settle_draft_moves_executed_trades() -> None:
     assert "old-trade" in updated["settled_trade_ids"]
     assert len(updated["active_trades"]) == 1
     assert updated["active_trades"][0]["id"] == "trade-2026-2"
+
+
+def test_validate_trade_payload_path_traversal() -> None:
+    valid_trade: dict[str, Any] = {
+        "id": "trade-2026_01",
+        "parties": [
+            {"auction_dollars": [{"draft_year": 2026, "amount": 5.00}]},
+            {"auction_dollars": [{"draft_year": 2026, "amount": -5.00}]},
+        ],
+    }
+    validate_trade_payload(valid_trade)
+
+    invalid_ids = [
+        "../../etc/passwd",
+        "trade/sub/1",
+        "trade..name",
+        "trade*test",
+        "trade space",
+    ]
+    for bad_id in invalid_ids:
+        with pytest.raises(ValueError, match="invalid: must only contain"):
+            validate_trade_payload({**valid_trade, "id": bad_id})
