@@ -650,3 +650,23 @@ def test_settled_trades_conditions_ignored_in_active_budget(
     assert projs["Team Alice"]["base_trade_delta"] == "5.00"
     assert projs["Team Alice"]["fulfilled_conditional_delta"] == "0.00"
     assert projs["Team Alice"]["projected_budget"] == "205.00"
+
+
+def test_alias_cycle_defense(api_factory: Callable[..., Api]) -> None:
+    api = api_factory()
+    league_id = seed_league(api)
+    admin_id = create_user(api, "admin@example.com", league_id=league_id, role="admin")
+    login(api, admin_id)
+
+    # Set mutually circular aliases ("Team A" -> "Team B", "Team B" -> "Team A")
+    api.client.put(
+        f"/api/v1/leagues/{league_id}/trade-config",
+        json={
+            "enabled": True,
+            "team_aliases": {"Alpha": "Beta", "Beta": "Alpha"},
+        },
+    )
+
+    # Budget resolution does not loop infinitely
+    resp = api.client.get(f"/api/v1/leagues/{league_id}/auction-budgets?draft_year=2027")
+    assert resp.status_code == 200

@@ -646,17 +646,23 @@ class TradeSyncService:
 
         aliases = config.team_aliases or {}
 
-        def resolve(raw: str) -> str:
+        def resolve(raw: str, seen: set[str] | None = None) -> str:
             raw_s = str(raw).strip()
             if not raw_s:
                 return "Unknown"
+            if seen is None:
+                seen = set()
+            if raw_s.lower() in seen:
+                return raw_s
+            seen.add(raw_s.lower())
+
             # 1. Alias lookup
             alias_val = aliases.get(raw_s) or aliases.get(raw_s.lower())
             if isinstance(alias_val, int) and alias_val in owner_by_id:
                 o = owner_by_id[alias_val]
                 return owner_to_team.get(o.display_name.lower(), o.display_name)
             if isinstance(alias_val, str) and alias_val.strip():
-                return resolve(alias_val)
+                return resolve(alias_val, seen)
 
             # 2. Team name match
             if raw_s.lower() in team_by_name:
