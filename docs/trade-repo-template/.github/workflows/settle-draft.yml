@@ -1,0 +1,39 @@
+name: Settle Post-Draft Trades
+
+on:
+  workflow_dispatch:
+    inputs:
+      draft_year:
+        description: "Draft year completed (e.g. 2026)"
+        required: true
+        type: number
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  settle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Run trade settlement
+        run: python scripts/settle_draft.py --draft-year ${{ inputs.draft_year }}
+
+      - name: Create Pull Request with settled ledger
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "Settle trades through draft year ${{ inputs.draft_year }}"
+          title: "Settle trades through draft year ${{ inputs.draft_year }}"
+          body: "Automated PR archiving fully executed trades through the ${{ inputs.draft_year }} draft."
+          branch: "settle-draft-${{ inputs.draft_year }}"
+          delete-branch: true
