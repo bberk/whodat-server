@@ -2310,6 +2310,30 @@
         "title": "TradeConfigUpdateRequest",
         "type": "object"
       },
+      "TradeDiscordSyncResponse": {
+        "description": "Response returned upon initiating a background Discord trade sync.",
+        "properties": {
+          "league_id": {
+            "title": "League Id",
+            "type": "integer"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "league_id",
+          "status",
+          "message"
+        ],
+        "title": "TradeDiscordSyncResponse",
+        "type": "object"
+      },
       "TradeItem": {
         "description": "A recorded league trade.",
         "properties": {
@@ -4324,6 +4348,50 @@
           }
         },
         "summary": "List Trades",
+        "tags": [
+          "trades"
+        ]
+      }
+    },
+    "/api/v1/leagues/{league_id}/trades/discord-sync": {
+      "post": {
+        "description": "Trigger an asynchronous trade sync from Discord for an admin.",
+        "operationId": "trigger_discord_sync_api_v1_leagues__league_id__trades_discord_sync_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "league_id",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "League Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradeDiscordSyncResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Trigger Discord Sync",
         "tags": [
           "trades"
         ]

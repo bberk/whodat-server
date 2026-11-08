@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     #: Comma-separated provider external league ids. Empty means every stored league.
     projection_refresh_leagues: str = ""
 
+    # Trade tracker Discord & OpenCode agent configuration
+    discord_bot_token: str | None = None
+    opencode_model: str = "anthropic/claude-3-7-sonnet"
+    opencode_api_key: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:
