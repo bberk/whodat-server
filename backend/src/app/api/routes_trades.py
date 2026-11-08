@@ -157,12 +157,8 @@ def run_discord_sync_worker(league_id: int) -> None:
     factory = get_session_factory()
     with factory() as session:
         service = TradeSyncService(session)
-        try:
-            service.complete_discord_sync(league_id, success=True)
-            session.commit()
-        except Exception as exc:
-            service.complete_discord_sync(league_id, success=False, error_message=str(exc))
-            session.commit()
+        service.run_discord_sync_job(league_id)
+        service.commit()
 
 
 @router.post(

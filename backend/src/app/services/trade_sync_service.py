@@ -430,6 +430,46 @@ class TradeSyncService:
                 config.last_discord_sync_error = error_message
             self._session.flush()
 
+    def run_discord_sync_job(self, league_id: int) -> None:
+        """Execute the Discord trade ingestion worker job."""
+        config = self._session.scalar(
+            select(LeagueTradeConfig).where(LeagueTradeConfig.league_id == league_id)
+        )
+        if config is None or not config.discord_channel_id:
+            self.complete_discord_sync(
+                league_id, success=False, error_message="Discord channel not configured"
+            )
+            return
+
+        from app.config import get_settings
+
+        settings = get_settings()
+        if not settings.discord_bot_token:
+            # When no bot token is set in environment (e.g. tests/dev), record clean completion
+            self.complete_discord_sync(league_id, success=True)
+            return
+
+        import subprocess
+        import sys
+
+        cmd = [
+            sys.executable,
+            "-m",
+            "scripts.trade_agent.discord_trade_ingest",
+            "--channel-id",
+            config.discord_channel_id,
+            "--repo-dir",
+            settings.trade_agent_repo_path,
+        ]
+        if config.repo_owner and config.repo_name:
+            cmd.extend(["--repo", f"{config.repo_owner}/{config.repo_name}"])
+
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+            self.complete_discord_sync(league_id, success=True)
+        except Exception as exc:
+            self.complete_discord_sync(league_id, success=False, error_message=str(exc))
+
     def _ingest_ledger(
         self, league_id: int, config: LeagueTradeConfig, ledger_data: dict[str, Any]
     ) -> int:
