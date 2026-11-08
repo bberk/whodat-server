@@ -947,6 +947,37 @@ def test_run_discord_sync_job_with_league_discord_token(
     assert call["env"]["GH_TOKEN"] == "league-specific-gh-pat"
     assert call["env"]["GITHUB_TOKEN"] == "league-specific-gh-pat"
     assert call["env"]["GEMINI_API_KEY"] == "test-gemini-key"
+    assert call["env"]["GOOGLE_GENERATIVE_AI_API_KEY"] == "test-gemini-key"
+
+
+def test_sanitize_process_error() -> None:
+    from app.services.trade_sync_service import _sanitize_process_error
+
+    # 1. Traceback with RuntimeError from OpenCode failure
+    traceback_err = (
+        "Traceback (most recent call last):\n"
+        '  File "/app/scripts/trade_agent/discord_trade_ingest.py", line 460, in main\n'
+        "    run_ingest(...)\n"
+        "RuntimeError: OpenCode extraction failed: API key not valid. Please pass a valid key.\n"
+    )
+    assert _sanitize_process_error(traceback_err) == (
+        "OpenCode extraction failed: API key not valid. Please pass a valid key."
+    )
+
+    # 2. Traceback ending in raw CalledProcessError with prompt args
+    called_process_err = (
+        "Traceback (most recent call last):\n"
+        '  File "/usr/local/lib/python3.15/subprocess.py", line 692, in run\n'
+        "subprocess.CalledProcessError: Command ['opencode', 'run', 'PROMPT WITH 100 MSGS']"
+    )
+    assert _sanitize_process_error(called_process_err) == (
+        "Trade extraction process failed (check server logs for details)"
+    )
+
+    # 3. Explicit Error: prefix
+    assert _sanitize_process_error("Error: Discord channel not found") == (
+        "Error: Discord channel not found"
+    )
 
 
 def test_trade_config_owners_and_aliases_mapping(api_factory: Callable[..., Api]) -> None:

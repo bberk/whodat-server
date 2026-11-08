@@ -11,6 +11,7 @@ import pytest
 from scripts.trade_agent.discord_trade_ingest import (
     DiscordMessage,
     build_opencode_trade_prompt,
+    extract_opencode_error,
     extract_trades_from_text,
     fetch_discord_messages,
     run_ingest,
@@ -302,3 +303,40 @@ conditions: []
     assert len(pr_calls) == 1
     assert "--repo" in pr_calls[0]
     assert pr_calls[0][pr_calls[0].index("--repo") + 1] == "custom/trades"
+
+
+def test_extract_opencode_error_provider_model_not_found() -> None:
+    stderr = (
+        "timestamp=2026-11-08T23:21:50.607Z level=ERROR run=acd20cf5 message=failed "
+        'error="ProviderModelNotFoundError: Model not found: google/gemini-3.8-flash."\n'
+        "Error: {\n"
+        '  "name": "UnknownError",\n'
+        '  "data": {\n'
+        '    "message": "Unexpected server error. Check server logs for details."\n'
+        "  }\n"
+        "}"
+    )
+    err = extract_opencode_error(stderr, "")
+    assert "ProviderModelNotFoundError: Model not found: google/gemini-3.8-flash." in err
+
+
+def test_extract_opencode_error_missing_and_invalid_key() -> None:
+    stderr1 = (
+        "Error: Google Generative AI API key is missing. "
+        "Pass it using the 'apiKey' parameter or GOOGLE_GENERATIVE_AI_API_KEY."
+    )
+    assert "Google Generative AI API key is missing" in extract_opencode_error(stderr1, "")
+
+    stderr2 = (
+        'timestamp=2026-11-08T23:22:08.410Z level=ERROR error="API key not valid."\n'
+        "Error: API key not valid. Please pass a valid API key."
+    )
+    assert "API key not valid" in extract_opencode_error(stderr2, "")
+
+
+def test_extract_opencode_error_json_payload_and_fallback() -> None:
+    json_err = 'Error: {"name": "RateLimitError", "data": {"message": "Quota exceeded"}}'
+    assert extract_opencode_error(json_err, "") == "Quota exceeded"
+
+    raw_err = "Fatal worker termination without specific error code"
+    assert extract_opencode_error(raw_err, "") == raw_err
