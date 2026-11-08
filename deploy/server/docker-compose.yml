@@ -101,9 +101,11 @@ services:
       DATABASE_URL: "${DATABASE_URL:?Set DATABASE_URL in deploy/server/.env}"
       LEAGUE_CREDENTIALS_KEY: >-
         ${LEAGUE_CREDENTIALS_KEY:?Set LEAGUE_CREDENTIALS_KEY in deploy/server/.env}
-      DISCORD_BOT_TOKEN: "${DISCORD_BOT_TOKEN:-}"
-      OPENCODE_MODEL: "${OPENCODE_MODEL:-anthropic/claude-3-7-sonnet}"
+      OPENCODE_MODEL: "${OPENCODE_MODEL:-google/gemini-2.5-flash}"
       OPENCODE_API_KEY: "${OPENCODE_API_KEY:-}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
     depends_on:
       backend:
         condition: service_healthy
