@@ -1,0 +1,89 @@
+name: Settle Concluded Draft Trades
+
+on:
+  workflow_dispatch:
+    inputs:
+      settle_year:
+        description: "Draft year to settle (e.g. 2026 after the 2026 draft concludes)"
+        required: true
+        type: number
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  settle:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run draft settlement script
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python -c '
+          import json, sys
+          from datetime import datetime, timezone
+
+          settle_year = int("${{ github.event.inputs.settle_year }}")
+          with open("ledger.json", "r", encoding="utf-8") as f:
+              ledger = json.load(f)
+
+          def is_executed(trade):
+              if trade.get("agreement_season", 0) > settle_year:
+                  return False
+              for p in trade.get("parties", []):
+                  for d in p.get("auction_dollars", []):
+                      if d.get("draft_year", 0) > settle_year:
+                          return False
+                  for pick in p.get("draft_picks_sent", []):
+                      if pick.get("draft_year", 0) > settle_year:
+                          return False
+              for c in trade.get("conditions", []):
+                  if c.get("draft_year", 0) > settle_year:
+                      return False
+              return True
+
+          active = ledger.get("active_trades", [])
+          settled = set(ledger.get("settled_trade_ids", []))
+          new_active = []
+          newly_settled = 0
+
+          for t in active:
+              if is_executed(t):
+                  settled.add(t["id"])
+                  newly_settled += 1
+              else:
+                  new_active.append(t)
+
+          ledger["active_trades"] = new_active
+          ledger["settled_trade_ids"] = sorted(settled)
+          ledger["settle_through_year"] = max(ledger.get("settle_through_year", 2026), settle_year)
+          ledger["last_compiled_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+          with open("ledger.json", "w", encoding="utf-8") as f:
+              json.dump(ledger, f, indent=2)
+              f.write("\n")
+
+          print(f"Settled {newly_settled} trades; {len(new_active)} remaining active.")
+          '
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "Settle trades through ${{ github.event.inputs.settle_year }} draft"
+          title: "Post-Draft Settle: ${{ github.event.inputs.settle_year }} draft concluded"
+          body: |
+            Automated post-draft settlement for the ${{ github.event.inputs.settle_year }} draft.
+            Concluded trades have been moved to `settled_trade_ids`.
+          branch: "settle-draft-${{ github.event.inputs.settle_year }}"
+          delete-branch: true

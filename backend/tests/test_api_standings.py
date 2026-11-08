@@ -940,6 +940,7 @@ def test_AC_API_01_openapi_export_is_current() -> None:
     assert "get" in document["paths"]["/api/v1/leagues/{league_id}/trade-config"]
     assert "put" in document["paths"]["/api/v1/leagues/{league_id}/trade-config"]
     assert "post" in document["paths"]["/api/v1/leagues/{league_id}/trades/sync"]
+    assert "post" in document["paths"]["/api/v1/leagues/{league_id}/trades/discord-sync"]
     assert "get" in document["paths"]["/api/v1/leagues/{league_id}/trades"]
     assert "get" in document["paths"]["/api/v1/leagues/{league_id}/auction-budgets"]
     assert OPENAPI_PATH.read_text(encoding="utf-8") == expected

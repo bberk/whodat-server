@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.domain.trade_budget import TeamBudgetProjection
 from app.services.trade_sync_service import (
     AuctionBudgetsView,
+    DiscordSyncTriggerResult,
     TradeConfigView,
     TradeSyncResult,
     TradeView,
@@ -60,6 +61,14 @@ class TradeSyncResponse(BaseModel):
     trades_synced: int
     commit_sha: str | None
     synced_at: datetime
+
+
+class TradeDiscordSyncResponse(BaseModel):
+    """Response returned upon initiating a background Discord trade sync."""
+
+    league_id: int
+    status: str
+    message: str
 
 
 class BudgetDeltaItem(BaseModel):
@@ -156,6 +165,15 @@ def to_trade_sync_response(result: TradeSyncResult) -> TradeSyncResponse:
         trades_synced=result.trades_synced,
         commit_sha=result.commit_sha,
         synced_at=result.synced_at,
+    )
+
+
+def to_discord_sync_response(result: DiscordSyncTriggerResult) -> TradeDiscordSyncResponse:
+    """Format a Discord sync trigger outcome into the public API response."""
+    return TradeDiscordSyncResponse(
+        league_id=result.league_id,
+        status=result.status,
+        message=result.message,
     )
 
 

@@ -62,6 +62,19 @@ class TradeLedgerFormatError(TradeServiceError):
     """The ledger.json file is malformed or invalid."""
 
 
+class DiscordSyncInProgressError(TradeServiceError):
+    """A Discord trade sync is already running for this league."""
+
+
+@dataclass(frozen=True)
+class DiscordSyncTriggerResult:
+    """Outcome of successfully triggering a background Discord trade sync."""
+
+    league_id: int
+    status: str
+    message: str
+
+
 @dataclass(frozen=True)
 class TradeSyncResult:
     """Outcome of a successful GitHub trade repository sync."""
@@ -369,6 +382,53 @@ class TradeSyncService:
             commit_sha=commit_sha,
             synced_at=now,
         )
+
+    def start_discord_sync(self, caller: LeagueUser, league_id: int) -> DiscordSyncTriggerResult:
+        """Acquire mutex lock and initiate an asynchronous Discord trade sync."""
+        self._require_admin(caller, league_id)
+        config = self.get_or_create_config(league_id)
+
+        if not config.enabled:
+            raise TradeTrackerDisabledError("Trade tracker is disabled for this league")
+
+        if not config.discord_channel_id:
+            raise TradeServiceError("Discord channel ID is not configured for this league")
+
+        if config.discord_sync_status == "running":
+            raise DiscordSyncInProgressError(
+                "A Discord trade sync is already running for this league"
+            )
+
+        config.discord_sync_status = "running"
+        config.last_discord_sync_error = None
+        self._session.flush()
+
+        return DiscordSyncTriggerResult(
+            league_id=league_id,
+            status="started",
+            message="Discord trade sync initiated in background",
+        )
+
+    def complete_discord_sync(
+        self,
+        league_id: int,
+        *,
+        success: bool,
+        error_message: str | None = None,
+    ) -> None:
+        """Update league trade config status when a background Discord sync completes."""
+        config = self._session.scalar(
+            select(LeagueTradeConfig).where(LeagueTradeConfig.league_id == league_id)
+        )
+        if config is not None:
+            if success:
+                config.last_discord_sync_at = datetime.now(UTC)
+                config.discord_sync_status = "success"
+                config.last_discord_sync_error = None
+            else:
+                config.discord_sync_status = "error"
+                config.last_discord_sync_error = error_message
+            self._session.flush()
 
     def _ingest_ledger(
         self, league_id: int, config: LeagueTradeConfig, ledger_data: dict[str, Any]
