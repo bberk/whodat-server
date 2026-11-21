@@ -32,10 +32,15 @@ Analyze the following Discord trade announcement messages and extract structured
 MESSAGES:
 {messages_text}
 
-For each trade, produce a YAML record with the following EXACT format:
+For each trade, produce a YAML record.
+IMPORTANT: Only include fields that have actual items. Do NOT include empty fields, empty lists `[]`,
+or null values (e.g. do NOT include `draft_picks_sent: []`, `players_received: []`, `auction_dollars: []`,
+or `conditions: []` if none exist).
+
+Example minimal trade:
 ```yaml
-id: "<unique-kebab-id-e.g.-trade-2027-1>"
-date: "<ISO8601-date-e.g.-2026-11-07T16:00:00Z>"
+id: "<unique-kebab-id-e.g.-trade-20261020-stroud-hall>"
+date: "<ISO8601-date-e.g.-2026-10-20T17:56:00Z>"
 agreement_season: <integer-season-e.g.-2026>
 source:
   jump_url: "<discord-message-jump-url>"
@@ -46,42 +51,42 @@ parties:
       - name: "<Player Name>"
     players_received:
       - name: "<Player Name>"
-    draft_picks_sent:
-      - draft_year: <year>
-        round: <round_number>
-    draft_picks_received: []
-    auction_dollars:
-      - draft_year: <year>
-        amount: <-amount-sent-e.g.--5.00>
   - team_name: "<Team B name or owner name>"
     discord_user: "<username-without-@>"
-    players_sent: []
+    players_sent:
+      - name: "<Player Name>"
     players_received:
       - name: "<Player Name>"
-    draft_picks_sent: []
-    draft_picks_received:
-      - draft_year: <year>
-        round: <round_number>
     auction_dollars:
       - draft_year: <year>
-        amount: <+amount-received-e.g.-5.00>
+        amount: <-amount-sent-or-+amount-received>
+notes: "<Brief 1-sentence factual summary of the trade>"
+```
+
+If a trade includes agreed future contingencies or conditions, include:
+```yaml
 conditions:
   - id: "<condition-id>"
-    description: "<Description of condition>"
+    description: "<Factual description of the agreed condition>"
     draft_year: <year>
     paying_team: "<Team paying if condition met>"
     receiving_team: "<Team receiving if condition met>"
     amount: <amount>
     status: "pending" # or "fulfilled" or "void"
-notes: "<Brief human-readable summary of the trade>"
 ```
 
 RULES:
 1. Every trade MUST be zero-sum for auction dollars in each draft year:
    sum of party deltas for that year must be 0.
 2. Sending auction dollars is negative (e.g. -5.00), receiving is positive (e.g. 5.00).
-3. If no auction dollars or picks are exchanged, provide empty lists `[]`.
-4. Output YAML code blocks ONLY.
+3. Asset directions:
+   - "A receives: X" means A gets X (players_received for A, players_sent for B).
+   - "A receives: $5" means A gets $5 (+5.00 for A, -5.00 for B).
+4. OMIT ALL EMPTY FIELDS: Do NOT output `[]`, `""`, or `null`. If a field is empty, leave it out.
+5. NO CHAT BANTER: Condition descriptions and notes must ONLY contain strictly agreed trade
+   terms between the parties. Do NOT include side banter, jokes, meme commentary, reactions,
+   or questions about unrelated debts. Keep notes to a single concise, factual sentence.
+6. Output YAML code blocks ONLY.
 """
 
 
@@ -165,6 +170,38 @@ def build_opencode_trade_prompt(messages: list[DiscordMessage]) -> str:
     return TRADE_PROMPT_TEMPLATE.format(messages_text=messages_text)
 
 
+def _is_empty_value(val: Any) -> bool:
+    """Check if a value is considered empty and should be omitted from trade YAML."""
+    if val is None:
+        return True
+    if isinstance(val, str) and not val.strip():
+        return True
+    if isinstance(val, (list, dict)) and len(val) == 0:
+        return True
+    return False
+
+
+def clean_trade_dict(val: Any) -> Any:
+    """Recursively strip None, empty strings, empty lists, and empty dicts from trade data."""
+    if isinstance(val, dict):
+        cleaned_dict: dict[str, Any] = {}
+        for k, v in val.items():
+            cleaned_v = clean_trade_dict(v)
+            if not _is_empty_value(cleaned_v):
+                cleaned_dict[k] = cleaned_v
+        return cleaned_dict
+    if isinstance(val, list):
+        cleaned_list: list[Any] = []
+        for item in val:
+            cleaned_item = clean_trade_dict(item)
+            if not _is_empty_value(cleaned_item):
+                cleaned_list.append(cleaned_item)
+        return cleaned_list
+    if isinstance(val, str):
+        return val.strip()
+    return val
+
+
 def extract_trades_from_text(raw_text: str) -> list[dict[str, Any]]:
     """Extract and parse YAML trade blocks from model output."""
     yaml_blocks = re.findall(r"```ya?ml\s*(.*?)\s*```", raw_text, flags=re.DOTALL)
@@ -178,11 +215,11 @@ def extract_trades_from_text(raw_text: str) -> list[dict[str, Any]]:
         try:
             parsed = yaml.safe_load(block_clean)
             if isinstance(parsed, dict) and "id" in parsed and "parties" in parsed:
-                trades.append(parsed)
+                trades.append(clean_trade_dict(parsed))
             elif isinstance(parsed, list):
                 for item in parsed:
                     if isinstance(item, dict) and "id" in item and "parties" in item:
-                        trades.append(item)
+                        trades.append(clean_trade_dict(item))
         except yaml.YAMLError as exc:
             _LOG.warning("Failed to parse YAML block: %s", exc)
 
@@ -225,16 +262,17 @@ def update_ledger_with_trades(
     ledger_data: dict[str, Any], new_trades: list[dict[str, Any]]
 ) -> dict[str, Any]:
     """Append new trades to ledger.json, deduplicating by ID."""
-    active_trades = list(ledger_data.get("active_trades", []))
+    active_trades = [clean_trade_dict(t) for t in ledger_data.get("active_trades", [])]
     existing_ids = {str(t["id"]) for t in active_trades}
 
     for trade in new_trades:
-        validate_trade_payload(trade)
-        trade_id = str(trade["id"])
+        cleaned_trade = clean_trade_dict(trade)
+        validate_trade_payload(cleaned_trade)
+        trade_id = str(cleaned_trade["id"])
         if trade_id in existing_ids:
             # Replace existing trade with updated version
             active_trades = [t for t in active_trades if str(t["id"]) != trade_id]
-        active_trades.append(trade)
+        active_trades.append(cleaned_trade)
         existing_ids.add(trade_id)
 
     # Sort trades chronologically
@@ -270,23 +308,26 @@ def save_trades_to_repo(repo_dir: Path, trades: list[dict[str, Any]]) -> list[Pa
         }
 
     # Write trade YAMLs
+    cleaned_trades: list[dict[str, Any]] = []
     for trade in trades:
-        validate_trade_payload(trade)
-        season = str(trade.get("agreement_season", 2026))
+        cleaned_trade = clean_trade_dict(trade)
+        validate_trade_payload(cleaned_trade)
+        season = str(cleaned_trade.get("agreement_season", 2026))
         season_dir = trades_dir / season
         season_dir.mkdir(parents=True, exist_ok=True)
 
-        trade_date = str(trade.get("date", "2026-01-01"))[:10]
-        trade_id = str(trade["id"])
+        trade_date = str(cleaned_trade.get("date", "2026-01-01"))[:10]
+        trade_id = str(cleaned_trade["id"])
         file_path = (season_dir / f"{trade_date}-{trade_id}.yml").resolve()
         if not file_path.is_relative_to(trades_dir.resolve()):
             raise ValueError(f"Path traversal detected in trade id {trade_id}")
 
-        file_path.write_text(yaml.safe_dump(trade, sort_keys=False), encoding="utf-8")
+        file_path.write_text(yaml.safe_dump(cleaned_trade, sort_keys=False), encoding="utf-8")
         written_files.append(file_path)
+        cleaned_trades.append(cleaned_trade)
 
     # Update ledger.json
-    updated_ledger = update_ledger_with_trades(ledger_data, trades)
+    updated_ledger = update_ledger_with_trades(ledger_data, cleaned_trades)
     ledger_path.write_text(json.dumps(updated_ledger, indent=2) + "\n", encoding="utf-8")
     written_files.append(ledger_path)
 
