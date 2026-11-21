@@ -555,6 +555,8 @@ class TradeSyncService:
             env["GITHUB_TOKEN"] = github_token
         if settings.opencode_model:
             env["OPENCODE_MODEL"] = settings.opencode_model
+        if settings.opencode_variant:
+            env["OPENCODE_VARIANT"] = settings.opencode_variant
         if settings.opencode_api_key:
             env["OPENCODE_API_KEY"] = settings.opencode_api_key
         if settings.gemini_api_key:

@@ -10,7 +10,9 @@ import httpx
 import pytest
 from scripts.trade_agent.discord_trade_ingest import (
     DiscordMessage,
+    build_opencode_cli_command,
     build_opencode_trade_prompt,
+    clean_trade_dict,
     extract_opencode_error,
     extract_trades_from_text,
     fetch_discord_messages,
@@ -73,6 +75,8 @@ def test_build_opencode_trade_prompt() -> None:
     assert "MESSAGES:" in prompt
     assert "@alice (ID: 1): Alice trades Mahomes to Bob" in prompt
     assert "Every trade MUST be zero-sum" in prompt
+    assert "OMIT ALL EMPTY FIELDS" in prompt
+    assert "NO CHAT BANTER" in prompt
 
 
 def test_extract_trades_from_yaml_code_block() -> None:
@@ -117,6 +121,48 @@ notes: "Mahomes for Jefferson and $5"
     assert t["id"] == "trade-2027-1"
     assert len(t["parties"]) == 2
     validate_trade_payload(t)
+    # Empty lists and conditions should be cleanly stripped
+    assert "draft_picks_sent" not in t["parties"][0]
+    assert "draft_picks_received" not in t["parties"][0]
+    assert "conditions" not in t
+
+
+def test_clean_trade_dict_removes_empty_fields() -> None:
+    raw: dict[str, Any] = {
+        "id": "t1",
+        "notes": "  A deal happened  ",
+        "empty_str": "   ",
+        "none_val": None,
+        "empty_list": [],
+        "zero_val": 0,
+        "float_zero": 0.0,
+        "bool_val": False,
+        "parties": [
+            {
+                "team_name": "Team A",
+                "players_sent": [{"name": "Player 1"}],
+                "players_received": [],
+                "draft_picks_sent": [],
+                "auction_dollars": [],
+                "nested_empty": {"inner": []},
+            }
+        ],
+        "conditions": [],
+    }
+    cleaned = clean_trade_dict(raw)
+    assert cleaned == {
+        "id": "t1",
+        "notes": "A deal happened",
+        "zero_val": 0,
+        "float_zero": 0.0,
+        "bool_val": False,
+        "parties": [
+            {
+                "team_name": "Team A",
+                "players_sent": [{"name": "Player 1"}],
+            }
+        ],
+    }
 
 
 def test_validate_trade_payload_enforces_zero_sum() -> None:
@@ -169,7 +215,9 @@ def test_update_ledger_and_save_to_repo(tmp_path: Path) -> None:
     # Save to mock repo directory
     written = save_trades_to_repo(tmp_path, [trade1, trade2])
     assert len(written) == 3  # 2 trade files + 1 ledger.json
-    assert (tmp_path / "trades" / "2026" / "2026-11-01-t1.yml").exists()
+    t1_path = tmp_path / "trades" / "2026" / "2026-11-01-t1.yml"
+    assert t1_path.exists()
+    assert "conditions" not in t1_path.read_text()
     assert (tmp_path / "trades" / "2026" / "2026-11-05-t2.yml").exists()
     assert (tmp_path / "ledger.json").exists()
 
@@ -340,3 +388,48 @@ def test_extract_opencode_error_json_payload_and_fallback() -> None:
 
     raw_err = "Fatal worker termination without specific error code"
     assert extract_opencode_error(raw_err, "") == raw_err
+
+
+def test_build_opencode_cli_command_with_variant() -> None:
+    # 1. Model and variant specified separately
+    cmd = build_opencode_cli_command("google/gemini-3.8-flash", "low", "Extract trades")
+    assert cmd == [
+        "opencode",
+        "run",
+        "--print-logs",
+        "--model",
+        "google/gemini-3.8-flash",
+        "--variant",
+        "low",
+        "Extract trades",
+    ]
+
+    # 2. Variant passed via # syntax in model string
+    cmd_hash = build_opencode_cli_command("google/gemini-3.8-flash#low", None, "Prompt")
+    assert cmd_hash == [
+        "opencode",
+        "run",
+        "--print-logs",
+        "--model",
+        "google/gemini-3.8-flash",
+        "--variant",
+        "low",
+        "Prompt",
+    ]
+
+    # 3. Variant passed via : syntax in model string
+    cmd_colon = build_opencode_cli_command("google/gemini-3.8-flash:low", None, "Prompt")
+    assert cmd_colon == [
+        "opencode",
+        "run",
+        "--print-logs",
+        "--model",
+        "google/gemini-3.8-flash",
+        "--variant",
+        "low",
+        "Prompt",
+    ]
+
+    # 4. Neither model nor variant specified
+    cmd_default = build_opencode_cli_command(None, None, "Prompt")
+    assert cmd_default == ["opencode", "run", "--print-logs", "Prompt"]

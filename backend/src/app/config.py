@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     # Trade tracker Discord & OpenCode agent configuration
     discord_bot_token: str | None = None
     opencode_model: str = "google/gemini-2.5-flash"
+    opencode_variant: str | None = None
     opencode_api_key: str | None = None
     gemini_api_key: str | None = None
     anthropic_api_key: str | None = None
