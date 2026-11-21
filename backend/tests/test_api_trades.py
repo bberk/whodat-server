@@ -830,6 +830,7 @@ def test_run_discord_sync_job_worker_execution(
     # Configure bot token in settings
     monkeypatch.setenv("DISCORD_BOT_TOKEN", "fake-bot-token")
     monkeypatch.setenv("OPENCODE_MODEL", "opencode-custom")
+    monkeypatch.setenv("OPENCODE_VARIANT", "low")
     get_settings.cache_clear()
 
     calls: list[dict[str, Any]] = []
@@ -856,6 +857,7 @@ def test_run_discord_sync_job_worker_execution(
     assert call["env"]["PYTHONPATH"] == str(_REPO_ROOT)
     assert call["env"]["DISCORD_BOT_TOKEN"] == "fake-bot-token"
     assert call["env"]["OPENCODE_MODEL"] == "opencode-custom"
+    assert call["env"]["OPENCODE_VARIANT"] == "low"
 
     # Status should be success
     cfg_resp = api.client.get(f"/api/v1/leagues/{league_id}/trade-config")

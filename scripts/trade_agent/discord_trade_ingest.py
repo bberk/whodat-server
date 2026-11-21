@@ -465,6 +465,31 @@ def extract_opencode_error(stderr: str, stdout: str) -> str:
     return "OpenCode extraction failed (check logs for details)"
 
 
+def build_opencode_cli_command(
+    model: str | None,
+    variant: str | None,
+    prompt: str,
+) -> list[str]:
+    """Build the argument list for invoking the OpenCode CLI."""
+    cmd = ["opencode", "run", "--print-logs"]
+    effective_model = model
+    effective_variant = variant
+    if effective_model:
+        if "#" in effective_model:
+            effective_model, _, v = effective_model.partition("#")
+            effective_variant = effective_variant or v
+        elif ":" in effective_model and not effective_model.startswith("http"):
+            m, _, v = effective_model.partition(":")
+            if v.lower() in ("low", "medium", "high", "minimal", "none"):
+                effective_model = m
+                effective_variant = effective_variant or v
+        cmd.extend(["--model", effective_model])
+    if effective_variant:
+        cmd.extend(["--variant", effective_variant])
+    cmd.append(prompt)
+    return cmd
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Ingest fantasy football trades from Discord.")
     parser.add_argument("--channel-id", required=True, help="Discord trade channel ID")
@@ -473,6 +498,14 @@ def main() -> None:
     )
     parser.add_argument(
         "--repo", default=None, help="Target GitHub repo (owner/name); defaults to remote"
+    )
+    parser.add_argument(
+        "--model", default=None, help="Target LLM model (defaults to OPENCODE_MODEL env var)"
+    )
+    parser.add_argument(
+        "--variant",
+        default=None,
+        help="Model variant / reasoning effort (defaults to OPENCODE_VARIANT env var)",
     )
     parser.add_argument(
         "--dry-run", action="store_true", help="Print extracted trades without git push"
@@ -485,11 +518,11 @@ def main() -> None:
         raise RuntimeError("DISCORD_BOT_TOKEN environment variable required")
 
     def run_opencode_cli(p: str) -> str:
-        cmd = ["opencode", "run", "--print-logs"]
-        model = os.environ.get("OPENCODE_MODEL")
-        if model:
-            cmd.extend(["--model", model])
-        cmd.append(p)
+        cmd = build_opencode_cli_command(
+            model=args.model or os.environ.get("OPENCODE_MODEL"),
+            variant=args.variant or os.environ.get("OPENCODE_VARIANT"),
+            prompt=p,
+        )
 
         env = dict(os.environ)
         if "GEMINI_API_KEY" in env and "GOOGLE_GENERATIVE_AI_API_KEY" not in env:

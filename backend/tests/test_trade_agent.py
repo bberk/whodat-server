@@ -10,6 +10,7 @@ import httpx
 import pytest
 from scripts.trade_agent.discord_trade_ingest import (
     DiscordMessage,
+    build_opencode_cli_command,
     build_opencode_trade_prompt,
     extract_opencode_error,
     extract_trades_from_text,
@@ -340,3 +341,48 @@ def test_extract_opencode_error_json_payload_and_fallback() -> None:
 
     raw_err = "Fatal worker termination without specific error code"
     assert extract_opencode_error(raw_err, "") == raw_err
+
+
+def test_build_opencode_cli_command_with_variant() -> None:
+    # 1. Model and variant specified separately
+    cmd = build_opencode_cli_command("google/gemini-3.8-flash", "low", "Extract trades")
+    assert cmd == [
+        "opencode",
+        "run",
+        "--print-logs",
+        "--model",
+        "google/gemini-3.8-flash",
+        "--variant",
+        "low",
+        "Extract trades",
+    ]
+
+    # 2. Variant passed via # syntax in model string
+    cmd_hash = build_opencode_cli_command("google/gemini-3.8-flash#low", None, "Prompt")
+    assert cmd_hash == [
+        "opencode",
+        "run",
+        "--print-logs",
+        "--model",
+        "google/gemini-3.8-flash",
+        "--variant",
+        "low",
+        "Prompt",
+    ]
+
+    # 3. Variant passed via : syntax in model string
+    cmd_colon = build_opencode_cli_command("google/gemini-3.8-flash:low", None, "Prompt")
+    assert cmd_colon == [
+        "opencode",
+        "run",
+        "--print-logs",
+        "--model",
+        "google/gemini-3.8-flash",
+        "--variant",
+        "low",
+        "Prompt",
+    ]
+
+    # 4. Neither model nor variant specified
+    cmd_default = build_opencode_cli_command(None, None, "Prompt")
+    assert cmd_default == ["opencode", "run", "--print-logs", "Prompt"]
