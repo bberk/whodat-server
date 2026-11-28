@@ -16,7 +16,7 @@ from sqlalchemy import Engine, create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.main import create_app
-from app.api.routes_trades import get_trade_sync_service
+from app.api.routes_trades import get_discord_sync_session_factory, get_trade_sync_service
 from app.api.session import SESSION_COOKIE_NAME, set_session
 from app.config import get_settings
 from app.db.auth_repositories import MembershipRepository, UserRepository
@@ -75,6 +75,7 @@ def api_factory(tmp_path: Path) -> Iterator[Callable[..., Api]]:
 
         app.dependency_overrides[db_get_session] = override_session
         app.dependency_overrides[get_trade_sync_service] = override_trade_service
+        app.dependency_overrides[get_discord_sync_session_factory] = lambda: factory
         return Api(client=TestClient(app), factory=factory, mock_transport=transport)
 
     try:

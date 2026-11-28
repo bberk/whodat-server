@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.deps import get_current_user
 from app.api.league_route_helpers import actor, http_error
@@ -25,7 +25,7 @@ from app.api.schemas_trades import (
     to_trade_sync_response,
     to_trades_list_response,
 )
-from app.db.session import get_session
+from app.db.session import get_session, get_session_factory
 from app.services.league_exceptions import LeagueServiceError
 from app.services.refresh_limiter import RefreshRateLimiter
 from app.services.trade_sync_service import (
@@ -152,11 +152,17 @@ def sync_trade_repo(
     return to_trade_sync_response(result)
 
 
-def run_discord_sync_worker(league_id: int) -> None:
-    """Execute background Discord trade sync worker."""
-    from app.db.session import get_session_factory
+def get_discord_sync_session_factory() -> sessionmaker[Session]:
+    """Provide the session factory used by the background Discord sync worker."""
+    return get_session_factory()
 
-    factory = get_session_factory()
+
+def run_discord_sync_worker(
+    league_id: int,
+    session_factory: sessionmaker[Session] | None = None,
+) -> None:
+    """Execute background Discord trade sync worker."""
+    factory = session_factory or get_session_factory()
     with factory() as session:
         service = TradeSyncService(session)
         service.run_discord_sync_job(league_id)
@@ -173,6 +179,7 @@ def trigger_discord_sync(
     current_user: CurrentUserDep,
     service: TradeSyncServiceDep,
     background_tasks: BackgroundTasks,
+    session_factory: Annotated[sessionmaker[Session], Depends(get_discord_sync_session_factory)],
 ) -> TradeDiscordSyncResponse:
     """Trigger an asynchronous trade sync from Discord for an admin."""
     try:
@@ -181,7 +188,7 @@ def trigger_discord_sync(
     except Exception as exc:
         raise _trade_http_error(exc) from None
 
-    background_tasks.add_task(run_discord_sync_worker, league_id)
+    background_tasks.add_task(run_discord_sync_worker, league_id, session_factory)
     return to_discord_sync_response(result)
 
 
