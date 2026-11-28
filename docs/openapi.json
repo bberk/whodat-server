@@ -1958,6 +1958,14 @@
             "title": "Victory Points",
             "type": "string"
           },
+          "weekly_h2h_vp": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Weekly H2H Vp",
+            "type": "array"
+          },
           "weekly_vp": {
             "items": {
               "type": "string"

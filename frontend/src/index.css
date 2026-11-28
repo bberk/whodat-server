@@ -52,6 +52,9 @@
     --color-warning-line: 253 230 138;
     --color-warning-ink: 120 53 15;
 
+    --color-vp-high: 29 78 216;
+    --color-vp-top-half: 180 83 9;
+
     --color-chart-axis: 107 114 128;
     --color-chart-axis-strong: 55 65 81;
     --color-chart-label: 55 65 81;
@@ -138,6 +141,9 @@
     --color-warning-surface: 42 32 8;
     --color-warning-line: 120 53 15;
     --color-warning-ink: 252 211 77;
+
+    --color-vp-high: 96 165 250;
+    --color-vp-top-half: 252 211 77;
 
     --color-chart-axis: 148 163 184;
     --color-chart-axis-strong: 203 213 225;

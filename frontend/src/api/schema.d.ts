@@ -1516,6 +1516,11 @@ export interface components {
       ties: number;
       /** Victory Points */
       victory_points: string;
+      /**
+       * Weekly H2H Vp
+       * @default []
+       */
+      weekly_h2h_vp: string[];
       /** Weekly Vp */
       weekly_vp: string[];
       /** Wins */

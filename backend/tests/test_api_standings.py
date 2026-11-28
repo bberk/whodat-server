@@ -83,6 +83,7 @@ GOLDEN_STANDINGS = json.loads(
           "ties": 0,
           "points_for": "250",
           "weekly_vp": ["3", "3"],
+          "weekly_h2h_vp": ["1", "1"],
           "clinch": null,
           "final_standing": null
         },
@@ -98,6 +99,7 @@ GOLDEN_STANDINGS = json.loads(
           "ties": 0,
           "points_for": "215",
           "weekly_vp": ["2", "0"],
+          "weekly_h2h_vp": ["1", "0"],
           "clinch": null,
           "final_standing": null
         },
@@ -113,6 +115,7 @@ GOLDEN_STANDINGS = json.loads(
           "ties": 0,
           "points_for": "205",
           "weekly_vp": ["-1", "2"],
+          "weekly_h2h_vp": ["0", "1"],
           "clinch": null,
           "final_standing": null
         },
@@ -128,6 +131,7 @@ GOLDEN_STANDINGS = json.loads(
           "ties": 0,
           "points_for": "195",
           "weekly_vp": ["0", "-1"],
+          "weekly_h2h_vp": ["0", "0"],
           "clinch": null,
           "final_standing": null
         }
@@ -148,6 +152,7 @@ GOLDEN_STANDINGS = json.loads(
               "ties": 0,
               "points_for": "250",
               "weekly_vp": ["3", "3"],
+              "weekly_h2h_vp": ["1", "1"],
               "clinch": null,
               "final_standing": null
             },
@@ -163,6 +168,7 @@ GOLDEN_STANDINGS = json.loads(
               "ties": 0,
               "points_for": "215",
               "weekly_vp": ["2", "0"],
+              "weekly_h2h_vp": ["1", "0"],
               "clinch": null,
               "final_standing": null
             }
@@ -183,6 +189,7 @@ GOLDEN_STANDINGS = json.loads(
               "ties": 0,
               "points_for": "205",
               "weekly_vp": ["-1", "2"],
+              "weekly_h2h_vp": ["0", "1"],
               "clinch": null,
               "final_standing": null
             },
@@ -198,6 +205,7 @@ GOLDEN_STANDINGS = json.loads(
               "ties": 0,
               "points_for": "195",
               "weekly_vp": ["0", "-1"],
+              "weekly_h2h_vp": ["0", "0"],
               "clinch": null,
               "final_standing": null
             }

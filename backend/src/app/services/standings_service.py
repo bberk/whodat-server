@@ -157,6 +157,7 @@ class StandingRow:
     weekly_vp: tuple[Fraction, ...]
     clinch: ClinchStatus | None
     final_standing: int | None
+    weekly_h2h_vp: tuple[Fraction, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -261,6 +262,7 @@ class _SeasonAggregate:
     ties: Mapping[int, int]
     points_for: Mapping[int, Decimal]
     weekly_vp: Mapping[int, tuple[Fraction, ...]]
+    weekly_h2h_vp: Mapping[int, tuple[Fraction, ...]]
 
 
 def _cumulative(values: Sequence[Fraction]) -> tuple[Fraction, ...]:
@@ -342,6 +344,7 @@ class StandingsService:
                     ties=aggregate.ties[ranked.team_id],
                     points_for=ranked.points_for,
                     weekly_vp=aggregate.weekly_vp[ranked.team_id],
+                    weekly_h2h_vp=aggregate.weekly_h2h_vp[ranked.team_id],
                     clinch=clinch[ranked.team_id],
                     final_standing=team.final_standing,
                 )
@@ -837,6 +840,7 @@ class StandingsService:
         """
         roster_ids = {team.id for team in context.teams}
         weekly_by_team: dict[int, list[Fraction]] = {team_id: [] for team_id in roster_ids}
+        weekly_h2h_by_team: dict[int, list[Fraction]] = {team_id: [] for team_id in roster_ids}
         wins = {team_id: 0 for team_id in roster_ids}
         losses = {team_id: 0 for team_id in roster_ids}
         ties = {team_id: 0 for team_id in roster_ids}
@@ -912,6 +916,9 @@ class StandingsService:
                 weekly_by_team[team_id].append(
                     week_vp.total if week_vp is not None else Fraction(0)
                 )
+                weekly_h2h_by_team[team_id].append(
+                    week_vp.h2h if week_vp is not None else Fraction(0)
+                )
 
         if projection is not None:
             for projected in projection.teams:
@@ -922,6 +929,9 @@ class StandingsService:
                         f"projected week {projection.week} references a team outside the roster",
                     )
                 weekly_by_team[projected.team_id].append(projected.victory_points)
+                weekly_h2h_by_team[projected.team_id].append(
+                    Fraction(projected.wins) + Fraction(projected.ties, 2)
+                )
                 wins[projected.team_id] += projected.wins
                 losses[projected.team_id] += projected.losses
                 ties[projected.team_id] += projected.ties
@@ -931,6 +941,9 @@ class StandingsService:
             team_id: sum(series, Fraction(0)) for team_id, series in weekly_by_team.items()
         }
         weekly_series = {team_id: tuple(series) for team_id, series in weekly_by_team.items()}
+        weekly_h2h_series = {
+            team_id: tuple(series) for team_id, series in weekly_h2h_by_team.items()
+        }
         return _SeasonAggregate(
             season_vp=season_vp,
             wins=wins,
@@ -938,6 +951,7 @@ class StandingsService:
             ties=ties,
             points_for=points_for,
             weekly_vp=weekly_series,
+            weekly_h2h_vp=weekly_h2h_series,
         )
 
     @staticmethod
