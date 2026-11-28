@@ -17,6 +17,8 @@ import {
   toNumber,
   vpTone,
   vpToneClass,
+  weeklyVpTone,
+  weeklyVpToneClass,
 } from "./format";
 
 describe("formatVP", () => {
@@ -56,6 +58,25 @@ describe("vpTone", () => {
     expect(vpToneClass("pos")).toBe("text-brand-ink");
     expect(vpToneClass("neg")).toBe("text-danger-ink-soft");
     expect(vpToneClass("zero")).toBe("text-ink-faint");
+  });
+});
+
+describe("weeklyVpTone", () => {
+  it("distinguishes 3, 2/win-1, top-half-loss-1, 0, and negative weekly VP", () => {
+    expect(weeklyVpTone("3", "1")).toBe("high");
+    expect(weeklyVpTone("2", "1")).toBe("win");
+    expect(weeklyVpTone("1", "1")).toBe("win");
+    expect(weeklyVpTone("1", "0")).toBe("top-half-loss");
+    expect(weeklyVpTone("0", "0")).toBe("zero");
+    expect(weeklyVpTone("-1", "0")).toBe("neg");
+  });
+
+  it("maps weekly tones so 2 and win-1 share a class while 3, -1, and loss-1 are distinct", () => {
+    expect(weeklyVpToneClass("high")).toBe("text-vp-high");
+    expect(weeklyVpToneClass("win")).toBe("text-brand-ink");
+    expect(weeklyVpToneClass("top-half-loss")).toBe("text-vp-top-half");
+    expect(weeklyVpToneClass("neg")).toBe("text-danger-ink-soft");
+    expect(weeklyVpToneClass("zero")).toBe("text-ink-faint");
   });
 });
 

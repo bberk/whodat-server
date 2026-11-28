@@ -3,7 +3,15 @@ import { useState } from "react";
 import type { StandingsRow } from "../api/types";
 import { ClinchBadge } from "./ClinchBadge";
 import { FinalPlaceBadge } from "./FinalPlaceBadge";
-import { formatPoints, formatRecord, formatVP, vpTone, vpToneClass } from "./format";
+import {
+  formatPoints,
+  formatRecord,
+  formatVP,
+  vpTone,
+  vpToneClass,
+  weeklyVpTone,
+  weeklyVpToneClass,
+} from "./format";
 import { seriesStyle } from "./series";
 import { SortableHeader } from "./SortableHeader";
 import {
@@ -252,15 +260,29 @@ export function StandingsTable({
                     if (weeks[index] === undefined) {
                       return null;
                     }
+                    const tone = weeklyVpTone(vp, row.weekly_h2h_vp?.[index]);
+                    const isProjected = projectedWeek === weeks[index];
+                    const formatted = formatVP(vp);
+                    const reason =
+                      formatted === "1"
+                        ? tone === "top-half-loss"
+                          ? "Loss, top-half score"
+                          : "Win"
+                        : null;
+                    const title = isProjected
+                      ? reason === null
+                        ? "ESPN projection"
+                        : `ESPN projection — ${reason}`
+                      : (reason ?? undefined);
                     return (
                       <td
                         key={`week-${weeks[index]}`}
-                        className={`${numCell} ${BODY_CELL_DIVIDER} font-medium ${vpToneClass(
-                          vpTone(vp),
-                        )} ${projectedWeek === weeks[index] ? "bg-surface-muted" : ""}`}
-                        title={projectedWeek === weeks[index] ? "ESPN projection" : undefined}
+                        className={`${numCell} ${BODY_CELL_DIVIDER} font-medium ${weeklyVpToneClass(
+                          tone,
+                        )} ${isProjected ? "bg-surface-muted" : ""}`}
+                        title={title}
                       >
-                        {formatVP(vp)}
+                        {formatted}
                       </td>
                     );
                   })}

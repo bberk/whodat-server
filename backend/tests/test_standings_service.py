@@ -323,6 +323,9 @@ def test_AC_ST_10_cup_week_skips_wlt_but_keeps_points_for_and_other_vp(
     assert rows["Bravo"].weekly_vp == (Fraction(2), Fraction(0))
     assert rows["Charlie"].weekly_vp == (Fraction(0), Fraction(-1))
     assert rows["Delta"].weekly_vp == (Fraction(-1), Fraction(1))
+    assert rows["Alpha"].weekly_h2h_vp == (Fraction(1), Fraction(0))
+    assert rows["Bravo"].weekly_h2h_vp == (Fraction(1), Fraction(0))
+    assert rows["Delta"].weekly_h2h_vp == (Fraction(0), Fraction(0))
     for row in standings.overall:
         assert row.victory_points == sum(row.weekly_vp, Fraction(0))
 

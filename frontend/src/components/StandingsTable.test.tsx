@@ -217,6 +217,41 @@ describe("StandingsTable", () => {
     expect(dataRows()[0]).toHaveTextContent("Alpha");
     expect(dataRows()[1]).toHaveTextContent("Bravo");
   });
+
+  it("colors weekly VP cells by outcome: -1 red, 3 blue, 2 and win-1 equal, loss-1 distinct", () => {
+    const sampleRows = [
+      {
+        ...rows[0],
+        weekly_vp: ["3", "2", "1", "1"],
+        weekly_h2h_vp: ["1", "1", "1", "0"],
+      },
+      {
+        ...rows[5],
+        weekly_vp: ["0", "-1", "0", "0"],
+        weekly_h2h_vp: ["0", "0", "0", "0"],
+      },
+    ];
+    renderTable({ rows: sampleRows });
+
+    const firstRowCells = within(dataRows()[0]).getAllByRole("cell");
+    const wk1 = firstRowCells[firstRowCells.length - 4];
+    const wk2 = firstRowCells[firstRowCells.length - 3];
+    const wk3Win = firstRowCells[firstRowCells.length - 2];
+    const wk4LossTopHalf = firstRowCells[firstRowCells.length - 1];
+
+    expect(wk1.className).toContain("text-vp-high");
+    expect(wk2.className).toContain("text-brand-ink");
+    expect(wk3Win.className).toContain("text-brand-ink");
+    expect(wk3Win).toHaveAttribute("title", "Win");
+    expect(wk4LossTopHalf.className).toContain("text-vp-top-half");
+    expect(wk4LossTopHalf).toHaveAttribute("title", "Loss, top-half score");
+
+    const secondRowCells = within(dataRows()[1]).getAllByRole("cell");
+    const wk1Zero = secondRowCells[secondRowCells.length - 4];
+    const wk2Neg = secondRowCells[secondRowCells.length - 3];
+    expect(wk1Zero.className).toContain("text-ink-faint");
+    expect(wk2Neg.className).toContain("text-danger-ink-soft");
+  });
 });
 
 /** The body rows in render order, excluding the header row. */

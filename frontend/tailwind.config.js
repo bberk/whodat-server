@@ -63,6 +63,10 @@ export default {
           line: "rgb(var(--color-warning-line) / <alpha-value>)",
           ink: "rgb(var(--color-warning-ink) / <alpha-value>)",
         },
+        vp: {
+          high: "rgb(var(--color-vp-high) / <alpha-value>)",
+          "top-half": "rgb(var(--color-vp-top-half) / <alpha-value>)",
+        },
         chart: {
           axis: "rgb(var(--color-chart-axis) / <alpha-value>)",
           "axis-strong": "rgb(var(--color-chart-axis-strong) / <alpha-value>)",

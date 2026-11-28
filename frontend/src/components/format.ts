@@ -11,6 +11,8 @@ import type { ProbabilityInterval } from "../api/types";
 
 export type VPTone = "pos" | "neg" | "zero";
 
+export type WeeklyVPTone = "high" | "win" | "top-half-loss" | "zero" | "neg";
+
 /** Format a decimal VP string for display. */
 export function formatVP(value: string): string {
   const trimmed = value.trim();
@@ -53,6 +55,47 @@ export function vpToneClass(tone: VPTone): string {
     return "text-ink-faint";
   }
   return "text-brand-ink";
+}
+
+/**
+ * Classify one weekly VP cell so 3 VP (high score), 2 VP / 1 VP from an H2H win, 1 VP from a
+ * top-half loss, 0 VP, and negative VP each get their intended visual tone.
+ */
+export function weeklyVpTone(value: string, h2hValue?: string): WeeklyVPTone {
+  const formatted = formatVP(value);
+  if (formatted.startsWith("-")) {
+    return "neg";
+  }
+  if (formatted === "0") {
+    return "zero";
+  }
+  const numeric = Number(formatted);
+  if (numeric >= 3) {
+    return "high";
+  }
+  if (numeric > 1) {
+    return "win";
+  }
+  if (h2hValue !== undefined && Number(formatVP(h2hValue)) <= 0) {
+    return "top-half-loss";
+  }
+  return "win";
+}
+
+/** Text class for a weekly VP cell in the overall standings table. */
+export function weeklyVpToneClass(tone: WeeklyVPTone): string {
+  switch (tone) {
+    case "high":
+      return "text-vp-high";
+    case "win":
+      return "text-brand-ink";
+    case "top-half-loss":
+      return "text-vp-top-half";
+    case "neg":
+      return "text-danger-ink-soft";
+    case "zero":
+      return "text-ink-faint";
+  }
 }
 
 /** Parse a decimal string for chart geometry and sorting only — never for equality. */
